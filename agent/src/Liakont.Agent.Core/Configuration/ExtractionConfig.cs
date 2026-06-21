@@ -51,7 +51,7 @@ public sealed class ExtractionConfig
     public string? FixturesPath { get; }
 
     /// <summary>
-    /// Borne basse INITIALE d'extraction (UTC), optionnelle (ADR-0023) : date déclarée « extraire depuis »
+    /// Borne basse INITIALE d'extraction (UTC), optionnelle (ADR-0031) : date déclarée « extraire depuis »
     /// utilisée au premier run tant qu'aucun filigrane n'existe. Absente = aucun rattrapage présumé.
     /// </summary>
     public DateTime? ExtractFromUtc { get; }

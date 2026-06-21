@@ -1,3 +1,4 @@
+// Liakont addition (§4.36 lecture timestamptz) - not part of the original Stratum vendoring.
 namespace Stratum.Common.Infrastructure.Database;
 
 /// <summary>

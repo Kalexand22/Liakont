@@ -589,6 +589,117 @@ function Read-TenantDecommissionAuditEntries {
     return $entries.ToArray()
 }
 
+# ── Politique de version Keycloak (ADR-0020, avenant) — bump d'image + revalidation realm ──────
+
+function Test-KeycloakImagePinned {
+    <#
+    .SYNOPSIS
+        Vrai si une référence d'image Keycloak est épinglée sur un PATCH précis (non flottant).
+    .DESCRIPTION
+        Politique de version Keycloak (ADR-0020, avenant) : les composes pinnent un tag de PATCH
+        précis (reproductibilité de l'instance + maîtrise des CVE), JAMAIS un tag flottant (`:26.0`,
+        `:26`, `:latest`, ou pas de tag du tout). Sont acceptés : un tag « major.minor.patch » en tête
+        (ex. `26.0.8`, suffixes pré-release tolérés) OU un digest `@sha256:…` (épinglage le plus fort).
+        Fonction PURE (aucune E/S) : testable en isolation, c'est la garde anti-tag-flottant du bump.
+    .OUTPUTS
+        [bool]
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory = $true)][string]$ImageRef)
+
+    $ref = ([string]$ImageRef).Trim()
+    if ($ref.Length -eq 0) { return $false }
+    # Digest = épinglage immuable, accepté tel quel.
+    if ($ref -match '@sha256:[0-9a-fA-F]{64}$') { return $true }
+    # Le nom d'image peut contenir un « : » de PORT de registre (registry:5000/img:tag) : on isole la
+    # portion après le dernier « / », puis le tag après son « : », pour ne pas confondre port et tag.
+    $lastSlash = $ref.LastIndexOf('/')
+    $namePart = if ($lastSlash -ge 0) { $ref.Substring($lastSlash + 1) } else { $ref }
+    $colon = $namePart.IndexOf(':')
+    if ($colon -lt 0) { return $false }            # aucun tag = flottant (implicitement « :latest »)
+    $tag = $namePart.Substring($colon + 1)
+    # Tag de patch précis : au moins major.minor.patch numériques en tête (rejette « 26 » et « 26.0 »).
+    return ($tag -match '^\d+\.\d+\.\d+')
+}
+
+function Set-KeycloakImageInComposeText {
+    <#
+    .SYNOPSIS
+        Réécrit le tag de l'image Keycloak dans un texte de compose Docker (fonction PURE).
+    .DESCRIPTION
+        Fonction PURE (aucune E/S) : reçoit le texte brut d'un docker-compose.yml, remplace la ligne
+        « image: quay.io/keycloak/keycloak:<tag> » par la nouvelle référence d'image fournie, et rend
+        le texte réécrit (fins de ligne normalisées en LF). Lève une exception française si aucune ligne
+        « image: quay.io/keycloak/keycloak:<tag> » n'est trouvée dans le texte (composé incorrect).
+        N'affecte que la ligne Keycloak (les autres lignes « image: » restent inchangées).
+    .OUTPUTS
+        Chaîne (texte du compose réécrit, fins de ligne LF).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$ComposeText,
+        [Parameter(Mandatory = $true)][string]$NewImage
+    )
+
+    # [ \t]* : restreint volontairement à espaces/tabulations — \s inclurait les sauts de ligne (greedy
+    # sur une ligne précédente vide) et ancrerait la regex sur la ligne vide plutôt que la ligne cible.
+    $kcPattern = '(?m)^(?<indent>[ \t]*)image:\s*quay\.io/keycloak/keycloak:\S+'
+    if ($ComposeText -notmatch $kcPattern) {
+        throw "Image Keycloak introuvable dans le texte de compose fourni — aucune ligne « image: quay.io/keycloak/keycloak:<tag> » présente. Bump impossible."
+    }
+    $rewritten = ([regex]::Replace($ComposeText, $kcPattern, "`${indent}image: $NewImage")) -replace "`r`n", "`n"
+    return $rewritten
+}
+
+function Test-KeycloakRealmReady {
+    <#
+    .SYNOPSIS
+        Revalide qu'un realm Keycloak est servi après un bump d'image (point de découverte OIDC).
+    .DESCRIPTION
+        Après une montée de version de l'image Keycloak (update-instance.ps1 -KeycloakImage), on
+        vérifie que l'IdP sert toujours le realm en interrogeant le point de découverte OIDC
+        `/realms/<realm>/.well-known/openid-configuration`. La sonde passe par le conteneur `caddy`
+        (réseau interne de l'instance → http://keycloak:8080), comme Wait-InstanceHealthy : l'image
+        Keycloak minimale n'embarque ni curl ni wget. Si wget est absent de caddy, mode dégradé
+        (Ready=$false avec Detail explicite) — l'appelant décide d'avertir ou d'échouer selon le contexte.
+    .OUTPUTS
+        PSCustomObject { Ready [bool]; ProbeAvailable [bool]; Detail [string] }
+        ProbeAvailable=$false signifie que wget est absent du conteneur caddy (environnement dégradé) ;
+        l'appelant peut alors choisir d'avertir plutôt que d'échouer. ProbeAvailable=$true dans tous
+        les autres cas (réponse 200 reçue, ou délai dépassé/realm injoignable = sonde fonctionnelle).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string[]]$ComposeArgs,
+        [string]$RealmName = 'liakont',
+        [string]$KeycloakService = 'keycloak',
+        [int]$TimeoutSeconds = 60
+    )
+
+    $url = "http://${KeycloakService}:8080/realms/$RealmName/.well-known/openid-configuration"
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $lastDetail = 'aucune réponse HTTP'
+
+    while ((Get-Date) -lt $deadline) {
+        $probeArgs = $ComposeArgs + @('exec', '-T', 'caddy', 'wget', '-S', '-q', '-O', '/dev/null', '-T', '5', $url)
+        $probe = (& docker @probeArgs 2>&1 | Out-String)
+        if ($probe -match 'applet not found' -or $probe -match 'wget:\s*not found' -or $LASTEXITCODE -eq 127) {
+            return [PSCustomObject]@{ Ready = $false; ProbeAvailable = $false
+                Detail = "Sonde realm non disponible (wget absent du conteneur caddy) — revalidation du realm « $RealmName » impossible (mode dégradé)." }
+        }
+        if ($probe -match 'HTTP/\S+\s+200') {
+            return [PSCustomObject]@{ Ready = $true; ProbeAvailable = $true
+                Detail = "Realm « $RealmName » servi (découverte OIDC 200)." }
+        }
+        $httpLine = (($probe -split "`n") | Where-Object { $_ -match 'HTTP/' } | Select-Object -First 1)
+        if ($httpLine) { $lastDetail = "dernière réponse : $($httpLine.Trim())" }
+        Start-Sleep -Seconds 3
+    }
+    return [PSCustomObject]@{ Ready = $false; ProbeAvailable = $true
+        Detail = "Realm « $RealmName » NON confirmé après $TimeoutSeconds s ($lastDetail) — point de découverte OIDC injoignable." }
+}
+
 Export-ModuleMember -Function `
     Write-Step, Write-Ok, Write-WarnMsg, Write-ErrMsg, `
     Resolve-InstanceName, New-StrongSecret, New-InstanceEnvContent, `
@@ -596,4 +707,5 @@ Export-ModuleMember -Function `
     Protect-YamlScalar, Unprotect-YamlScalar, `
     Test-DockerAvailable, Get-InstanceDatabases, Backup-InstanceDatabases, Wait-InstanceHealthy, `
     Copy-DeploymentFileAsLf, `
+    Test-KeycloakImagePinned, Set-KeycloakImageInComposeText, Test-KeycloakRealmReady, `
     Add-TenantDecommissionAuditEntry, Read-TenantDecommissionAuditEntries

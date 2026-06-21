@@ -9,7 +9,7 @@ using Liakont.Agent.Core.Security;
 
 /// <summary>
 /// Composition root de l'adaptateur DemoErpA : assemble un <see cref="IExtractor"/> configuré à partir
-/// de <c>agent.json</c> (ADR-0023). Déchiffre la chaîne ODBC (DPAPI) ICI seulement — jamais journalisée
+/// de <c>agent.json</c> (ADR-0031). Déchiffre la chaîne ODBC (DPAPI) ICI seulement — jamais journalisée
 /// — et lit la section <c>adapterConfig.DemoErpA</c> (émetteur, nature d'opération). Une configuration
 /// incomplète bloque (jamais de démarrage muet — CLAUDE.md n°3).
 /// </summary>

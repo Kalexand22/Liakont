@@ -44,6 +44,24 @@ Or plusieurs travaux de fond sont **par tenant, pour tous les tenants** : ancrag
 - **Pas de fuite de connexion** : le scope (et donc la connexion) est libéré après chaque tenant.
 - **Annulation** : le `CancellationToken` de l'appelant interrompt tout le run (jamais avalé comme un
   échec de tenant).
+- **Signal d'un run PARTIEL** (RDL07, ADR-0006 §4) : un run comportant au moins un échec se **termine**
+  (pas de retry/dead-letter — l'escalade des cas à enjeu passe par les états document `Blocked`/
+  `RejectedByPa` et le dead-man's-switch, règles sourcées F12 §5.2), mais le runner émet un `Warning`
+  structuré portant le job et les tenants en échec. `TenantJobRunSummary` expose `HasFailures` pour le
+  handler appelant. Aucune règle d'alerte n'est inventée (le catalogue F12 §5.2 est fermé).
+- **0 tenant actif = anomalie potentielle** (RDL07) : un catalogue d'instance vide (bug de
+  provisioning, mauvaise base) est loggué en `Warning` distinct (`HadNoActiveTenants`), pas en
+  `Information` indistinct d'un run normal.
+- **Budget de temps par tenant** (RDL08, ADR-0006 §5.3) : `TenantJobRunnerOptions.PerTenantTimeout`
+  (optionnel, configuré via `TenantJobs:PerTenantTimeout`, **désactivé par défaut**). Un tenant qui
+  dépasse le budget devient un `TenantJobFailure` **isolé** (linked CTS → `TimeoutException`), il ne
+  bloque pas le run séquentiel. Une annulation d'appelant garde la **précédence** (abandon du run).
+- **Reprise après crash/annulation** (RDL08, ADR-0006 §5.1) : pas de reaper ; un `JobEntry` `Running`
+  orphelin est repris par RE-EXÉCUTION au tick suivant → **tout `ITenantJob` DOIT être idempotent**.
+- **Dé-duplication à l'enqueue** (RDL08, ADR-0006 §5.2) : le scheduler récurrent saute l'enqueue d'un
+  job dont un exemplaire **`Pending`** du même type/portée existe déjà (`IRecurringJobEnqueueGuard`),
+  pour ne pas empiler des déclencheurs et affamer le worker mono-job. `Pending`-only (jamais `Running`)
+  pour ne pas bloquer sur un `Running` orphelin.
 
 > Le runner **n'établit jamais le tenant lui-même** dans une couche métier : il passe par
 > `ITenantScopeFactory`, dont l'implémentation vit dans le Host (seul autorisé à muter le contexte

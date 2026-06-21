@@ -32,4 +32,10 @@ public sealed record IngestDocumentBatchCommand : ICommand<PushBatchResponseDto>
 
     /// <summary>Régimes de TVA source observés (métadonnée de push), persistés par tenant pour TVA03.</summary>
     public IReadOnlyList<SourceTaxRegimeDto> SourceTaxRegimes { get; init; } = System.Array.Empty<SourceTaxRegimeDto>();
+
+    /// <summary>
+    /// Capacités déclarées de la source (métadonnée de push, ADR-0004 D2), persistées par agent/tenant
+    /// (RD401). <c>null</c> quand l'agent ne les transmet pas (agent N-1 / add-only).
+    /// </summary>
+    public ExtractorCapabilitiesDto? ExtractorCapabilities { get; init; }
 }

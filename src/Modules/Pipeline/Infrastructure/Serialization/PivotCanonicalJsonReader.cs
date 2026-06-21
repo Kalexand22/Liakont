@@ -15,6 +15,13 @@ using Liakont.Agent.Contracts.Pivot;
 /// Il vit DANS le module Pipeline — pas dans <c>Liakont.Agent.Contracts</c> (BCL-only / zéro package).
 /// Il NE RE-SÉRIALISE PAS pour ré-hacher : la re-vérification du <c>payload_hash</c> est faite par
 /// <c>IPayloadStagingStore.ReadAsync</c> sur la string brute (PIP00), jamais par re-sérialisation.
+/// <para>PÉRIMÈTRE — chemin de STAGING uniquement. Ce lecteur sert la RELECTURE du pivot depuis le
+/// magasin de staging (CHECK/SEND, PIP00). L'INGESTION HTTP (PIV04,
+/// <c>IngestDocumentBatchHandler</c>) ne l'utilise PAS : elle reçoit le DTO déjà désérialisé par
+/// System.Text.Json (liaison minimal-API, <c>AgentApiJson</c>) puis re-dérive l'empreinte via
+/// <c>CanonicalJson.Serialize(dto)</c>. Le round-trip d'intégrité de CETTE jambe STJ
+/// (<c>STJ.Deserialize(canonique) → CanonicalJson == canonique</c>, dont dépendent l'anti-doublon et
+/// l'archive WORM) est gardé par <c>AgentContractRehashIntegrityTests</c> côté Host, pas ici.</para>
 /// </summary>
 public static class PivotCanonicalJsonReader
 {
@@ -48,7 +55,15 @@ public static class PivotCanonicalJsonReader
         isSelfBilled: Bool(element, "IsSelfBilled"),
         prepaidAmount: DecimalOrNull(element, "PrepaidAmount"),
         sourceData: StrOrNull(element, "SourceData"),
-        paymentDueDate: DateOrNull(element, "PaymentDueDate"));
+        paymentDueDate: DateOrNull(element, "PaymentDueDate"),
+        invoicePeriod: TryObject(element, "InvoicePeriod", out JsonElement invoicePeriod) ? ReadInvoicePeriod(invoicePeriod) : null);
+
+    // EN 16931 BG-14 (RD406, slot abonnement) : objet additif optionnel, miroir exact de
+    // CanonicalJson.WriteInvoicePeriod (StartDate=BT-73 puis EndDate=BT-74, dates yyyy-MM-dd). Absent du
+    // JSON → null (le writer omet un optionnel null) ; un document sans période traverse le staging inchangé.
+    private static PivotInvoicePeriodDto ReadInvoicePeriod(JsonElement element) => new(
+        startDate: Date(element, "StartDate"),
+        endDate: Date(element, "EndDate"));
 
     private static PivotPartyDto ReadParty(JsonElement element) => new(
         name: Str(element, "Name"),
@@ -80,7 +95,8 @@ public static class PivotCanonicalJsonReader
         sourceRegimeCodes: StrList(element, "SourceRegimeCodes"),
         taxes: ReadList(element, "Taxes", ReadLineTax),
         sourceLineRef: StrOrNull(element, "SourceLineRef"),
-        sourceData: StrOrNull(element, "SourceData"));
+        sourceData: StrOrNull(element, "SourceData"),
+        unitCode: StrOrNull(element, "UnitCode"));
 
     private static PivotLineTaxDto ReadLineTax(JsonElement element) => new(
         taxAmount: Dec(element, "TaxAmount"),
@@ -151,7 +167,7 @@ public static class PivotCanonicalJsonReader
         where TEnum : struct =>
         Enum.Parse<TEnum>(name);
 
-    // Nature d'opération optionnelle (ADR-0023 amendé) : absente du JSON → null (la plateforme la remplit à
+    // Nature d'opération optionnelle (ADR-0031 amendé) : absente du JSON → null (la plateforme la remplit à
     // l'ingestion ; un pivot émis par l'agent ne la porte pas). Miroir exact du writer (omis si null).
     private static OperationCategory? ReadOperationCategory(JsonElement element) =>
         TryString(element, "OperationCategory", out string value) ? EnumByName<OperationCategory>(value) : null;

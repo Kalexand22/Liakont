@@ -1,6 +1,7 @@
 namespace Liakont.Agent.Contracts.ContractTests;
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -72,7 +73,15 @@ public static class PivotCanonicalReader
             isSelfBilled: Boolean(map, "IsSelfBilled"),
             prepaidAmount: DecimalOrNull(map, "PrepaidAmount"),
             sourceData: TextOrNull(map, "SourceData"),
-            paymentDueDate: DateOrNull(map, "PaymentDueDate"));
+            paymentDueDate: DateOrNull(map, "PaymentDueDate"),
+            invoicePeriod: ObjectOrNull(map, "InvoicePeriod") is { } invoicePeriod ? BuildInvoicePeriod(invoicePeriod) : null);
+    }
+
+    private static PivotInvoicePeriodDto BuildInvoicePeriod(IDictionary<string, object?> map)
+    {
+        return new PivotInvoicePeriodDto(
+            startDate: Date(map, "StartDate"),
+            endDate: Date(map, "EndDate"));
     }
 
     private static PivotPartyDto BuildParty(IDictionary<string, object?> map)
@@ -116,7 +125,8 @@ public static class PivotCanonicalReader
             sourceRegimeCodes: TextList(map, "SourceRegimeCodes"),
             taxes: BuildList(map, "Taxes", BuildLineTax),
             sourceLineRef: TextOrNull(map, "SourceLineRef"),
-            sourceData: TextOrNull(map, "SourceData"));
+            sourceData: TextOrNull(map, "SourceData"),
+            unitCode: TextOrNull(map, "UnitCode"));
     }
 
     private static PivotLineTaxDto BuildLineTax(IDictionary<string, object?> map)
@@ -236,9 +246,11 @@ public static class PivotCanonicalReader
             }
         }
 
-        private Dictionary<string, object?> ParseObject()
+        private OrderedJsonDictionary ParseObject()
         {
-            var map = new Dictionary<string, object?>(StringComparer.Ordinal);
+            // Objet à clés ORDONNÉES (ordre d'émission du writer) : un Dictionary ne garantit aucun
+            // ordre d'énumération, ce dont dépend l'assertion d'ordre par réflexion (RDL03).
+            var map = new OrderedJsonDictionary();
             _position++;
             SkipWhitespace();
             if (_text[_position] == '}')
@@ -393,5 +405,91 @@ public static class PivotCanonicalReader
                 _position++;
             }
         }
+    }
+
+    /// <summary>
+    /// Objet JSON qui PRÉSERVE l'ORDRE D'INSERTION des clés (l'ordre d'émission du writer canonique).
+    /// <see cref="Dictionary{TKey,TValue}"/> n'offre aucune garantie d'ordre d'énumération ; l'assertion
+    /// d'ordre par réflexion (RDL03 : ordre d'émission == ordre de déclaration du DTO, ADR-0007 règle 1)
+    /// a besoin de relire <see cref="Keys"/> dans l'ordre réel du document. Compilé des deux côtés
+    /// (net48 + .NET 10) comme le reste du lecteur.
+    /// </summary>
+    private sealed class OrderedJsonDictionary : IDictionary<string, object?>
+    {
+        private readonly List<string> _order = new List<string>();
+        private readonly Dictionary<string, object?> _values = new Dictionary<string, object?>(StringComparer.Ordinal);
+
+        public ICollection<string> Keys => _order;
+
+        public ICollection<object?> Values => _order.Select(key => _values[key]).ToList();
+
+        public int Count => _order.Count;
+
+        public bool IsReadOnly => false;
+
+        public object? this[string key]
+        {
+            get => _values[key];
+            set
+            {
+                if (!_values.ContainsKey(key))
+                {
+                    _order.Add(key);
+                }
+
+                _values[key] = value;
+            }
+        }
+
+        public void Add(string key, object? value)
+        {
+            _values.Add(key, value);
+            _order.Add(key);
+        }
+
+        public void Add(KeyValuePair<string, object?> item) => Add(item.Key, item.Value);
+
+        public void Clear()
+        {
+            _order.Clear();
+            _values.Clear();
+        }
+
+        public bool Contains(KeyValuePair<string, object?> item) => _values.ContainsKey(item.Key);
+
+        public bool ContainsKey(string key) => _values.ContainsKey(key);
+
+        public void CopyTo(KeyValuePair<string, object?>[] array, int arrayIndex)
+        {
+            foreach (string key in _order)
+            {
+                array[arrayIndex++] = new KeyValuePair<string, object?>(key, _values[key]);
+            }
+        }
+
+        public IEnumerator<KeyValuePair<string, object?>> GetEnumerator()
+        {
+            foreach (string key in _order)
+            {
+                yield return new KeyValuePair<string, object?>(key, _values[key]);
+            }
+        }
+
+        public bool Remove(string key)
+        {
+            if (!_values.Remove(key))
+            {
+                return false;
+            }
+
+            _order.Remove(key);
+            return true;
+        }
+
+        public bool Remove(KeyValuePair<string, object?> item) => Remove(item.Key);
+
+        public bool TryGetValue(string key, out object? value) => _values.TryGetValue(key, out value);
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 }

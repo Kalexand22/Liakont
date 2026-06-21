@@ -18,7 +18,7 @@ public enum EmitterIdentitySource
 
     /// <summary>
     /// L'agent ne porte PAS l'identité de l'émetteur : la PLATEFORME la remplit à l'ingestion depuis le
-    /// profil du tenant (ADR-0023 amendé). L'adaptateur émet un pivot sans émetteur (cas DemoErpA/B).
+    /// profil du tenant (ADR-0031 amendé). L'adaptateur émet un pivot sans émetteur (cas DemoErpA/B).
     /// </summary>
     FilledByPlatform = 4,
 }

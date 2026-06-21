@@ -92,6 +92,11 @@ try {
 
     $pubkeyPath = Join-Path $scriptRoot 'update-signing.pubkey.xml'
     $hasPubkey = Test-Path -LiteralPath $pubkeyPath
+    # Validation read-only AVANT toute mutation : plancher 2048 bits (RL-UPD-1). Une clé trop courte
+    # ou invalide échoue ici, avant l'élévation et avant toute copie/ACL/config.
+    if ($hasPubkey) {
+        $pubkeyBits = Test-UpdateSigningPublicKey -Path $pubkeyPath
+    }
 
     if ($DryRun) {
         Write-Host ""
@@ -100,7 +105,10 @@ try {
         $aclWho = if ($IntegratorAccount) { "SYSTEM + Administrateurs + « $IntegratorAccount »" } else { 'SYSTEM + Administrateurs' }
         Write-Step "Créerait/ACL le répertoire  : $($instance.DataDirectory) ($aclWho)"
         if ($hasPreconfig) { Write-Step "Génèrerait agent.json depuis preconfig.json (clé API DPAPI)" }
-        if ($hasPubkey) { Write-Step "Provisionnerait update-signing.pubkey.xml" }
+        if ($hasPubkey) {
+            # $pubkeyBits déjà calculé et validé avant ce bloc (validation anticipée ci-dessus).
+            Write-Step "Provisionnerait update-signing.pubkey.xml ($pubkeyBits bits, >= 2048 requis)"
+        }
         Write-Step "Enregistrerait le service   : $($instance.ServiceName)"
         exit 0
     }
@@ -191,8 +199,10 @@ try {
 
     # ── 8. Clé publique de signature d'auto-update (ADR-0013 : fail-closed sans clé) ──
     if ($hasPubkey) {
+        # $pubkeyBits déjà validé (plancher 2048 bits, RL-UPD-1) avant l'étape 4 : toute clé trop
+        # courte ou invalide a échoué en amont, avant toute mutation du système de fichiers.
         Copy-Item -LiteralPath $pubkeyPath -Destination (Join-Path $instance.DataDirectory 'update-signing.pubkey.xml') -Force
-        Write-Step "Clé publique de signature provisionnée (auto-update activé)"
+        Write-Step "Clé publique de signature provisionnée (auto-update activé, $pubkeyBits bits)"
     }
 
     # ── 9. Enregistrement du service Windows pour CETTE instance ──

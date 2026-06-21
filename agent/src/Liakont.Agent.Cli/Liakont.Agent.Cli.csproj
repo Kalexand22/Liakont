@@ -15,7 +15,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Liakont.Agent.Cli.Tests" />
     <InternalsVisibleTo Include="Liakont.Agent.Installer" />
-    <!-- Le service Windows réutilise la composition du cycle de run (AGT02, ADR-0023) — aucune
+    <!-- Le service Windows réutilise la composition du cycle de run (AGT02, ADR-0031) — aucune
          duplication : le composition root vit dans le CLI (idem réutilisation installeur OPS08b). -->
     <InternalsVisibleTo Include="Liakont.Agent" />
   </ItemGroup>

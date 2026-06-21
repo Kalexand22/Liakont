@@ -1,3 +1,4 @@
+// Liakont addition (FIX211/FIX210 §4.20/§4.21 catalogue et executions de jobs) - not part of the original Stratum vendoring.
 namespace Stratum.Modules.Job.Infrastructure.Services;
 
 using System.Globalization;

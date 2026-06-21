@@ -45,6 +45,7 @@ public class EncheresV6FixtureExtractorTests
         caps.EmitterIdentitySource.Should().Be(EmitterIdentitySource.FromConfig);
         caps.ProvidesSourceDocuments.Should().BeFalse("false par défaut : aucune source PDF configurée (ADP05 pilote la capacité par config)");
         caps.ProvidesUnlinkedDocumentPool.Should().BeFalse();
+        caps.ExtractsOnlyFinalizedDocuments.Should().BeTrue("R9 — le seed de fixtures curé (versionné) ne contient que des documents émis ; conformité portée par le seed, pas par le schéma réel (cf. PervasiveExtractor fail-closed)");
     }
 
     [Fact]

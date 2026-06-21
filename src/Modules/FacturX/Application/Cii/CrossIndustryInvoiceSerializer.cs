@@ -157,7 +157,10 @@ public sealed class CrossIndustryInvoiceSerializer : ICrossIndustryInvoiceSerial
 
         StartRam(writer, "SpecifiedLineTradeDelivery");
         StartRam(writer, "BilledQuantity");
-        writer.WriteAttributeString("unitCode", CiiProfile.DefaultUnitCode);
+
+        // BT-130 : unité du pivot si portée (RD407), sinon l'unité neutre C62. La quantité réelle
+        // (BT-129) du pivot est émise — unité et quantité restent cohérentes.
+        writer.WriteAttributeString("unitCode", line.UnitCode ?? CiiProfile.DefaultUnitCode);
         writer.WriteString(FormatQuantity(line.Quantity));
         writer.WriteEndElement(); // BilledQuantity
         writer.WriteEndElement(); // SpecifiedLineTradeDelivery
@@ -358,7 +361,7 @@ public sealed class CrossIndustryInvoiceSerializer : ICrossIndustryInvoiceSerial
     {
         if (pivot.Supplier is null)
         {
-            // Défense en profondeur : la plateforme remplit l'émetteur à l'ingestion (ADR-0023 amendé) et le CHECK
+            // Défense en profondeur : la plateforme remplit l'émetteur à l'ingestion (ADR-0031 amendé) et le CHECK
             // bloque un profil tenant incomplet (SUPPLIER_SIREN_MISSING). Un émetteur nul ici = invariant violé :
             // bloquer plutôt qu'émettre un Factur-X sans vendeur (CLAUDE.md n°3).
             var supplierMissing =

@@ -12,9 +12,9 @@
   (F17 §1.1, sourcé CGI 289 I-2 / eIDAS) et **aucun niveau eIDAS n'est imposé** : c'est un **paramétrage tenant**.
 - **Numérotation** : ADR-**0029**. Plan d'ADR-filles du lot signature (F17 §9) : 0027 (abstraction
   `ISignatureProvider`), 0028 (module générique `DocumentApproval`), **0029** (ce plug-in Yousign), 0030 (client soft
-  Wacom). Les amendements (F15 §1.9, ADR-0024 journal) sont gravés dans le même item (SIG02). *(Note : deux fichiers
-  `ADR-0023-*` coexistent — câblage agent et génération Factur-X — collision de numéro assumée « numéro libre toutes
-  branches actives confondues » ; sans incidence ici.)*
+  Wacom). Les amendements (F15 §1.9, ADR-0024 journal) sont gravés dans le même item (SIG02). *(Note : la collision
+  ADR-0023 (câblage agent ↔ génération Factur-X) a été levée le 2026-06-20 (item RDL13) — le câblage de l'agent est
+  désormais **ADR-0031**, ADR-0023 reste la génération Factur-X ; voir `docs/adr/README.md`.)*
 - **Contexte décisionnel** : `docs/conception/F17-Signature-Validation-Document.md` §5 (plug-in Yousign), §8
   (secrets + anti-SSRF), §9 (plan d'ADR), §10 (points ouverts — défauts défendables), §11 (garde-fous P1) ;
   `docs/adr/ADR-0027-abstraction-signature-capacites.md` (`ISignatureProvider`/`SignatureProviderCapabilities`/

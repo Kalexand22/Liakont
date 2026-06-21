@@ -133,6 +133,67 @@ public sealed class DocumentBatchIngestionIntegrationTests
     }
 
     [Fact]
+    public async Task Alteration_On_Mutable_Source_Does_Not_Emit_Alert()
+    {
+        // RD403 : une source qui se déclare MUTABLE après émission (IsMutableAfterIssue=true) modifie ses
+        // documents de façon attendue → pas de fausse alerte d'altération. Le document altéré reste accepté.
+        var harness = new IngestionHarness(_fixture, NewTenant());
+        var agentId = Guid.NewGuid();
+        var mutable = new ExtractorCapabilitiesDto(isMutableAfterIssue: true);
+
+        await harness.BatchHandler.Handle(
+            BatchWithCapabilities(harness, agentId, mutable, Doc("ref-1", number: "F-1")), CancellationToken.None);
+
+        var altered = await harness.BatchHandler.Handle(
+            BatchWithCapabilities(harness, agentId, mutable, Doc("ref-1", number: "F-1-corrige")), CancellationToken.None);
+
+        altered.Results.Single().Status.Should().Be(DocumentPushStatus.Accepted, "le document altéré est tout de même accepté et traité.");
+        (await CountEventsAsync(harness, IngestionEventTypes.DocumentReceived)).Should().Be(2);
+        (await CountEventsAsync(harness, IngestionEventTypes.SourceAlterationDetected)).Should().Be(0, "une source légitimement mutable ne déclenche pas de fausse alerte d'altération (RD403).");
+    }
+
+    [Fact]
+    public async Task Alteration_Uses_Persisted_Mutability_When_Batch_Omits_Capabilities()
+    {
+        // RD403 : un lot peut OMETTRE les capacités (add-only). La mutabilité effective retombe alors sur la
+        // dernière déclaration persistée pour l'agent → la suppression d'alerte tient même sans re-déclaration.
+        var harness = new IngestionHarness(_fixture, NewTenant());
+        var agentId = Guid.NewGuid();
+
+        await harness.BatchHandler.Handle(
+            BatchWithCapabilities(harness, agentId, new ExtractorCapabilitiesDto(isMutableAfterIssue: true), Doc("ref-1", number: "F-1")), CancellationToken.None);
+
+        await harness.BatchHandler.Handle(
+            BatchWithCapabilities(harness, agentId, capabilities: null, Doc("ref-1", number: "F-1-corrige")), CancellationToken.None);
+
+        (await CountEventsAsync(harness, IngestionEventTypes.SourceAlterationDetected)).Should().Be(0, "la mutabilité persistée est consultée quand le lot omet les capacités (RD403).");
+    }
+
+    [Fact]
+    public async Task Any_Agent_Exposes_Payments_Reflects_Last_Declared_Capability()
+    {
+        // RD403 : la lecture tenant-scopée AnyAgentExposesPaymentsAsync alimente le gate F09. Aucune déclaration
+        // = false (on ne présume pas qu'une source expose les paiements) ; la dernière déclaration prime.
+        var harness = new IngestionHarness(_fixture, NewTenant());
+        var agentId = Guid.NewGuid();
+
+        (await harness.ExtractorCapabilitiesQueries.AnyAgentExposesPaymentsAsync(harness.TenantId))
+            .Should().BeFalse("aucune capacité déclarée = source réputée ne pas exposer les paiements (RD403).");
+
+        await harness.BatchHandler.Handle(
+            BatchWithCapabilities(harness, agentId, new ExtractorCapabilitiesDto(exposesPayments: true), Doc("ref-1")), CancellationToken.None);
+
+        (await harness.ExtractorCapabilitiesQueries.AnyAgentExposesPaymentsAsync(harness.TenantId))
+            .Should().BeTrue("un agent déclare exposer les encaissements.");
+
+        await harness.BatchHandler.Handle(
+            BatchWithCapabilities(harness, agentId, new ExtractorCapabilitiesDto(exposesPayments: false), Doc("ref-2")), CancellationToken.None);
+
+        (await harness.ExtractorCapabilitiesQueries.AnyAgentExposesPaymentsAsync(harness.TenantId))
+            .Should().BeFalse("la dernière déclaration (false) remplace la précédente.");
+    }
+
+    [Fact]
     public async Task Mixed_Batch_Yields_Individual_Results()
     {
         var harness = new IngestionHarness(_fixture, NewTenant());
@@ -201,6 +262,121 @@ public sealed class DocumentBatchIngestionIntegrationTests
         normal.Label.Should().Be("Taux normal");
         normal.Occurrences.Should().Be(5, "occurrences = dernière observation (remplacée), jamais cumulée → idempotent.");
     }
+
+    [Fact]
+    public async Task Extractor_Capabilities_Are_Transported_Persisted_Per_Agent_And_Read_Back()
+    {
+        // Round-trip RD401 : transport (PushBatchRequestDto → commande) → persistance (par agent/tenant)
+        // → relecture par la plateforme. Capacités DÉCLARÉES, jamais interprétées ici.
+        var harness = new IngestionHarness(_fixture, NewTenant());
+        var agentId = Guid.NewGuid();
+        var otherAgentId = Guid.NewGuid();
+
+        var capabilities = new ExtractorCapabilitiesDto(
+            providesSourceDocuments: true,
+            providesUnlinkedDocumentPool: false,
+            hasDetailedLines: true,
+            hasCreditNoteLink: true,
+            exposesPayments: true,
+            regimeKeyShape: "Composite",
+            emitterIdentitySource: "InBase",
+            hasStoredHeaderTotal: true,
+            isMutableAfterIssue: true,
+            numberUniquenessScope: "PerEstablishment");
+
+        await harness.BatchHandler.Handle(
+            BatchWithCapabilities(harness, agentId, capabilities, Doc("ref-1")), CancellationToken.None);
+
+        var read = await harness.ExtractorCapabilitiesQueries.GetByAgentAsync(harness.TenantId, agentId);
+
+        read.Should().NotBeNull();
+        read!.ProvidesSourceDocuments.Should().BeTrue();
+        read.ProvidesUnlinkedDocumentPool.Should().BeFalse();
+        read.HasDetailedLines.Should().BeTrue();
+        read.HasCreditNoteLink.Should().BeTrue();
+        read.ExposesPayments.Should().BeTrue();
+        read.RegimeKeyShape.Should().Be("Composite");
+        read.EmitterIdentitySource.Should().Be("InBase");
+        read.HasStoredHeaderTotal.Should().BeTrue();
+        read.IsMutableAfterIssue.Should().BeTrue();
+        read.NumberUniquenessScope.Should().Be("PerEstablishment");
+
+        // Scoping par agent : un AUTRE agent du même tenant n'a aucune capacité déclarée.
+        (await harness.ExtractorCapabilitiesQueries.GetByAgentAsync(harness.TenantId, otherAgentId))
+            .Should().BeNull("les capacités sont scopées (tenant, agent) — pas de fuite inter-agents.");
+
+        // Idempotent : une re-déclaration REMPLACE la précédente (jamais cumulée).
+        var updated = new ExtractorCapabilitiesDto(exposesPayments: false, regimeKeyShape: "Simple");
+        await harness.BatchHandler.Handle(
+            BatchWithCapabilities(harness, agentId, updated, Doc("ref-2")), CancellationToken.None);
+
+        var reRead = await harness.ExtractorCapabilitiesQueries.GetByAgentAsync(harness.TenantId, agentId);
+        reRead!.ExposesPayments.Should().BeFalse("la dernière déclaration remplace la précédente.");
+        reRead.ProvidesSourceDocuments.Should().BeFalse("tous les champs reflètent la DERNIÈRE déclaration.");
+        reRead.RegimeKeyShape.Should().Be("Simple");
+    }
+
+    [Fact]
+    public async Task Batch_Without_Extractor_Capabilities_Persists_Nothing()
+    {
+        // Add-only : un agent N-1 omet les capacités (null) → aucune ligne persistée (pas d'écrasement).
+        var harness = new IngestionHarness(_fixture, NewTenant());
+        var agentId = Guid.NewGuid();
+
+        await harness.BatchHandler.Handle(
+            BatchWithCapabilities(harness, agentId, capabilities: null, Doc("ref-1")), CancellationToken.None);
+
+        (await harness.ExtractorCapabilitiesQueries.GetByAgentAsync(harness.TenantId, agentId))
+            .Should().BeNull("un agent qui n'en transmet pas ne crée aucune déclaration.");
+    }
+
+    [Fact]
+    public async Task Batch_Without_Extractor_Capabilities_Does_Not_Overwrite_Prior_Declaration()
+    {
+        // Régression-guard : un agent N-1 (capabilities: null) ne doit pas écraser une déclaration antérieure
+        // (early-return dans PersistExtractorCapabilitiesBestEffortAsync — « pas d'écrasement par l'absence »).
+        var harness = new IngestionHarness(_fixture, NewTenant());
+        var agentId = Guid.NewGuid();
+
+        var initialCapabilities = new ExtractorCapabilitiesDto(
+            providesSourceDocuments: true,
+            providesUnlinkedDocumentPool: false,
+            hasDetailedLines: true,
+            hasCreditNoteLink: false,
+            exposesPayments: true,
+            regimeKeyShape: "Composite",
+            emitterIdentitySource: "InBase",
+            hasStoredHeaderTotal: true,
+            isMutableAfterIssue: false,
+            numberUniquenessScope: "PerEstablishment");
+
+        // 1er lot : déclaration initiale des capacités.
+        await harness.BatchHandler.Handle(
+            BatchWithCapabilities(harness, agentId, initialCapabilities, Doc("ref-1")), CancellationToken.None);
+
+        // 2e lot : MÊME agent, mais capabilities = null (agent N-1 / mise à jour sans déclaration).
+        await harness.BatchHandler.Handle(
+            BatchWithCapabilities(harness, agentId, capabilities: null, Doc("ref-2")), CancellationToken.None);
+
+        // La déclaration d'origine doit être intacte (pas d'écrasement par l'absence).
+        var read = await harness.ExtractorCapabilitiesQueries.GetByAgentAsync(harness.TenantId, agentId);
+        read.Should().NotBeNull("la déclaration initiale doit subsister après un lot sans capacités.");
+        read!.ProvidesSourceDocuments.Should().BeTrue("le champ de la déclaration d'origine est préservé.");
+        read.RegimeKeyShape.Should().Be("Composite", "les champs discriminants restent inchangés.");
+        read.ExposesPayments.Should().BeTrue("aucun champ n'est nullifié par le lot sans capacités.");
+    }
+
+    private static IngestDocumentBatchCommand BatchWithCapabilities(
+        IngestionHarness harness, Guid agentId, ExtractorCapabilitiesDto? capabilities, params PivotDocumentDto[] documents) =>
+        new()
+        {
+            AgentId = agentId,
+            TenantId = harness.TenantId,
+            ContractVersion = "1",
+            Documents = documents,
+            SourceTaxRegimes = Array.Empty<SourceTaxRegimeDto>(),
+            ExtractorCapabilities = capabilities,
+        };
 
     private static IngestDocumentBatchCommand Batch(IngestionHarness harness, params PivotDocumentDto[] documents) =>
         Batch(harness, documents, regimes: Array.Empty<SourceTaxRegimeDto>());

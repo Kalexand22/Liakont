@@ -6,9 +6,12 @@ namespace Liakont.Host.Security.Abstractions;
 /// Le Host ne fait aucun appel spécifique à un IdP concret hors de la couche d'auth.
 /// </summary>
 /// <remarks>
-/// Keycloak est UNE implémentation (<see cref="Keycloak.KeycloakIdentityProviderAuthenticator"/>).
-/// Une alternative in-process (par exemple OpenIddict) doit être branchable sans
-/// toucher au reste du Host : seul le sélecteur dans <c>AppBootstrap</c> change.
+/// Keycloak est UNE (et à ce jour la SEULE) implémentation
+/// (<see cref="Keycloak.KeycloakIdentityProviderAuthenticator"/>) ; 0 implémentation OpenIddict.
+/// Cette abstraction borne le couplage à un IdP concret à la couche d'auth ; brancher une
+/// alternative in-process (par exemple OpenIddict) reste à faire et ne se réduit PAS à changer le
+/// sélecteur d'<c>AppBootstrap</c> (provisioning realm/utilisateur, 2FA, résolution issuer/JWKS
+/// sont Keycloak-spécifiques et câblés hors du sélecteur — voir avenant ADR-0002 du 2026-06-20 / RDF09).
 /// </remarks>
 internal interface IIdentityProviderAuthenticator
 {

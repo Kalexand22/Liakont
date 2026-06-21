@@ -107,6 +107,10 @@
     <ProjectReference Include="..\..\Modules\Pipeline\Infrastructure\Liakont.Modules.Pipeline.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Pipeline\Web\Liakont.Modules.Pipeline.Web.csproj" />
     <ProjectReference Include="..\..\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
+    <!-- Formule de réconciliation BR-CO-13 (PivotReconciliation) partagée avec la validation : le contrôle
+         de cohérence affiché (DocumentLineProjection, FIX205) est le MIROIR de LineTotalsRule via la même
+         source-unique, désormais hors du contrat agent publiable (RDL12, ADR-0005). -->
+    <ProjectReference Include="..\..\Platform\Liakont.Platform.Pivot\Liakont.Platform.Pivot.csproj" />
   </ItemGroup>
 
 </Project>

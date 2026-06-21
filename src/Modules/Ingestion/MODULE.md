@@ -71,6 +71,10 @@ système et l'accès passe par `ISystemConnectionFactory`.
 - `source_tax_regimes` (base SYSTÈME) : régimes source observés ; clé `(tenant_id, code)`, `label`,
   `occurrences` (DERNIÈRE observation — remplacée, non cumulée → upsert idempotent au retry), `last_seen_at`.
   Code BRUT, jamais interprété.
+- `extractor_capabilities` (base SYSTÈME) : capacités DÉCLARÉES de la source d'un agent (ADR-0004 D2 /
+  RD401) ; clé `(tenant_id, agent_id)`, 7 drapeaux + 3 formes énumérées BRUTES (régime, identité émetteur,
+  unicité du numéro), `last_seen_at`. Upsert idempotent (DERNIÈRE déclaration remplace la précédente).
+  Métadonnée de push, jamais interprétée ici ; consommée par RD403/RD409.
 
 ## Endpoints (API agent → plateforme)
 
@@ -96,6 +100,7 @@ par IP). En-tête `X-Contract-Version` négocié (426 si inconnue/trop ancienne)
 | `IAgentAuthenticator` | Contracts | Authentifie une clé API → identité (agent + tenant). Consommé par le filtre d'auth du Host et par l'ingestion des documents (PIV04). |
 | `IAgentQueries` | Contracts | Liste les agents d'un tenant (console, supervision). |
 | `ISourceTaxRegimeQueries` | Contracts | Liste les régimes source observés d'un tenant (consommé par TVA03). |
+| `IExtractorCapabilitiesQueries` | Contracts | Restitue les capacités déclarées de la source d'un agent (ADR-0004 D2 / RD401 ; consommé par RD403/RD409). |
 | `IDocumentIntake` | Contracts | Port de création d'un document en état `Detected` (implémenté par TRK02 ; no-op sûr d'ici là). |
 | `IIngestedPdfStore` | Contracts | Stockage fichier des PDF reçus par tenant (consommé directement par le Host, comme `IAgentAuthenticator` — streaming, non-MediatR). |
 | Commandes/Requêtes MediatR | Contracts | `RegisterAgent`, `RevokeAgent`, `RotateAgentKey`, `RecordHeartbeat`, `GetAgentConfiguration`, `GetAgents`, `IngestDocumentBatch`. |

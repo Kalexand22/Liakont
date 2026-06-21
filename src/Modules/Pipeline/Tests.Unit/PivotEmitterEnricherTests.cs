@@ -8,7 +8,7 @@ using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Xunit;
 
 /// <summary>
-/// Remplissage de l'émetteur au READ-TIME (CHECK/SEND) depuis le profil tenant (ADR-0023 amendé / RB9) :
+/// Remplissage de l'émetteur au READ-TIME (CHECK/SEND) depuis le profil tenant (ADR-0031 amendé / RB9) :
 /// l'agent ne porte plus l'identité émetteur, la plateforme la remplit au traitement (PAS à l'ingestion —
 /// l'anti-doublon F06 hashe le pivot SOURCE). Garde les invariants fiscaux : remplissage QUAND ABSENT (un
 /// émetteur déjà porté — 389 — n'est pas écrasé), profil incomplet → champ laissé nul (bloqué au CHECK,

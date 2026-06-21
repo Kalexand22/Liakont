@@ -70,6 +70,73 @@ public sealed class TransportDtoTests
     }
 
     [Fact]
+    public void PushBatchRequest_Should_Default_ExtractorCapabilities_To_Null()
+    {
+        // Compatibilité add-only (contrat §4.1) : un agent N-1 qui omet le champ obtient null — la
+        // plateforme traite l'absence comme « capacités non déclarées » (aucune persistance).
+        var request = new PushBatchRequestDto("1");
+
+        request.ExtractorCapabilities.Should().BeNull();
+    }
+
+    [Fact]
+    public void PushBatchRequest_Should_Carry_ExtractorCapabilities_Metadata()
+    {
+        var request = new PushBatchRequestDto(
+            "1",
+            documents: null,
+            sourceTaxRegimes: null,
+            extractorCapabilities: new ExtractorCapabilitiesDto(exposesPayments: true, regimeKeyShape: "Composite"));
+
+        request.ExtractorCapabilities.Should().NotBeNull();
+        request.ExtractorCapabilities!.ExposesPayments.Should().BeTrue();
+        request.ExtractorCapabilities.RegimeKeyShape.Should().Be("Composite");
+    }
+
+    [Fact]
+    public void ExtractorCapabilities_Should_Default_To_Safe_Absent_Capabilities()
+    {
+        // Valeurs par défaut SÛRES (capacité absente / forme la plus simple) : un agent qui ne déclare
+        // qu'une partie des capacités n'active rien par accident.
+        var capabilities = new ExtractorCapabilitiesDto();
+
+        capabilities.ProvidesSourceDocuments.Should().BeFalse();
+        capabilities.ProvidesUnlinkedDocumentPool.Should().BeFalse();
+        capabilities.HasDetailedLines.Should().BeFalse();
+        capabilities.HasCreditNoteLink.Should().BeFalse();
+        capabilities.ExposesPayments.Should().BeFalse();
+        capabilities.RegimeKeyShape.Should().BeNull();
+        capabilities.EmitterIdentitySource.Should().BeNull();
+        capabilities.HasStoredHeaderTotal.Should().BeFalse();
+        capabilities.IsMutableAfterIssue.Should().BeFalse();
+        capabilities.NumberUniquenessScope.Should().BeNull();
+    }
+
+    [Fact]
+    public void ExtractorCapabilities_Should_Round_Trip_Through_Json()
+    {
+        // Transport (RD401) : le DTO doit traverser la sérialisation sans perte (tous les champs).
+        var original = new ExtractorCapabilitiesDto(
+            providesSourceDocuments: true,
+            providesUnlinkedDocumentPool: true,
+            hasDetailedLines: true,
+            hasCreditNoteLink: true,
+            exposesPayments: true,
+            regimeKeyShape: "MultiplePerLine",
+            emitterIdentitySource: "DerivedFromVatNumber",
+            hasStoredHeaderTotal: true,
+            isMutableAfterIssue: true,
+            numberUniquenessScope: "PerSeries");
+
+        // System.Text.Json = chemin de désérialisation RÉEL de la plateforme (ASP.NET) : constructeur
+        // paramétré unique, appariement par nom insensible à la casse (comme SourceTaxRegimeDto).
+        var json = System.Text.Json.JsonSerializer.Serialize(original);
+        var roundTripped = System.Text.Json.JsonSerializer.Deserialize<ExtractorCapabilitiesDto>(json);
+
+        roundTripped.Should().BeEquivalentTo(original);
+    }
+
+    [Fact]
     public void PushBatchResponse_Should_Carry_Per_Document_Results()
     {
         var response = new PushBatchResponseDto(new[]
