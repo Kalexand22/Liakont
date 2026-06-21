@@ -14,30 +14,63 @@
 #
 # Branche de segment : feat/recette-bucodi (base main). Gate humaine GATE_RECETTE_BUCODI (re-recette).
 # ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS merge (RBF01→RBF09 + GATE_RECETTE_BUCODI en `pending`).
+# RE-DÉCOUPAGE 2026-06-21 (geste opérateur, après blocage runner orch-20260620-121850-slot1 + audit) :
+#   RBF01 → RBF01a (piliers A+B, acompte/échéance/CHECK, actionnable) + RBF01b (mentions BR-FR-05, GELÉ
+#   phase 2). state.yaml : RBF01 retiré, RBF01a `pending` + RBF01b `blocked`. Gate re-pointée sur les deux.
 
 items:
-  RBF01:
-    title: "Conformité facture FR : acompte/échéance à la source + mentions légales BR-FR-05"
+  RBF01a:
+    title: "Conformité facture FR : acompte/échéance à la source + blocage CHECK (piliers A+B)"
     description: |
+      Re-découpage de RBF01 (geste opérateur 2026-06-21, après blocage du runner orch-20260620-121850-slot1
+      confirmé par audit adversarial). RBF01a = la part CONSTRUCTIBLE et SOURCÉE maintenant (piliers A+B) ;
+      les mentions légales BR-FR-05 sont isolées en RBF01b (gelé phase 2).
       Le contournement « facture soldée d'office » (PaidAmount forcé = TotalGross) a été RETIRÉ de
-      SuperPdpPayloadBuilder (donnée fiscale fabriquée, P1). Conséquence : une facture à montant dû
-      positif sans échéance est désormais REJETÉE par le converter (BR-CO-25) — comportement correct
-      (« bloquer plutôt qu'envoyer faux »). Le vrai correctif :
+      SuperPdpPayloadBuilder (donnée fiscale fabriquée, P1). Conséquence : une facture à montant dû positif
+      sans échéance est rejetée TARDIVEMENT par le converter (BR-CO-25). Le vrai correctif :
       1. L'adaptateur source de la criée (EncheresV6 / DemoErpA) et le seed
          deployments/demo-local/seed-factures-b2b.ps1 doivent porter l'ACOMPTE réel (PrepaidAmount, BT-113)
          et/ou l'ÉCHÉANCE réelle (PaymentDueDate, BT-9 — déjà supporté par le pivot via EXT01) depuis la
-         source. Aucune valeur fabriquée.
+         source. Aucune valeur fabriquée. (Écart consigné : EncheresV6 n'a pas de colonne d'échéance au
+         document → l'adaptateur laisse null, F01-F02 §4.3 ; DemoErpA + son schéma/seed sont éditables.)
       2. Tant que la source ne porte pas cette information, un document à montant dû positif sans échéance
-         doit être BLOQUÉ AU CHECK avec une anomalie Blocking actionnable FR (message opérateur), pas
-         laissé partir pour rejet PA tardif.
-      3. Générer les MENTIONS LÉGALES FR obligatoires (BR-FR-05 : frais de recouvrement PMT, pénalités de
-         retard PMD, escompte/absence AAB) dans les notes du document (BG-1) — vraie fonctionnalité produit,
-         sourcée (code de commerce L441-9 / référentiel DGFiP), jamais un texte inventé non sourcé.
+         doit être BLOQUÉ AU CHECK avec une anomalie Blocking actionnable FR (message opérateur), pas laissé
+         partir pour rejet PA tardif. (Règle Validation calquée sur ArithmeticRule → DocumentCheckEvaluator ;
+         entrées déjà sur le pivot : TotalGross, PrepaidAmount BT-113, PaymentDueDate BT-9.)
+      Pilier A (PaidAmount = PrepaidAmount strict dans SuperPdpPayloadBuilder) est DÉJÀ en place (acceptance
+      #1 = no-op vérifié, verrouillé par SuperPdpClientSendTests) ; RBF01a le conserve en non-régression.
     acceptance:
-      - "SuperPdpPayloadBuilder n'invente plus aucun acompte (PaidAmount = PrepaidAmount strict)"
-      - "L'adaptateur source porte acompte/échéance réels ; un document sans paiement ni échéance bloque au CHECK"
-      - "Mentions légales FR (PMT/PMD/AAB) émises depuis une source de texte tracée (spec/ADR)"
+      - "SuperPdpPayloadBuilder n'invente plus aucun acompte (PaidAmount = PrepaidAmount strict) — non-régression"
+      - "L'adaptateur source porte acompte/échéance réels ; un document sans paiement ni échéance bloque au CHECK (anomalie Blocking FR)"
       - "Test : une facture criée soldée part ; une facture à dû positif sans échéance bloque au CHECK"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  RBF01b:
+    title: "Mentions légales FR BR-FR-05 (PMT/PMD/AAB) en notes BG-1 — GELÉ phase 2"
+    description: |
+      Re-découpage de RBF01 (geste opérateur 2026-06-21). RBF01b = pilier C : générer les MENTIONS LÉGALES
+      FR obligatoires (BR-FR-05 : frais de recouvrement PMT, pénalités de retard PMD, escompte/absence AAB)
+      dans les notes du document (BG-1), depuis une source de texte tracée — jamais un texte inventé non sourcé.
+      ⚠️ ITEM GELÉ — NON CONSTRUCTIBLE EN AUTONOME (statut state.yaml = blocked ; précédent API01d). Trois
+      sous-blocages indépendants, vérifiés par audit adversarial le 2026-06-21 :
+      C1. Le texte des mentions n'a AUCUNE source dans le dépôt : artefacts FNFE-MPE BR-FR-* non récupérés
+          (F04 §2 + action A4 = phase 2) ; F16 §10 classe BR-FR-* « non tranché » ; ADR-0023 (FacturX) ordonne
+          « un besoin EXTENDED-CTC-FR non tranché par F16 bloque l'item ». Générer = invention fiscale (P1, n°2).
+      C2. Les valeurs variables (taux pénalités PMD, politique d'escompte AAB) sont des paramètres de TENANT
+          absents (FiscalSettings n'a aucun champ ; F12-A ne les spécifie pas). Les coder = donnée client (n°7).
+          (Nuance : PMT = indemnité forfaitaire fixe 40 € L441-10, sans paramètre — mais reste bloqué par C1+C3.)
+      C3. Le canal d'émission BG-1 n'existe pas : SuperPdpEnInvoice (schéma en16931) n'a aucun champ note,
+          F14 §3.2 ne le liste pas, le pivot PivotDocumentDto n'a aucun champ Notes/PMD/PMT/AAB, et même le
+          sérialiseur CII maison n'émet pas d'IncludedNote. Ajouter = deviner le schéma PA (P1, règle review 14).
+      PRÉREQUIS DE DÉBLOCAGE (décision opérateur, phase 2) : (i) récupérer les artefacts FNFE-MPE BR-FR-*
+      (action A4) ; (ii) amendement DATÉ de F01-F02/F04/F16 amenant PMD/PMT/AAB + texte des mentions en V1 ;
+      (iii) paramètres tenant taux-pénalités/escompte (CFG02/TenantSettings) ; (iv) confirmation du support
+      des notes BG-1 dans le schéma en16931 SuperPDP (sandbox/OpenAPI) ou choix d'un canal alternatif.
+    acceptance:
+      - "Mentions légales FR (PMT/PMD/AAB) émises en notes BG-1 depuis une source de texte tracée (spec/ADR)"
+      - "Source du texte versée dans docs/conception/ ou un ADR (FNFE-MPE BR-FR-* / L441-9) — jamais inventée"
+      - "Paramètres tenant (taux pénalités, escompte) via TenantSettings ; aucune donnée client en dur"
+      - "Canal d'émission BG-1 confirmé (schéma PA SuperPDP ou alternatif) — jamais deviné"
       - "verify-fast passes ; codex-review clean or only accepted P2s"
 
   RBF02:
@@ -200,7 +233,7 @@ items:
       de bout en bout, frontière B2B/B2C sourcée en spec, et les findings UI (motif de rejet PA, refresh des
       listes, préférences en base, heartbeat agent). Aucun contournement résiduel dans le code de production.
     acceptance:
-      - "Tous les items RBF01→RBF09 sont done"
+      - "Tous les items RBF01a, RBF01b, RBF02→RBF09 sont done (RBF01b = mentions BR-FR-05, gelé phase 2)"
       - "verify-fast passe de bout en bout (build 2 solutions + tests unit + manifest-sanity + NetArchTest)"
       - "Un envoi B2B SuperPDP réussit via le PRODUIT, sans contournement (acompte/échéance réels, pas de solde fabriqué)"
       - "Le motif exact d'un rejet PA est visible dans l'UI ; les listes se rafraîchissent ; les préférences suivent l'utilisateur"
