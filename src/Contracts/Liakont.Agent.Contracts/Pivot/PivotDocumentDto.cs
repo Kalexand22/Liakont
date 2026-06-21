@@ -62,6 +62,15 @@ public sealed class PivotDocumentDto
     /// (pattern EXT01, ADR-0007) émis SEULEMENT quand il est vrai : le hash canonique d'un document qui n'est
     /// PAS une déclaration 10.3 est INCHANGÉ (octet par octet).
     /// </param>
+    /// <param name="sellerFees">
+    /// Frais vendeur (BV) au grain lot, DONNÉE DE CALCUL de la marge e-reporting B2C (B2C-08) — JAMAIS des
+    /// lignes facturées : porté HORS de <paramref name="lines"/>, sans aucune TVA distincte (CGI art. 297 E),
+    /// et n'impacte pas <paramref name="totals"/>. Alimente le calcul de B2C-09b, pas le document transmis.
+    /// Paramètre ADDITIF en fin de constructeur (pattern EXT01, ADR-0007) : <c>null</c> par défaut et PRÉSERVÉ
+    /// tel quel (jamais coalescé en collection vide, contrairement à <paramref name="lines"/>) — émis dans le
+    /// JSON canonique SEULEMENT quand il est porté, pour que le hash d'un document sans frais vendeur reste
+    /// INCHANGÉ (octet par octet — seul un champ ABSENT est hash-neutre).
+    /// </param>
     public PivotDocumentDto(
         string sourceDocumentKind,
         string number,
@@ -82,7 +91,8 @@ public sealed class PivotDocumentDto
         decimal? prepaidAmount = null,
         string? sourceData = null,
         DateTime? paymentDueDate = null,
-        bool isB2cReportingDeclaration = false)
+        bool isB2cReportingDeclaration = false,
+        IReadOnlyList<PivotSellerFeeDto>? sellerFees = null)
     {
         SourceDocumentKind = sourceDocumentKind;
         Number = number;
@@ -104,6 +114,7 @@ public sealed class PivotDocumentDto
         SourceData = sourceData;
         PaymentDueDate = paymentDueDate;
         IsB2cReportingDeclaration = isB2cReportingDeclaration;
+        SellerFees = sellerFees;
     }
 
     /// <summary>Type de document de la source, BRUT (ADR-0004 D3-3).</summary>
@@ -180,4 +191,13 @@ public sealed class PivotDocumentDto
     /// quand il est vrai (champ additif hash-neutre — pattern EXT01).
     /// </summary>
     public bool IsB2cReportingDeclaration { get; }
+
+    /// <summary>
+    /// Frais vendeur (BV) au grain lot — DONNÉE DE CALCUL de la marge e-reporting B2C (B2C-08), alimente
+    /// B2C-09b. <c>null</c> pour tout document qui ne porte pas de frais vendeur (PRÉSERVÉ tel quel, jamais
+    /// coalescé en collection vide) : émis dans le JSON canonique SEULEMENT quand il est porté (champ additif
+    /// hash-neutre — pattern EXT01). N'est JAMAIS une ligne taxable et n'impacte ni <see cref="Lines"/> ni
+    /// <see cref="Totals"/> ; aucune TVA distincte (CGI art. 297 E).
+    /// </summary>
+    public IReadOnlyList<PivotSellerFeeDto>? SellerFees { get; }
 }

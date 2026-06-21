@@ -49,7 +49,8 @@ public static class PivotCanonicalJsonReader
         prepaidAmount: DecimalOrNull(element, "PrepaidAmount"),
         sourceData: StrOrNull(element, "SourceData"),
         paymentDueDate: DateOrNull(element, "PaymentDueDate"),
-        isB2cReportingDeclaration: BoolOrFalse(element, "IsB2cReportingDeclaration"));
+        isB2cReportingDeclaration: BoolOrFalse(element, "IsB2cReportingDeclaration"),
+        sellerFees: ReadListOrNull(element, "SellerFees", ReadSellerFee));
 
     private static PivotPartyDto ReadParty(JsonElement element) => new(
         name: Str(element, "Name"),
@@ -107,6 +108,13 @@ public static class PivotCanonicalJsonReader
         reason: StrOrNull(element, "Reason"),
         reasonCode: StrOrNull(element, "ReasonCode"),
         sourceRegimeCodes: StrList(element, "SourceRegimeCodes"));
+
+    private static PivotSellerFeeDto ReadSellerFee(JsonElement element) => new(
+        lotReference: Str(element, "LotReference"),
+        netAmount: Dec(element, "NetAmount"),
+        sourceRegimeCode: StrOrNull(element, "SourceRegimeCode"),
+        sourceLineRef: StrOrNull(element, "SourceLineRef"),
+        description: StrOrNull(element, "Description"));
 
     // ── Primitives de lecture (par NOM de membre : l'ordre est sans incidence sur la lecture) ──
     private static string Str(JsonElement element, string name) => element.GetProperty(name).GetString()!;
@@ -186,6 +194,12 @@ public static class PivotCanonicalJsonReader
 
         return list;
     }
+
+    // Collection OPTIONNELLE (frais vendeur B2C-08) : absente du JSON → null (le writer omet la clé quand le
+    // champ n'est pas porté, champ additif hash-neutre). Miroir exact du writer — le round-trip d'un document
+    // sans frais vendeur reste octet par octet identique (la collection n'est jamais coalescée en vide).
+    private static List<T>? ReadListOrNull<T>(JsonElement element, string name, Func<JsonElement, T> read) =>
+        element.TryGetProperty(name, out _) ? ReadList(element, name, read) : null;
 
     private static bool TryObject(JsonElement element, string name, out JsonElement value) =>
         element.TryGetProperty(name, out value);

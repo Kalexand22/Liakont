@@ -1,6 +1,7 @@
 namespace Liakont.Agent.Contracts.ContractTests;
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using FluentAssertions;
 using Liakont.Agent.Contracts.Pivot;
@@ -36,13 +37,21 @@ public sealed class PivotContractGoldenTests
     public static PivotDocumentDto BuildAvoirCompletAvecEcheance(DateTime paymentDueDate) =>
         BuildAvoir(paymentDueDate);
 
+    /// <summary>Le même document golden, mais portant des frais vendeur (BV, B2C-08) au grain lot.</summary>
+    /// <param name="sellerFees">Les frais vendeur à porter.</param>
+    /// <returns>Le document pivot de référence enrichi du BV.</returns>
+    public static PivotDocumentDto BuildAvoirCompletAvecFraisVendeur(IReadOnlyList<PivotSellerFeeDto> sellerFees) =>
+        BuildAvoir(paymentDueDate: null, sellerFees: sellerFees);
+
     /// <summary>
-    /// Construit l'avoir golden avec une échéance de paiement (BT-9) optionnelle — base partagée des deux
-    /// fabriques publiques (SANS échéance pour l'ancre golden, AVEC pour la non-régression EXT01).
+    /// Construit l'avoir golden avec une échéance de paiement (BT-9) et/ou des frais vendeur (BV, B2C-08)
+    /// optionnels — base partagée des fabriques publiques (SANS l'un ni l'autre pour l'ancre golden figée,
+    /// AVEC pour la non-régression des champs additifs EXT01).
     /// </summary>
     /// <param name="paymentDueDate">L'échéance à porter, ou <c>null</c> pour le golden de référence figé.</param>
+    /// <param name="sellerFees">Les frais vendeur à porter, ou <c>null</c> pour le golden de référence figé.</param>
     /// <returns>Le document pivot golden.</returns>
-    public static PivotDocumentDto BuildAvoir(DateTime? paymentDueDate)
+    public static PivotDocumentDto BuildAvoir(DateTime? paymentDueDate, IReadOnlyList<PivotSellerFeeDto>? sellerFees = null)
     {
         var supplier = new PivotPartyDto(
             name: "Galerie Fictïve SARL",
@@ -97,7 +106,8 @@ public sealed class PivotContractGoldenTests
             isSelfBilled: true,
             prepaidAmount: 300m,
             sourceData: "{\"raw\":true,\"path\":\"C:\\x\"}",
-            paymentDueDate: paymentDueDate);
+            paymentDueDate: paymentDueDate,
+            sellerFees: sellerFees);
     }
 
     [Fact]
@@ -167,6 +177,52 @@ public sealed class PivotContractGoldenTests
         CanonicalJson.Serialize(rebuilt).Should().Be(json, "round-trip sans perte avec l'échéance portée");
         PayloadHasher.ComputeHash(avecEcheance).Should().NotBe(
             GoldenAvoirSha256, "porter BT-9 change le contenu, donc l'empreinte");
+    }
+
+    [Fact]
+    public void SellerFees_when_absent_keep_the_canonical_json_and_hash_byte_identical()
+    {
+        // B2C-08 : un document SANS frais vendeur (BV) produit le JSON canonique et le hash STRICTEMENT
+        // inchangés (champ additif omis, pattern EXT01) — l'ancre golden est figée sur l'avoir sans BV.
+        var sansFrais = BuildAvoirComplet();
+
+        string json = CanonicalJson.Serialize(sansFrais);
+
+        json.Should().NotContain("SellerFees", "un frais vendeur absent n'émet aucune clé (le hash doit rester figé)");
+        PayloadHasher.ComputeHash(sansFrais).Should().Be(
+            GoldenAvoirSha256, "l'ajout du BV ne doit RIEN changer pour un document qui ne le porte pas");
+    }
+
+    [Fact]
+    public void SellerFees_when_present_are_emitted_last_round_trip_and_change_the_hash()
+    {
+        var bv = new[]
+        {
+            new PivotSellerFeeDto(lotReference: "no_ba=5000", netAmount: 80.00m, sourceRegimeCode: "MARGE", sourceLineRef: "ligne#bv", description: "Frais vendeur fictif"),
+        };
+        var avecFrais = BuildAvoirCompletAvecFraisVendeur(bv);
+
+        string json = CanonicalJson.Serialize(avecFrais);
+
+        // Le BV est émis en FIN d'objet (champ additif, ADR-0007), SANS aucune ventilation de TVA (art. 297 E).
+        json.Should().EndWith("\"SellerFees\":[{\"LotReference\":\"no_ba=5000\",\"NetAmount\":80.00,\"SourceRegimeCode\":\"MARGE\",\"SourceLineRef\":\"ligne#bv\",\"Description\":\"Frais vendeur fictif\"}]}", "le BV est le dernier membre du contrat, sans champ de taxe");
+        json.Should().NotContain("TaxAmount\":80", "le frais vendeur n'est jamais une ligne taxable");
+
+        // Round-trip sans perte ET le hash DIFFÈRE du golden (preuve que le champ est réellement sérialisé).
+        var rebuilt = PivotCanonicalReader.ReadDocument(json);
+        rebuilt.SellerFees.Should().NotBeNull();
+        IReadOnlyList<PivotSellerFeeDto> rebuiltFees = rebuilt.SellerFees!;
+        rebuiltFees.Should().ContainSingle();
+        rebuiltFees[0].LotReference.Should().Be("no_ba=5000");
+        rebuiltFees[0].NetAmount.Should().Be(80.00m);
+        rebuiltFees[0].SourceRegimeCode.Should().Be("MARGE");
+        CanonicalJson.Serialize(rebuilt).Should().Be(json, "round-trip sans perte avec le frais vendeur porté");
+        PayloadHasher.ComputeHash(avecFrais).Should().NotBe(
+            GoldenAvoirSha256, "porter le BV change le contenu, donc l'empreinte");
+
+        // Le BV ne gonfle PAS les totaux : l'agrégat de contrôle reste celui de l'avoir golden (base 10.3 intacte).
+        rebuilt.Totals.TotalNet.Should().Be(avecFrais.Totals.TotalNet);
+        rebuilt.Totals.TotalGross.Should().Be(avecFrais.Totals.TotalGross);
     }
 
     [Fact]
