@@ -12,7 +12,9 @@ using Liakont.Agent.Contracts.Pivot;
 /// champ s'AJOUTE en fin, ne se renomme/supprime jamais — <c>ADR-0007</c>, AgentContractVersion) ;</item>
 /// <item>les noms de membres sont les noms de propriété C# (PascalCase) ;</item>
 /// <item>un champ optionnel <c>null</c> est OMIS (jamais émis à <c>null</c>) ; une collection est
-/// toujours émise, même vide (<c>[]</c>) ;</item>
+/// toujours émise, même vide (<c>[]</c>) — SAUF une collection additive NULLABLE (ex. <c>SellerFees</c>,
+/// B2C-08) qui est OMISE quand elle est <c>null</c>, exactement comme un optionnel scalaire (son lecteur
+/// doit utiliser <c>ReadListOrNull</c> / <c>BuildListOrNull</c> pour refléter ce comportement) ;</item>
 /// <item>les énumérations sont émises par leur NOM (ex. catégorie UNCL5305 <c>"E"</c>,
 /// <c>OperationCategory</c> <c>"Mixte"</c>), pas par leur valeur numérique.</item>
 /// </list>
