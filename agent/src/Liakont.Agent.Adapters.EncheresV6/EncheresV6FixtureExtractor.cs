@@ -193,6 +193,39 @@ public sealed class EncheresV6FixtureExtractor : IExtractor
         }
     }
 
+    /// <summary>
+    /// Extrait les FRAIS VENDEUR (bordereau vendeur, BV) d'une période depuis les fixtures (F01-F02 §4.3.1,
+    /// B2C-07). Mêmes sémantique et mapping (parité) que le <see cref="PervasiveExtractor"/> : lignes
+    /// <c>type_ligne = "5"</c> rattachées à leur bordereau par <c>no_ba</c> (option (a), B2C-06), converties
+    /// par <see cref="EncheresV6RowMapper.MapSellerFee"/>. EXTRACTION PURE : aucune logique fiscale (R3).
+    /// </summary>
+    /// <param name="fromInclusiveUtc">Borne basse de la période (UTC, incluse).</param>
+    /// <param name="toExclusiveUtc">Borne haute de la période (UTC, exclue).</param>
+    /// <returns>Les frais vendeur de la période, rattachés à leur bordereau (par <c>no_ba</c>).</returns>
+    public IReadOnlyList<EncheresV6SellerFee> ExtractSellerFees(DateTime fromInclusiveUtc, DateTime toExclusiveUtc)
+    {
+        // SIMPLIFICATION MODE FIXTURES : filtrage sur la date_vente du bordereau (date métier) — même axe
+        // que ExtractDocuments. Le frais vendeur (type 5) est une ligne du même bordereau (option (a), B2C-06).
+        var fees = new List<EncheresV6SellerFee>();
+        foreach (EncheresV6Bordereau bordereau in _bordereaux)
+        {
+            if (!IsInPeriod(bordereau.DateVente, fromInclusiveUtc, toExclusiveUtc))
+            {
+                continue;
+            }
+
+            foreach (EncheresV6Ligne ligne in bordereau.Lignes)
+            {
+                if (EncheresV6RowMapper.IsSellerFeeLine(ligne.TypeLigne))
+                {
+                    fees.Add(EncheresV6RowMapper.MapSellerFee(bordereau, ligne));
+                }
+            }
+        }
+
+        return fees;
+    }
+
     /// <inheritdoc />
     public IReadOnlyList<SourceTaxRegimeDto> ListSourceTaxRegimes()
     {

@@ -228,6 +228,33 @@ internal static class EncheresV6Schema
         + " GROUP BY r." + ColCodeRegime + ", r." + ColLibelleRegime
         + " ORDER BY r." + ColCodeRegime;
 
+    /// <summary>
+    /// Requête d'extraction des FRAIS VENDEUR (bordereau vendeur, BV) d'une période — F01-F02 §4.3.1,
+    /// B2C-06/07 : <c>lignes_ba WHERE type_ligne='5'</c>, jointe (INNER JOIN) à son bordereau
+    /// (<c>entete_ba</c>) pour borner la période sur <c>date_vente</c> (même axe que les documents) et
+    /// rapporter le <c>no_ba</c> de rattachement, triée par <c>no_ba</c> puis <c>no_ligne</c> (ordre stable).
+    /// <para>
+    /// STRUCTURE option (a) tranchée par B2C-06 : le frais vendeur est une LIGNE du MÊME bordereau,
+    /// rattachée par le <c>no_ba</c> existant — AUCUNE jointure inventée vers une table de frais vendeur
+    /// distincte (option (b), réservée à la confirmation du schéma réel ISATECH — F01-F02 §4.3.1). La
+    /// jointure <c>lignes_ba</c> × <c>entete_ba</c> sur <c>no_ba</c> est la même que celle des paiements
+    /// (<see cref="SelectPaymentsSql"/>), pas une relation fabriquée. Le frais vendeur n'est PAS une ligne
+    /// de document (type 4/2) : il est EXCLU de <see cref="SelectDocumentsSql"/> et n'apparaît jamais sur
+    /// la facture acheteur (art. 297 E) — c'est une donnée de calcul de marge (B2C-08/09b).
+    /// </para>
+    /// LECTURE SEULE STRICTE (<c>SELECT</c> uniquement, CLAUDE.md n°5). L'adaptateur ne calcule rien
+    /// (R3) : il transporte le montant HT brut et le code régime brut. Bornes positionnelles ODBC
+    /// (<c>?</c>) : <c>date_vente &gt;= from</c> (incluse), <c>&lt; to</c> (exclue).
+    /// </summary>
+    internal const string SelectSellerFeesSql =
+        "SELECT e." + ColNoBa + ", l." + ColNoLigne + ", l." + ColDesignation + ", l." + ColMontantHt
+        + ", l." + ColCodeRegime
+        + " FROM " + TableLignes + " l"
+        + " INNER JOIN " + TableEntete + " e ON e." + ColNoBa + " = l." + ColNoBa
+        + " WHERE l." + ColTypeLigne + " = '" + EncheresV6RowMapper.LigneFraisVendeur + "'"
+        + " AND e." + ColDateVente + " >= ? AND e." + ColDateVente + " < ?"
+        + " ORDER BY e." + ColNoBa + ", l." + ColNoLigne;
+
     /// <summary>Tables dont la présence est contrôlée par <c>CheckHealth</c> (accès + comptage rapide).</summary>
     internal static readonly string[] ExpectedTables = { TableEntete, TableLignes, TableRegimes };
 

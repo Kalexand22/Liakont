@@ -40,6 +40,15 @@ internal static class EncheresV6RowMapper
     /// <summary>Type de ligne « règlement » (encaissement, F09) — F01-F02 §4.3.</summary>
     internal const string LigneReglement = "3";
 
+    /// <summary>
+    /// Type de ligne « frais vendeur » (commission vendeur, bordereau vendeur / BV) — F01-F02 §4.3.1, B2C-06.
+    /// DONNÉE DE CALCUL de marge (e-reporting B2C), JAMAIS une ligne facturée à l'acheteur : l'extraction
+    /// document (<see cref="IsDocumentLine"/>) l'ignore (art. 297 E, B2C-08). Lue séparément par
+    /// <c>ExtractSellerFees</c> (B2C-07), rattachée au bordereau via le <c>no_ba</c> existant — option (a)
+    /// tranchée par B2C-06, sans jointure inventée.
+    /// </summary>
+    internal const string LigneFraisVendeur = "5";
+
     /// <summary>Type de pièce source « bordereau de vente ».</summary>
     internal const string PieceVente = "B";
 
@@ -172,6 +181,42 @@ internal static class EncheresV6RowMapper
             sourceReference: PaymentSourceRef(bordereau, reglement));
     }
 
+    /// <summary>
+    /// Mappe une ligne de frais vendeur (type 5, bordereau vendeur) en enregistrement brut
+    /// <see cref="EncheresV6SellerFee"/> (B2C-07). EXTRACTION PURE : aucune logique fiscale
+    /// (CLAUDE.md n°6, R3) — le montant HT est la seule donnée de calcul portée, convertie en
+    /// <c>decimal</c> au centime (half-up) à la frontière comme tout montant (CLAUDE.md n°1,
+    /// ADR-0004 D3-7, parité avec <see cref="MapPayment"/>) ; le code régime est transporté BRUT.
+    /// La TVA de la ligne n'est PAS modélisée : sous régime de la marge aucune TVA distincte ne figure
+    /// (art. 297 E) et le frais vendeur n'est qu'un terme HT de la formule de marge (F03 §2.4, sourcée
+    /// par B2C-05). Le rattachement au lot se fait par le <c>no_ba</c> du bordereau (grain bordereau —
+    /// le <c>no_lot</c> présumé n'existe pas, F01-F02 §4.3.1).
+    /// </summary>
+    /// <param name="bordereau">Le bordereau (entête) auquel le frais vendeur est rattaché (par <c>no_ba</c>).</param>
+    /// <param name="ligne">La ligne de frais vendeur (type 5).</param>
+    /// <returns>L'enregistrement de frais vendeur brut correspondant.</returns>
+    public static EncheresV6SellerFee MapSellerFee(EncheresV6Bordereau bordereau, EncheresV6Ligne ligne)
+    {
+        if (bordereau is null)
+        {
+            throw new ArgumentNullException(nameof(bordereau));
+        }
+
+        if (ligne is null)
+        {
+            throw new ArgumentNullException(nameof(ligne));
+        }
+
+        string noBa = RequireField(bordereau.NoBa, "no_ba", bordereau.NoBa);
+
+        return new EncheresV6SellerFee(
+            noBa: noBa,
+            netAmount: RoundAmount(ligne.MontantHt),
+            sourceRegimeCode: ligne.CodeRegime,
+            sourceLineRef: ligne.NoLigne,
+            description: ligne.Designation);
+    }
+
     /// <summary>Indique si un type de ligne source est une ligne de document (adjudication ou frais).</summary>
     /// <param name="typeLigne">Le type de ligne source brut.</param>
     /// <returns><c>true</c> pour les types 4 (adjudication) et 2 (frais).</returns>
@@ -182,6 +227,11 @@ internal static class EncheresV6RowMapper
     /// <param name="typeLigne">Le type de ligne source brut.</param>
     /// <returns><c>true</c> pour le type 3 (règlement).</returns>
     internal static bool IsPaymentLine(string? typeLigne) => typeLigne == LigneReglement;
+
+    /// <summary>Indique si un type de ligne source est un frais vendeur (type 5, bordereau vendeur — B2C-06/07).</summary>
+    /// <param name="typeLigne">Le type de ligne source brut.</param>
+    /// <returns><c>true</c> pour le type 5 (frais vendeur).</returns>
+    internal static bool IsSellerFeeLine(string? typeLigne) => typeLigne == LigneFraisVendeur;
 
     /// <summary>
     /// Conversion OBLIGATOIRE flottant legacy → <c>decimal</c> au centime, arrondi commercial

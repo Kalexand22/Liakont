@@ -416,6 +416,74 @@ public class PervasiveExtractorTests
     }
 
     [Fact]
+    public void ExtractSellerFees_reads_type5_fee_attached_to_its_bordereau()
+    {
+        var connection = Connection(TwoSellerFees());
+
+        List<EncheresV6SellerFee> fees = Extractor(connection).ExtractSellerFees(PeriodFrom, PeriodTo).ToList();
+
+        fees.Should().HaveCount(2);
+        fees.Select(f => f.NoBa).Should().Equal("4500", "4501");
+        EncheresV6SellerFee fee = fees.Single(f => f.NoBa == "4500");
+        fee.NetAmount.Should().Be(12.00m, "le montant HT legacy est converti en decimal half-up (CLAUDE.md n°1)");
+        fee.SourceRegimeCode.Should().Be("5", "le code régime est transporté brut (R3)");
+        fee.SourceLineRef.Should().Be("ligne#bv");
+    }
+
+    [Fact]
+    public void ExtractSellerFees_rounds_dirty_legacy_float_half_up()
+    {
+        // Frais vendeur brut 8.329999999999998 → 8.33 (arrondi commercial half-up, comme tout montant).
+        var connection = Connection(new[] { SellerFeeRow("4900", "ligne#bv", 8.329999999999998, "5") });
+
+        EncheresV6SellerFee fee = Extractor(connection).ExtractSellerFees(PeriodFrom, PeriodTo).Single();
+
+        fee.NetAmount.Should().Be(8.33m);
+    }
+
+    [Fact]
+    public void ExtractSellerFees_query_targets_type5_lines_and_binds_the_period()
+    {
+        var connection = Connection(TwoSellerFees());
+
+        Drain(Extractor(connection).ExtractSellerFees(PeriodFrom, PeriodTo));
+
+        RecordingCommand command = connection.Commands.Single();
+        command.CommandText.Should().Be(EncheresV6Schema.SelectSellerFeesSql);
+        command.CommandText.Should().Contain("type_ligne = '5'", "le bordereau vendeur est la ligne type 5 (B2C-06)");
+        command.CommandText.Should().Contain("INNER JOIN entete_ba e ON e.no_ba = l.no_ba", "rattachement par le no_ba existant — option (a), aucune jointure inventée");
+        command.CommandText.Should().Contain("date_vente >= ? AND e.date_vente < ?");
+        command.Parameters.Count.Should().Be(2, "période bornée par deux paramètres positionnels");
+        ((FakeParameter)command.Parameters[0]!).Value.Should().Be(PeriodFrom);
+        ((FakeParameter)command.Parameters[1]!).Value.Should().Be(PeriodTo);
+    }
+
+    [Fact]
+    public void ExtractSellerFees_is_read_only_no_write_command_or_transaction()
+    {
+        var connection = Connection(TwoSellerFees());
+
+        Drain(Extractor(connection).ExtractSellerFees(PeriodFrom, PeriodTo));
+
+        connection.ExecutedCommandTexts.Should().OnlyContain(
+            t => t.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase),
+            "lecture seule stricte : aucune commande non-SELECT (CLAUDE.md n°5)");
+        connection.NonQueryExecutions.Should().Be(0, "aucun INSERT/UPDATE/DELETE n'est émis");
+        connection.TransactionsBegun.Should().Be(0, "aucune transaction d'écriture ni verrou explicite");
+    }
+
+    [Fact]
+    public void ExtractSellerFees_throws_SourceUnavailable_when_connection_open_fails()
+    {
+        var connection = Connection(openException: new FakeDbException("DSN=cmp;PWD=secret-injoignable"));
+
+        Action act = () => Drain(Extractor(connection).ExtractSellerFees(PeriodFrom, PeriodTo));
+
+        act.Should().Throw<SourceUnavailableException>()
+            .Which.Message.Should().NotContain("secret-injoignable", "le message opérateur ne fuite jamais la chaîne de connexion (CLAUDE.md n°10)");
+    }
+
+    [Fact]
     public void Fixtures_and_odbc_produce_identical_pivot_for_the_same_dataset()
     {
         // Acceptance ADP03 : « test de parité fixtures vs ODBC mocké sur le même jeu de données ». Un SEUL
@@ -447,6 +515,27 @@ public class PervasiveExtractorTests
 
         odbcPayments.Should().ContainSingle();
         odbcPayments[0].Should().BeEquivalentTo(fixturePayments[0], "même encaissement brut dans les deux chemins");
+    }
+
+    [Fact]
+    public void Fixtures_and_odbc_produce_identical_seller_fees_for_the_same_dataset()
+    {
+        // Parité fixtures vs ODBC mocké pour les frais vendeur (B2C-07) : un SEUL jeu de données dérive les
+        // deux chemins. Le SellerFeeDataset porte un bordereau avec une ligne type 5 ; les deux extracteurs
+        // doivent produire des résultats équivalents (NoBa, NetAmount, SourceRegimeCode, SourceLineRef).
+        EncheresV6SourceSnapshot dataset = SellerFeeDataset();
+
+        EncheresV6FixtureExtractor fixtures = EncheresV6FixtureExtractor.FromJson(
+            JsonConvert.SerializeObject(dataset), Emitter(), OperationCategory.LivraisonBiens);
+        var odbc = new PervasiveExtractor(SellerFeeConnection(dataset), Emitter(), OperationCategory.LivraisonBiens);
+
+        List<EncheresV6SellerFee> fixtureFees = fixtures.ExtractSellerFees(PeriodFrom, PeriodTo).ToList();
+        List<EncheresV6SellerFee> odbcFees = odbc.ExtractSellerFees(PeriodFrom, PeriodTo).ToList();
+
+        odbcFees.Should().BeEquivalentTo(
+            fixtureFees,
+            opts => opts.Including(f => f.NoBa).Including(f => f.NetAmount).Including(f => f.SourceRegimeCode).Including(f => f.SourceLineRef),
+            "fixtures et ODBC produisent des frais vendeur byte-à-byte identiques pour le même jeu de données");
     }
 
     [Fact]
@@ -589,6 +678,9 @@ public class PervasiveExtractorTests
 
         Action count = () => EncheresV6Schema.EnsureSelectOnly(EncheresV6Schema.CountSql(EncheresV6Schema.TableEntete));
         count.Should().NotThrow();
+
+        Action sellerFees = () => EncheresV6Schema.EnsureSelectOnly(EncheresV6Schema.SelectSellerFeesSql);
+        sellerFees.Should().NotThrow();
     }
 
     private static EncheresV6EmitterIdentity Emitter() =>
@@ -763,6 +855,28 @@ public class PervasiveExtractorTests
         };
     }
 
+    private static Dictionary<string, object?>[] TwoSellerFees()
+    {
+        return new[]
+        {
+            SellerFeeRow("4500", "ligne#bv", 12.00, "5"),
+            SellerFeeRow("4501", "ligne#bv", 250.00, "5"),
+        };
+    }
+
+    private static Dictionary<string, object?> SellerFeeRow(string noBa, string noLigne, double montantHt, string codeRegime)
+    {
+        // Projection de la requête SelectSellerFeesSql : seules les colonnes lues par ReadSellerFee.
+        return new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [EncheresV6Schema.ColNoBa] = noBa,
+            [EncheresV6Schema.ColNoLigne] = noLigne,
+            [EncheresV6Schema.ColDesignation] = "Frais vendeur (commission vendeur) — fictif",
+            [EncheresV6Schema.ColMontantHt] = montantHt,
+            [EncheresV6Schema.ColCodeRegime] = codeRegime,
+        };
+    }
+
     private static Dictionary<string, object?>[] OnePayment()
     {
         return new[] { PaymentRow("4500", "F-2026-0500", "ligne#3", 130.00, new DateTime(2026, 1, 15), "CB", "REM-0500") };
@@ -912,6 +1026,56 @@ public class PervasiveExtractorTests
             foreach (EncheresV6Ligne line in b.Lignes.Where(l => l.TypeLigne == "3"))
             {
                 rows.Add(PaymentRow(b.NoBa!, b.NumeroPiece!, line.NoLigne!, line.MontantHt, line.DateReglement!.Value, line.ModeReglement!, line.NoRemise!));
+            }
+        }
+
+        return rows;
+    }
+
+    // Jeu de données pour le test de parité frais vendeur : un bordereau avec une ligne type 5 (frais vendeur)
+    // et des lignes type 4/2 qui ne doivent PAS ressortir dans ExtractSellerFees.
+    private static EncheresV6SourceSnapshot SellerFeeDataset()
+    {
+        var snapshot = new EncheresV6SourceSnapshot();
+        var b = new EncheresV6Bordereau
+        {
+            NoBa = "5000",
+            NumeroPiece = "F-2026-5000",
+            BordereauOuAvoir = "B",
+            DateVente = new DateTime(2026, 1, 20),
+            AcheteurNom = "Acheteur Parité (fictif)",
+            AcheteurVille = "Rennes",
+            AcheteurCodePostal = "35000",
+            AcheteurPays = "FR",
+            TotalHt = 120.00,
+            TotalTva = 24.00,
+            TotalTtc = 144.00,
+        };
+        b.Lignes.Add(new EncheresV6Ligne { TypeLigne = "4", Designation = "Adjudication lot 99", MontantHt = 100.00, MontantTva = 20.00, TauxTva = 20.0, Quantite = 1.0, PrixUnitaire = 100.00, CodeRegime = "5", NoLigne = "ligne#1" });
+        b.Lignes.Add(new EncheresV6Ligne { TypeLigne = "2", Designation = "Frais acheteur", MontantHt = 20.00, MontantTva = 4.00, TauxTva = 20.0, Quantite = 1.0, CodeRegime = "5", NoLigne = "ligne#2" });
+        b.Lignes.Add(new EncheresV6Ligne { TypeLigne = "5", Designation = "Frais vendeur (fictif)", MontantHt = 15.00, MontantTva = 3.00, TauxTva = 20.0, Quantite = 1.0, CodeRegime = "5", NoLigne = "ligne#bv" });
+        snapshot.Bordereaux.Add(b);
+        return snapshot;
+    }
+
+    private static RecordingConnection SellerFeeConnection(EncheresV6SourceSnapshot dataset)
+    {
+        IReadOnlyList<IReadOnlyDictionary<string, object?>> sellerFeeRows = ToSellerFeeRows(dataset);
+        return new RecordingConnection(readerResolver: sql =>
+            sql == EncheresV6Schema.SelectSellerFeesSql ? sellerFeeRows
+            : Array.Empty<IReadOnlyDictionary<string, object?>>());
+    }
+
+    // Projette les lignes type 5 du jeu de données sur les colonnes lues par ReadSellerFee
+    // (SelectSellerFeesSql : ColNoBa, ColNoLigne, ColDesignation, ColMontantHt, ColCodeRegime).
+    private static List<IReadOnlyDictionary<string, object?>> ToSellerFeeRows(EncheresV6SourceSnapshot dataset)
+    {
+        var rows = new List<IReadOnlyDictionary<string, object?>>();
+        foreach (EncheresV6Bordereau b in dataset.Bordereaux.OrderBy(b => b.NoBa, StringComparer.Ordinal))
+        {
+            foreach (EncheresV6Ligne line in b.Lignes.Where(l => l.TypeLigne == "5"))
+            {
+                rows.Add(SellerFeeRow(b.NoBa!, line.NoLigne!, line.MontantHt, line.CodeRegime!));
             }
         }
 
