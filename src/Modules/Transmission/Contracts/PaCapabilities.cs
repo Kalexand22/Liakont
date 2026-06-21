@@ -58,8 +58,9 @@ public sealed record PaCapabilities
     /// art. 297 A/E — F03 §2.3/§2.4). Capacité DISTINCTE de <see cref="SupportsB2cReporting"/> : la
     /// déclaration 10.3 « Essentiel » et le report du montant de marge sont déclarables indépendamment
     /// (B2C09a). PLOMBERIE seule : la FORME du payload (champ / code VATEX du cas n°33) reste GELÉE tant
-    /// qu'elle n'est pas sourcée (ticket support ouvert, F03 §2.2) — le calcul et la transmission sont
-    /// portés par B2C09b. Une PA qui ne déclare pas cette capacité dégrade en résultat TYPÉ
+    /// qu'elle n'est pas sourcée SUR LE STANDARD (spécifications DGFiP n°33 / EN 16931, F03 §2.2), jamais
+    /// auprès d'une PA concrète (produit agnostique PA, CLAUDE.md n°8/16) — le calcul et la transmission
+    /// sont portés par B2C09b. Une PA qui ne déclare pas cette capacité dégrade en résultat TYPÉ
     /// (<see cref="RequireMarginAmountReporting"/>), jamais un <c>if (pa is …)</c> (CLAUDE.md n°8/16).
     /// </summary>
     public bool SupportsMarginAmountReporting { get; init; }

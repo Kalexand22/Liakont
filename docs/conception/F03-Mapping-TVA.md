@@ -35,7 +35,7 @@ L'enjeu : une erreur de mapping = un motif d'exonération erroné transmis à la
 | VATEX-FR-CNWVAT | avoirs sans TVA | — |
 | VATEX-FR-298SEXDECIESA | agences de voyages (art. 298 sexdecies A) | E |
 
-> ⚠️ Point déjà identifié au projet : **il n'existe pas de code VATEX-FR dédié spécifiquement aux biens d'occasion/art/antiquités** — on utilise les **VATEX-EU-F/I/J**. À confirmer auprès de B2Brouter pour le « montant de la marge » du cas DGFiP n°33 (ticket support ouvert — cf. RECAP).
+> ⚠️ Point déjà identifié au projet : **il n'existe pas de code VATEX-FR dédié spécifiquement aux biens d'occasion/art/antiquités** — on utilise les **VATEX-EU-F/I/J**. La **forme canonique** du « montant de la marge » du cas DGFiP n°33 (champ EN 16931 + catégorie/VATEX au niveau pivot) reste **à sourcer sur le standard** — spécifications externes DGFiP (cas n°33) + listes de codes EN 16931 / EXTENDED-CTC-FR — et, si le standard est ambigu, **tranchée en gate humaine** (cf. §6 décision #1). Le produit étant **agnostique PA** (CLAUDE.md n°8/16), un retour de PA (p. ex. ticket support B2Brouter) ne vaut que comme **preuve d'appui**, jamais comme source ni comme gate — aucune fonctionnalité produit ne dépend de ce qu'**une** PA sait faire (item de sourcing dédié, type B2C-05).
 
 ### 2.3 Régime de la marge (art. 297 A CGI) — ✅ confirmé DR4
 - Sous régime de marge, **la TVA ne figure JAMAIS distinctement** sur le bordereau (art. 297 E). Mention « Régime particulier – Biens d'occasion ».
