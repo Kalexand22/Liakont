@@ -518,6 +518,27 @@ public class PervasiveExtractorTests
     }
 
     [Fact]
+    public void Fixtures_and_odbc_produce_identical_seller_fees_for_the_same_dataset()
+    {
+        // Parité fixtures vs ODBC mocké pour les frais vendeur (B2C-07) : un SEUL jeu de données dérive les
+        // deux chemins. Le SellerFeeDataset porte un bordereau avec une ligne type 5 ; les deux extracteurs
+        // doivent produire des résultats équivalents (NoBa, NetAmount, SourceRegimeCode, SourceLineRef).
+        EncheresV6SourceSnapshot dataset = SellerFeeDataset();
+
+        EncheresV6FixtureExtractor fixtures = EncheresV6FixtureExtractor.FromJson(
+            JsonConvert.SerializeObject(dataset), Emitter(), OperationCategory.LivraisonBiens);
+        var odbc = new PervasiveExtractor(SellerFeeConnection(dataset), Emitter(), OperationCategory.LivraisonBiens);
+
+        List<EncheresV6SellerFee> fixtureFees = fixtures.ExtractSellerFees(PeriodFrom, PeriodTo).ToList();
+        List<EncheresV6SellerFee> odbcFees = odbc.ExtractSellerFees(PeriodFrom, PeriodTo).ToList();
+
+        odbcFees.Should().BeEquivalentTo(
+            fixtureFees,
+            opts => opts.Including(f => f.NoBa).Including(f => f.NetAmount).Including(f => f.SourceRegimeCode).Including(f => f.SourceLineRef),
+            "fixtures et ODBC produisent des frais vendeur byte-à-byte identiques pour le même jeu de données");
+    }
+
+    [Fact]
     public void ListSourceTaxRegimes_returns_declared_regimes_with_occurrences()
     {
         var connection = Connection(regimeRows: new[]
@@ -1005,6 +1026,56 @@ public class PervasiveExtractorTests
             foreach (EncheresV6Ligne line in b.Lignes.Where(l => l.TypeLigne == "3"))
             {
                 rows.Add(PaymentRow(b.NoBa!, b.NumeroPiece!, line.NoLigne!, line.MontantHt, line.DateReglement!.Value, line.ModeReglement!, line.NoRemise!));
+            }
+        }
+
+        return rows;
+    }
+
+    // Jeu de données pour le test de parité frais vendeur : un bordereau avec une ligne type 5 (frais vendeur)
+    // et des lignes type 4/2 qui ne doivent PAS ressortir dans ExtractSellerFees.
+    private static EncheresV6SourceSnapshot SellerFeeDataset()
+    {
+        var snapshot = new EncheresV6SourceSnapshot();
+        var b = new EncheresV6Bordereau
+        {
+            NoBa = "5000",
+            NumeroPiece = "F-2026-5000",
+            BordereauOuAvoir = "B",
+            DateVente = new DateTime(2026, 1, 20),
+            AcheteurNom = "Acheteur Parité (fictif)",
+            AcheteurVille = "Rennes",
+            AcheteurCodePostal = "35000",
+            AcheteurPays = "FR",
+            TotalHt = 120.00,
+            TotalTva = 24.00,
+            TotalTtc = 144.00,
+        };
+        b.Lignes.Add(new EncheresV6Ligne { TypeLigne = "4", Designation = "Adjudication lot 99", MontantHt = 100.00, MontantTva = 20.00, TauxTva = 20.0, Quantite = 1.0, PrixUnitaire = 100.00, CodeRegime = "5", NoLigne = "ligne#1" });
+        b.Lignes.Add(new EncheresV6Ligne { TypeLigne = "2", Designation = "Frais acheteur", MontantHt = 20.00, MontantTva = 4.00, TauxTva = 20.0, Quantite = 1.0, CodeRegime = "5", NoLigne = "ligne#2" });
+        b.Lignes.Add(new EncheresV6Ligne { TypeLigne = "5", Designation = "Frais vendeur (fictif)", MontantHt = 15.00, MontantTva = 3.00, TauxTva = 20.0, Quantite = 1.0, CodeRegime = "5", NoLigne = "ligne#bv" });
+        snapshot.Bordereaux.Add(b);
+        return snapshot;
+    }
+
+    private static RecordingConnection SellerFeeConnection(EncheresV6SourceSnapshot dataset)
+    {
+        IReadOnlyList<IReadOnlyDictionary<string, object?>> sellerFeeRows = ToSellerFeeRows(dataset);
+        return new RecordingConnection(readerResolver: sql =>
+            sql == EncheresV6Schema.SelectSellerFeesSql ? sellerFeeRows
+            : Array.Empty<IReadOnlyDictionary<string, object?>>());
+    }
+
+    // Projette les lignes type 5 du jeu de données sur les colonnes lues par ReadSellerFee
+    // (SelectSellerFeesSql : ColNoBa, ColNoLigne, ColDesignation, ColMontantHt, ColCodeRegime).
+    private static List<IReadOnlyDictionary<string, object?>> ToSellerFeeRows(EncheresV6SourceSnapshot dataset)
+    {
+        var rows = new List<IReadOnlyDictionary<string, object?>>();
+        foreach (EncheresV6Bordereau b in dataset.Bordereaux.OrderBy(b => b.NoBa, StringComparer.Ordinal))
+        {
+            foreach (EncheresV6Ligne line in b.Lignes.Where(l => l.TypeLigne == "5"))
+            {
+                rows.Add(SellerFeeRow(b.NoBa!, line.NoLigne!, line.MontantHt, line.CodeRegime!));
             }
         }
 

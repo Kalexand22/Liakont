@@ -23,6 +23,7 @@ public class EncheresV6FixtureExtractorTests
 {
     private static readonly DateTime PeriodFrom = new DateTime(2026, 1, 1);
     private static readonly DateTime PeriodTo = new DateTime(2026, 3, 1);
+    private static readonly string[] DocumentAndPaymentLineRefs = { "ligne#1", "ligne#2", "ligne#3" };
 
     private static string FixturesDirectory => Path.Combine(AppContext.BaseDirectory, "fixtures", "encheresv6");
 
@@ -179,11 +180,15 @@ public class EncheresV6FixtureExtractorTests
     {
         // Seules les lignes type 5 sont des frais vendeur : adjudication (4), frais acheteur (2) et
         // règlements (3) ne ressortent jamais ici (ce sont des lignes de document / d'encaissement).
+        // La fixture porte 3 bordereaux, chacun avec exactement UNE ligne type 5 (no_ligne="ligne#bv") et
+        // plusieurs lignes type 2/3/4 (no_ligne="ligne#1","ligne#2","ligne#3") — aucune ne doit figurer.
         List<EncheresV6SellerFee> fees = SalesExtractor().ExtractSellerFees(PeriodFrom, PeriodTo).ToList();
 
-        fees.Should().OnlyContain(
-            f => f.Description != null && f.Description.Contains("vendeur"),
-            "seules les lignes « Frais vendeur » (type 5) sont extraites");
+        fees.Should().HaveCount(3, "une ligne type 5 par bordereau — les lignes type 2/3/4 sont exclues");
+        fees.Should().OnlyContain(f => f.SourceLineRef == "ligne#bv", "seule la référence de la ligne BV (type 5) ressort");
+        fees.Select(f => f.SourceLineRef).Should().NotContain(
+            DocumentAndPaymentLineRefs,
+            "les références des lignes de document et de règlement ne figurent jamais dans les frais vendeur");
     }
 
     [Fact]
