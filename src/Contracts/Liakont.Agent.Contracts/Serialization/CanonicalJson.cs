@@ -12,7 +12,9 @@ using Liakont.Agent.Contracts.Pivot;
 /// champ s'AJOUTE en fin, ne se renomme/supprime jamais — <c>ADR-0007</c>, AgentContractVersion) ;</item>
 /// <item>les noms de membres sont les noms de propriété C# (PascalCase) ;</item>
 /// <item>un champ optionnel <c>null</c> est OMIS (jamais émis à <c>null</c>) ; une collection est
-/// toujours émise, même vide (<c>[]</c>) ;</item>
+/// toujours émise, même vide (<c>[]</c>) — SAUF une collection additive NULLABLE (ex. <c>SellerFees</c>,
+/// B2C-08) qui est OMISE quand elle est <c>null</c>, exactement comme un optionnel scalaire (son lecteur
+/// doit utiliser <c>ReadListOrNull</c> / <c>BuildListOrNull</c> pour refléter ce comportement) ;</item>
 /// <item>les énumérations sont émises par leur NOM (ex. catégorie UNCL5305 <c>"E"</c>,
 /// <c>OperationCategory</c> <c>"Mixte"</c>), pas par leur valeur numérique.</item>
 /// </list>
@@ -130,6 +132,29 @@ public static class CanonicalJson
             writer.WriteBoolean(document.IsB2cReportingDeclaration);
         }
 
+        // Frais vendeur (BV, B2C-08) : champ ADDITIF en FIN (ADR-0007), donnée de calcul de la marge — émis
+        // SEULEMENT quand il est porté (collection nullable OMISE quand null, comme un optionnel : seul un champ
+        // ABSENT est hash-neutre). Un document sans frais vendeur produit le JSON canonique INCHANGÉ (octet par
+        // octet, pattern EXT01). Aucune ventilation de TVA n'y figure (art. 297 E) : ce n'est pas une ligne.
+        if (document.SellerFees != null)
+        {
+            writer.WritePropertyName("SellerFees");
+            WriteArray(writer, document.SellerFees, WriteSellerFee);
+        }
+
+        writer.EndObject();
+    }
+
+    private static void WriteSellerFee(CanonicalJsonWriter writer, PivotSellerFeeDto fee)
+    {
+        writer.BeginObject();
+        writer.WritePropertyName("LotReference");
+        writer.WriteString(fee.LotReference);
+        writer.WritePropertyName("NetAmount");
+        writer.WriteDecimal(fee.NetAmount);
+        WriteOptionalString(writer, "SourceRegimeCode", fee.SourceRegimeCode);
+        WriteOptionalString(writer, "SourceLineRef", fee.SourceLineRef);
+        WriteOptionalString(writer, "Description", fee.Description);
         writer.EndObject();
     }
 

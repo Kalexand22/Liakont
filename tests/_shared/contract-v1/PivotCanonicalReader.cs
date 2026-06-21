@@ -72,7 +72,18 @@ public static class PivotCanonicalReader
             isSelfBilled: Boolean(map, "IsSelfBilled"),
             prepaidAmount: DecimalOrNull(map, "PrepaidAmount"),
             sourceData: TextOrNull(map, "SourceData"),
-            paymentDueDate: DateOrNull(map, "PaymentDueDate"));
+            paymentDueDate: DateOrNull(map, "PaymentDueDate"),
+            sellerFees: BuildListOrNull(map, "SellerFees", BuildSellerFee));
+    }
+
+    private static PivotSellerFeeDto BuildSellerFee(IDictionary<string, object?> map)
+    {
+        return new PivotSellerFeeDto(
+            lotReference: Text(map, "LotReference"),
+            netAmount: Number(map, "NetAmount"),
+            sourceRegimeCode: TextOrNull(map, "SourceRegimeCode"),
+            sourceLineRef: TextOrNull(map, "SourceLineRef"),
+            description: TextOrNull(map, "Description"));
     }
 
     private static PivotPartyDto BuildParty(IDictionary<string, object?> map)
@@ -168,6 +179,15 @@ public static class PivotCanonicalReader
         var items = (List<object?>)map[key]!;
         return items.Select(item => build((IDictionary<string, object?>)item!)).ToList();
     }
+
+    // Collection OPTIONNELLE (frais vendeur B2C-08) : clé absente → null (le writer omet la clé quand le champ
+    // n'est pas porté). Round-trip sans perte d'un document sans frais vendeur — la collection n'est jamais
+    // coalescée en vide (seul un champ ABSENT est hash-neutre).
+    private static List<T>? BuildListOrNull<T>(
+        IDictionary<string, object?> map,
+        string key,
+        Func<IDictionary<string, object?>, T> build) =>
+        map.ContainsKey(key) ? BuildList(map, key, build) : null;
 
     private static List<string> TextList(IDictionary<string, object?> map, string key)
     {

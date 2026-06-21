@@ -143,5 +143,6 @@ internal static class PivotEmitterEnricher
             prepaidAmount: pivot.PrepaidAmount,
             sourceData: pivot.SourceData,
             paymentDueDate: pivot.PaymentDueDate,
-            isB2cReportingDeclaration: pivot.IsB2cReportingDeclaration);
+            isB2cReportingDeclaration: pivot.IsB2cReportingDeclaration,
+            sellerFees: pivot.SellerFees);
 }
