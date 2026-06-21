@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Text;
 using Liakont.Agent.Contracts;
 using Liakont.Agent.Contracts.Transport;
+using Liakont.Agent.Core.Net;
 using Newtonsoft.Json;
 
 /// <summary>
@@ -27,8 +28,9 @@ internal static class HttpPlatformProbe
             return new PlatformProbeResult(PlatformProbeStatus.Unreachable, "Aucune URL de plateforme n'est configurée.");
         }
 
-        // TLS 1.2+ obligatoire : net48 négocie SSL3/TLS1.0 par défaut, refusés par les plateformes modernes.
-        ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12 | SecurityProtocolType.Tls13;
+        // TLS 1.2+ obligatoire : net48 négocie SSL3/TLS1.0 par défaut, refusés par les plateformes
+        // modernes. Point centralisé (RDF01) — partagé avec le chemin de run réel et le Main de chaque exécutable.
+        AgentTls.ForceStrongTls();
 
         string endpoint = platformUrl.TrimEnd('/') + "/api/agent/" + AgentContractVersion.Current + "/heartbeat";
         string agentVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0.0";

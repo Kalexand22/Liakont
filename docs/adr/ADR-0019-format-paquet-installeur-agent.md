@@ -40,9 +40,18 @@ clé API** dans un package pré-configuré.
   GÉNÉRÉ (jamais committé).
 
 **MSI = fast-follow** si un déploiement d'entreprise (GPO / SCCM) l'exige ; il réutiliserait le même
-moteur de profil (OPS08). **Authenticode** (signature des binaires) s'ajoutera en complément dès
-qu'un certificat de signature de code sera disponible — il ne remplace pas le manifeste signé de
-l'auto-update (ADR-0013), il renforce la chaîne au niveau OS.
+moteur de profil (OPS08). **Authenticode** (signature OS des binaires) ne remplace pas le manifeste
+signé de l'auto-update (ADR-0013), il renforce la chaîne au niveau OS — **son certificat de signature
+de code est désormais un prérequis planifié AVANT tout déploiement de flotte large** (et non un
+« fast-follow » ouvert ; voir ADR-0013).
+
+**Validation de la clé de signature d'auto-update au provisionnement (RDF14).** Quand le package
+fournit `update-signing.pubkey.xml`, l'installeur **valide la taille de la clé** (`Test-UpdateSigningPublicKey`,
+module `AgentInstall.psm1`) AVANT de la poser : une clé < 2048 bits (3072 recommandé), un XML
+illisible ou un fichier absent **échoue le provisionnement** (fail-fast, message intégrateur français,
+y compris en `-DryRun`). C'est le miroir, côté installeur, du plancher imposé par le vérificateur
+agent (`RsaManifestSignatureVerifier`, ADR-0013) : poser une clé trop courte ferait refuser
+silencieusement toute mise à jour. Seule la TAILLE est rapportée, jamais la clé (CLAUDE.md n°10/n°18).
 
 ### 2. Un package PAR plateforme, élagué et vérifié (anti-faux-vert)
 

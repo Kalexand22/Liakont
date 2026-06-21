@@ -9,6 +9,7 @@ using Liakont.Agent.Core.Extraction;
 using Liakont.Agent.Core.Heartbeat;
 using Liakont.Agent.Core.Hosting;
 using Liakont.Agent.Core.Logging;
+using Liakont.Agent.Core.Net;
 using Liakont.Agent.Core.Security;
 using Liakont.Agent.Core.Storage;
 using Liakont.Agent.Core.Time;
@@ -88,8 +89,17 @@ internal static class AgentRunComposition
         }
     }
 
-    private static HttpClient CreateHttpClient(string platformUrl)
+    // Interne (pas privé) pour que le test du chemin de RUN (AGT02/RDF01) prouve que le client HTTP
+    // RÉEL — pas seulement la sonde test-api — impose TLS 1.2/1.3.
+    internal static HttpClient CreateHttpClient(string platformUrl)
     {
+        // TLS fort AVANT toute connexion : ServicePointManager est un statique global au processus,
+        // et le chemin de run ne le posait JAMAIS (faux-vert RDF01, CLAUDE.md règle review n°8). Le
+        // Main de chaque exécutable l'appelle déjà au démarrage ; on le redouble ICI pour que la
+        // composition root du run — partagée par le service ET le CLI — garantisse TLS 1.2+ quel que
+        // soit l'appelant. Idempotent (OU bit-à-bit).
+        AgentTls.ForceStrongTls();
+
         // BaseAddress doit se terminer par « / » pour que les chemins relatifs du client
         // (api/agent/v1/...) se résolvent correctement.
         string baseUrl = platformUrl.EndsWith("/", StringComparison.Ordinal) ? platformUrl : platformUrl + "/";

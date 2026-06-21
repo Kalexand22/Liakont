@@ -44,6 +44,19 @@ public sealed class AgentContractJsonBindingTests
         return provider.GetRequiredService<IOptions<HttpJsonOptions>>().Value.SerializerOptions;
     }
 
+    // Les options RÉELLES du pipeline, à l'IDENTIQUE (politique de nommage camelCase « Web », même
+    // NumberHandling, mêmes convertisseurs d'enum du contrat), mais avec l'insensibilité à la casse
+    // DÉSACTIVÉE — la seule différence avec la production. Reproduit exactement le durcissement
+    // « camelCase strict » contre lequel le contrat met en garde (RDF15 / contrat-agent-v1.md §3.2).
+    private static JsonSerializerOptions HostMinimalApiOptionsCaseSensitive()
+    {
+        var caseSensitive = new JsonSerializerOptions(HostMinimalApiOptions())
+        {
+            PropertyNameCaseInsensitive = false,
+        };
+        return caseSensitive;
+    }
+
     [Fact]
     public void Documented_batch_with_string_enums_binds_to_dto()
     {
@@ -73,6 +86,33 @@ public sealed class AgentContractJsonBindingTests
         Action bind = () => JsonSerializer.Deserialize<PushBatchRequestDto>(json, webDefaultsOnly);
 
         bind.Should().Throw<JsonException>();
+    }
+
+    [Fact]
+    public void Pascalcase_wire_silently_loses_documents_when_case_insensitivity_is_disabled()
+    {
+        // Contrôle négatif du fil v1 PascalCase (RDF15, RL-SER-2). Le fil émet du PascalCase
+        // (ContractVersion, Documents, …) et ne se lie aux DTOs que GRÂCE à la politique « Web »
+        // PropertyNameCaseInsensitive=true (la politique de nommage est camelCase). En la désactivant
+        // — durcissement « camelCase strict » — System.Text.Json NE LÈVE PAS : les propriétés
+        // PascalCase ne matchent plus les noms camelCase attendus, le binding produit un DTO DÉGRADÉ
+        // (Documents vide, ContractVersion null) alors que le fil portait DEUX documents. C'est
+        // exactement la rupture SILENCIEUSE que le contrat interdit (un lot vu « 0 document », ou une
+        // NRE en aval sur Documents.Count). Ce test rend la fragilité VISIBLE : on ne durcit pas la
+        // casse en v1 sans le casser — un tel durcissement est une rupture v2 (§4.2), pas un réglage.
+        string json = ContractFixtures.ComposeBatchRequestJson();
+
+        PushBatchRequestDto? degraded = JsonSerializer.Deserialize<PushBatchRequestDto>(json, HostMinimalApiOptionsCaseSensitive());
+
+        // Le DTO se construit (pas d'exception) — d'où le danger : la perte est silencieuse.
+        degraded.Should().NotBeNull();
+        degraded!.Documents.Should().BeEmpty("le fil PascalCase ne se lie plus en casse stricte — les documents disparaissent SANS erreur");
+        degraded.ContractVersion.Should().BeNull("la propriété PascalCase 'ContractVersion' ne matche plus le nom camelCase attendu");
+
+        // Témoin positif : avec les options de production (insensibles à la casse), le MÊME fil porte
+        // bien ses deux documents — la liaison correcte dépend donc strictement de l'insensibilité.
+        PushBatchRequestDto? bound = JsonSerializer.Deserialize<PushBatchRequestDto>(json, HostMinimalApiOptions());
+        bound!.Documents.Should().HaveCount(2);
     }
 
     [Fact]

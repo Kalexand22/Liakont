@@ -15,6 +15,13 @@ using Liakont.Agent.Contracts.Pivot;
 /// Il vit DANS le module Pipeline — pas dans <c>Liakont.Agent.Contracts</c> (BCL-only / zéro package).
 /// Il NE RE-SÉRIALISE PAS pour ré-hacher : la re-vérification du <c>payload_hash</c> est faite par
 /// <c>IPayloadStagingStore.ReadAsync</c> sur la string brute (PIP00), jamais par re-sérialisation.
+/// <para>PÉRIMÈTRE — chemin de STAGING uniquement. Ce lecteur sert la RELECTURE du pivot depuis le
+/// magasin de staging (CHECK/SEND, PIP00). L'INGESTION HTTP (PIV04,
+/// <c>IngestDocumentBatchHandler</c>) ne l'utilise PAS : elle reçoit le DTO déjà désérialisé par
+/// System.Text.Json (liaison minimal-API, <c>AgentApiJson</c>) puis re-dérive l'empreinte via
+/// <c>CanonicalJson.Serialize(dto)</c>. Le round-trip d'intégrité de CETTE jambe STJ
+/// (<c>STJ.Deserialize(canonique) → CanonicalJson == canonique</c>, dont dépendent l'anti-doublon et
+/// l'archive WORM) est gardé par <c>AgentContractRehashIntegrityTests</c> côté Host, pas ici.</para>
 /// </summary>
 public static class PivotCanonicalJsonReader
 {

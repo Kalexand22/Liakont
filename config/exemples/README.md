@@ -28,5 +28,7 @@ dans ce dossier (ou dans `src/`) est un **P1** en review (CLAUDE.md n°15).
   (hébergeur SaaS multi-instances, livré par OPS08c). Le packaging multi-profils
   (`tools/package-installer.ps1`, OPS08c, F13 §7) embarque CHAQUE profil dans un installateur dédié ;
   ces deux exemples servent de profils valides au self-test `tools/test-installer-packaging.ps1`.
+- Connexion à la base SOURCE en lecture seule (attribut read-only par moteur, valeurs fictives) —
+  redline RDF16 : [`connexion-source-lecture-seule/`](connexion-source-lecture-seule/README.md).
 
 Le squelette (SOL02) ne crée que ce README ; les exemples concrets arrivent avec leurs lots.
