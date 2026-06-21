@@ -204,6 +204,35 @@ public sealed class PervasiveExtractor : IExtractor
         }
     }
 
+    /// <summary>
+    /// Extrait les FRAIS VENDEUR (bordereau vendeur, BV) d'une période, en LECTURE SEULE STRICTE
+    /// (F01-F02 §4.3.1, B2C-07). Données de calcul de marge (e-reporting B2C) rattachées au bordereau
+    /// par <c>no_ba</c> — JAMAIS des lignes facturées à l'acheteur (art. 297 E). EXTRACTION PURE : aucune
+    /// logique fiscale (R3, CLAUDE.md n°6). Liste matérialisée : la connexion est libérée à la sortie.
+    /// </summary>
+    /// <param name="fromInclusiveUtc">Borne basse de la période (UTC, incluse).</param>
+    /// <param name="toExclusiveUtc">Borne haute de la période (UTC, exclue).</param>
+    /// <returns>Les frais vendeur de la période, rattachés à leur bordereau (par <c>no_ba</c>).</returns>
+    public IReadOnlyList<EncheresV6SellerFee> ExtractSellerFees(DateTime fromInclusiveUtc, DateTime toExclusiveUtc)
+    {
+        // Frais vendeur (B2C-07) : lignes type 5 sur la période [date_vente], rattachées à leur bordereau
+        // (no_ba) par l'INNER JOIN — option (a) tranchée par B2C-06 (rattachement par le no_ba existant,
+        // sans jointure inventée). Lecture seule stricte (EncheresV6Schema.SelectSellerFeesSql, garde
+        // EnsureSelectOnly via CreateSelect). Erreurs typées (R7) comme ExtractDocuments. Liste matérialisée.
+        var fees = new List<EncheresV6SellerFee>();
+        using (IDbConnection connection = OpenConnection())
+        using (IDbCommand command = CreatePeriodSelect(connection, EncheresV6Schema.SelectSellerFeesSql, fromInclusiveUtc, toExclusiveUtc))
+        using (IDataReader reader = ExecuteReader(command))
+        {
+            while (ReadNext(reader))
+            {
+                fees.Add(ReadSellerFee(reader));
+            }
+        }
+
+        return fees;
+    }
+
     /// <inheritdoc />
     public IReadOnlyList<SourceTaxRegimeDto> ListSourceTaxRegimes()
     {
@@ -486,6 +515,24 @@ public sealed class PervasiveExtractor : IExtractor
             ModeReglement = ReadString(reader, EncheresV6Schema.ColModeReglement),
             NoRemise = ReadString(reader, EncheresV6Schema.ColNoRemise),
         };
+    }
+
+    private static EncheresV6SellerFee ReadSellerFee(IDataReader reader)
+    {
+        // Le frais vendeur est rattaché au bordereau par son no_ba (option (a), B2C-06). Le mapper partagé
+        // (parité fixtures/ODBC) convertit le montant HT brut en decimal half-up et transporte le code régime
+        // brut — aucune interprétation fiscale ici (R3).
+        var bordereau = new EncheresV6Bordereau { NoBa = ReadRequiredKey(reader, EncheresV6Schema.ColNoBa) };
+        var ligne = new EncheresV6Ligne
+        {
+            TypeLigne = EncheresV6RowMapper.LigneFraisVendeur,
+            NoLigne = ReadString(reader, EncheresV6Schema.ColNoLigne),
+            Designation = ReadString(reader, EncheresV6Schema.ColDesignation),
+            MontantHt = ReadRequiredDouble(reader, EncheresV6Schema.ColMontantHt),
+            CodeRegime = ReadString(reader, EncheresV6Schema.ColCodeRegime),
+        };
+
+        return EncheresV6RowMapper.MapSellerFee(bordereau, ligne);
     }
 
     private static EncheresV6Bordereau ReadPaymentBordereau(IDataReader reader)

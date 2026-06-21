@@ -147,6 +147,46 @@ public class EncheresV6FixtureExtractorTests
     }
 
     [Fact]
+    public void ExtractSellerFees_reads_fictional_bv_lines_attached_to_their_bordereau()
+    {
+        // B2C-07 : lecture du bordereau vendeur (type 5) — option (a), rattaché au bordereau par no_ba.
+        // La fixture démo porte un frais vendeur fictif par bordereau (12.00 / 80.00 / 250.00).
+        List<EncheresV6SellerFee> fees = SalesExtractor().ExtractSellerFees(PeriodFrom, PeriodTo).ToList();
+
+        fees.Should().HaveCount(3, "un frais vendeur fictif par bordereau de la fixture démo");
+        fees.Select(f => f.NoBa).Should().BeEquivalentTo("4500", "4042", "4501");
+        fees.Should().OnlyContain(f => f.SourceRegimeCode == "5");
+        fees.Should().OnlyContain(f => f.SourceLineRef == "ligne#bv");
+        fees.Single(f => f.NoBa == "4500").NetAmount.Should().Be(12.00m);
+        fees.Single(f => f.NoBa == "4042").NetAmount.Should().Be(80.00m);
+        fees.Single(f => f.NoBa == "4501").NetAmount.Should().Be(250.00m);
+    }
+
+    [Fact]
+    public void ExtractSellerFees_filters_by_period()
+    {
+        // Bordereaux : 4500 (2026-01-12), 4042 (2026-01-14), 4501 (2026-01-16). Une fenêtre courte ne
+        // retourne que les frais vendeur des bordereaux dont la date_vente est dans la période.
+        List<EncheresV6SellerFee> fees = SalesExtractor()
+            .ExtractSellerFees(new DateTime(2026, 1, 1), new DateTime(2026, 1, 15))
+            .ToList();
+
+        fees.Select(f => f.NoBa).Should().BeEquivalentTo("4500", "4042");
+    }
+
+    [Fact]
+    public void ExtractSellerFees_excludes_document_and_payment_lines()
+    {
+        // Seules les lignes type 5 sont des frais vendeur : adjudication (4), frais acheteur (2) et
+        // règlements (3) ne ressortent jamais ici (ce sont des lignes de document / d'encaissement).
+        List<EncheresV6SellerFee> fees = SalesExtractor().ExtractSellerFees(PeriodFrom, PeriodTo).ToList();
+
+        fees.Should().OnlyContain(
+            f => f.Description != null && f.Description.Contains("vendeur"),
+            "seules les lignes « Frais vendeur » (type 5) sont extraites");
+    }
+
+    [Fact]
     public void ExtractDocuments_pro_buyer_sets_company_hint()
     {
         List<PivotDocumentDto> docs = SalesExtractor().ExtractDocuments(PeriodFrom, PeriodTo).ToList();
