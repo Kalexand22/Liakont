@@ -239,6 +239,37 @@ public sealed class Document
         => ApplyTransition(DocumentState.Sending, DocumentEventType.DocumentSending, occurredAtUtc, detail, operatorIdentity: null);
 
     /// <summary>
+    /// Enregistre la RÉFÉRENCE PA (n° de flux) d'un dépôt ASYNCHRONE accepté, document RESTÉ <c>Sending</c>
+    /// (item PIPE01, D7) — PAS de transition d'état. Une Plateforme Agréée asynchrone (p. ex. Chorus Pro) a
+    /// accepté le dépôt sans encore l'émettre et a renvoyé un identifiant de flux : on le persiste sur le
+    /// document pour que le raccrochage (RecoverSendingAsync) interroge la PA par cette référence et NE
+    /// re-dépose JAMAIS ce flux (anti double-dépôt async, CLAUDE.md n°3). La <paramref name="paDocumentId"/>
+    /// est OBLIGATOIRE ; l'horodatage de mise à jour est avancé ; un fait d'audit append-only SYSTÈME
+    /// matérialise l'accusé de réception, portant la <paramref name="paResponseSnapshot"/> (réponse brute de
+    /// l'accusé de dépôt) — seule preuve que la PA a accepté le dépôt avant l'émission différée. Refusé hors de
+    /// l'état <c>Sending</c> (la référence ne se pose qu'à une transmission engagée — cohérent avec la machine à
+    /// états).
+    /// </summary>
+    public DocumentEvent RecordPaSendingReference(string paDocumentId, string? paResponseSnapshot, DateTimeOffset occurredAtUtc)
+    {
+        var reference = RequireText(
+            paDocumentId,
+            nameof(paDocumentId),
+            "La référence PA (n° de flux) est obligatoire pour tracer un dépôt asynchrone accepté (PIPE01, anti double-dépôt).");
+
+        if (State != DocumentState.Sending)
+        {
+            throw new InvalidOperationException(
+                $"La référence PA d'un dépôt asynchrone ne se pose qu'à une transmission engagée (état actuel : {State}).");
+        }
+
+        PaDocumentId = reference;
+        LastUpdateUtc = occurredAtUtc;
+
+        return DocumentEvent.PaReferenceRecorded(Id, occurredAtUtc, reference, paResponseSnapshot);
+    }
+
+    /// <summary>
     /// Sending → Issued : émission acceptée par la Plateforme Agréée (état d'émission réussie, sans suite).
     /// Les <paramref name="snapshots"/> de preuve (payload transmis, réponse PA brute, trace de mapping TVA)
     /// sont OBLIGATOIRES et portés par le <see cref="DocumentEvent"/> d'émission (item TRK04, F06 §3) : on
