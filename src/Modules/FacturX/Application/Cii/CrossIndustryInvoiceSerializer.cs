@@ -157,7 +157,10 @@ public sealed class CrossIndustryInvoiceSerializer : ICrossIndustryInvoiceSerial
 
         StartRam(writer, "SpecifiedLineTradeDelivery");
         StartRam(writer, "BilledQuantity");
-        writer.WriteAttributeString("unitCode", CiiProfile.DefaultUnitCode);
+
+        // BT-130 : unité du pivot si portée (RD407), sinon l'unité neutre C62. La quantité réelle
+        // (BT-129) du pivot est émise — unité et quantité restent cohérentes.
+        writer.WriteAttributeString("unitCode", line.UnitCode ?? CiiProfile.DefaultUnitCode);
         writer.WriteString(FormatQuantity(line.Quantity));
         writer.WriteEndElement(); // BilledQuantity
         writer.WriteEndElement(); // SpecifiedLineTradeDelivery

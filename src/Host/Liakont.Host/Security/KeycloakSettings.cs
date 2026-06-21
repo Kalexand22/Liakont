@@ -83,6 +83,20 @@ internal sealed class KeycloakSettings
     public bool IsConfigured => !string.IsNullOrWhiteSpace(Authority);
 
     /// <summary>
+    /// Fenêtre de révocation maximale des permissions <b>sensibles</b>
+    /// (<see cref="SensitivePermissions"/> : <c>liakont.actions</c>, <c>liakont.settings</c>).
+    /// Une session non super-admin porteuse d'une telle permission reçoit un cap de durée ABSOLU
+    /// (sans glissement) égal à cette valeur : à l'échéance, le cookie est rejeté et l'utilisateur est
+    /// ré-authentifié via OIDC (transparent tant que la session SSO Keycloak vit), ce qui rejoue la
+    /// projection rôle→permission — bornant ainsi la fenêtre de révocation à cette durée au lieu des
+    /// ≥ 8 h de la fenêtre glissante (ADR-0017 §Négatif, atténuation RDF10/DEC-6). Défaut défendable :
+    /// 30 min. Tunable par l'opérateur (plus court = révocation plus stricte ; plus long = moins de
+    /// ré-auth). Les permissions non sensibles gardent la fenêtre glissante par défaut.
+    /// Doit être &gt; 0 (validé au démarrage par <c>ValidateConfiguration</c>).
+    /// </summary>
+    public TimeSpan SensitivePermissionRevocationWindow { get; init; } = TimeSpan.FromMinutes(30);
+
+    /// <summary>
     /// When <c>true</c>, the login page redirects to Keycloak and logout
     /// triggers Keycloak end_session. Requires both <see cref="IsConfigured"/>
     /// and <see cref="UseKeycloak"/> to be true.

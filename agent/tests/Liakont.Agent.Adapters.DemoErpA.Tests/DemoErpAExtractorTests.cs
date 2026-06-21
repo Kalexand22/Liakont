@@ -62,6 +62,16 @@ public class DemoErpAExtractorTests
     }
 
     [Fact]
+    public void Declares_R9_conformance_extracts_only_finalized_documents()
+    {
+        // R9 (gate « document finalisé », ADR-0004 D4 Famille 2) : la source dbo.factures ne porte que
+        // des pièces émises → l'adaptateur s'engage à n'extraire que des documents finalisés.
+        var extractor = new DemoErpAExtractor(new FakeSourceConnectionFactory(Array.Empty<Dictionary<string, object>>()), new CapturingAgentLog());
+
+        extractor.Capabilities.ExtractsOnlyFinalizedDocuments.Should().BeTrue();
+    }
+
+    [Fact]
     public void Credit_note_with_resolved_origin_carries_the_reference()
     {
         var rows = new[] { Row("5", 1, typePiece: "AVO", origineNum: "A-2026-0001", origineDate: "2026-05-30") };

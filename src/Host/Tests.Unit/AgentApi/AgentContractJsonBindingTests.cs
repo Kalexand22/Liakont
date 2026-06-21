@@ -46,6 +46,19 @@ public sealed class AgentContractJsonBindingTests
         return provider.GetRequiredService<IOptions<HttpJsonOptions>>().Value.SerializerOptions;
     }
 
+    // Les options RÉELLES du pipeline, à l'IDENTIQUE (politique de nommage camelCase « Web », même
+    // NumberHandling, mêmes convertisseurs d'enum du contrat), mais avec l'insensibilité à la casse
+    // DÉSACTIVÉE — la seule différence avec la production. Reproduit exactement le durcissement
+    // « camelCase strict » contre lequel le contrat met en garde (RDF15 / contrat-agent-v1.md §3.2).
+    private static JsonSerializerOptions HostMinimalApiOptionsCaseSensitive()
+    {
+        var caseSensitive = new JsonSerializerOptions(HostMinimalApiOptions())
+        {
+            PropertyNameCaseInsensitive = false,
+        };
+        return caseSensitive;
+    }
+
     [Fact]
     public void Documented_batch_with_string_enums_binds_to_dto()
     {
@@ -129,6 +142,33 @@ public sealed class AgentContractJsonBindingTests
     // Injecte un membre inconnu (post-v1) juste après l'accolade ouvrante d'un objet JSON canonique.
     private static string InsertUnknownMember(string canonicalDocumentJson) =>
         "{\"FutureV2Field\":\"x\"," + canonicalDocumentJson[1..];
+
+    [Fact]
+    public void Pascalcase_wire_is_rejected_when_case_insensitivity_is_disabled()
+    {
+        // Contrôle négatif du fil v1 PascalCase (RDF15, RL-SER-2). Le fil émet du PascalCase
+        // (ContractVersion, Documents, …) et ne se lie aux DTOs que GRÂCE à la politique « Web »
+        // PropertyNameCaseInsensitive=true (la politique de nommage est camelCase). En la désactivant
+        // — durcissement « camelCase strict » — les propriétés PascalCase ne matchent plus les noms
+        // camelCase attendus : combinées au rejet STRICT des membres inconnus du contrat (RDL04,
+        // JsonUnmappedMemberHandling.Disallow porté par les options de production), elles deviennent des
+        // membres INCONNUS et la liaison LÈVE — le fil PascalCase est REJETÉ, pas droppé en un DTO
+        // dégradé silencieux (« bloquer plutôt qu'envoyer faux », CLAUDE.md n°3). Ce test rend la
+        // fragilité VISIBLE : on ne durcit pas la casse en v1 sans casser le fil — un tel durcissement
+        // est une rupture v2 (§4.2), pas un réglage. (RDF15 × RDL04 : avant RDL04 la perte était
+        // silencieuse ; le rejet strict la rend désormais bruyante, garantie plus forte.)
+        string json = ContractFixtures.ComposeBatchRequestJson();
+
+        Action bindCaseSensitive = () => JsonSerializer.Deserialize<PushBatchRequestDto>(json, HostMinimalApiOptionsCaseSensitive());
+
+        bindCaseSensitive.Should().Throw<JsonException>(
+            "en casse stricte les clés PascalCase du fil v1 deviennent des membres inconnus et sont REJETÉES (RDF15 × RDL04), pas droppées silencieusement");
+
+        // Témoin positif : avec les options de production (insensibles à la casse), le MÊME fil porte
+        // bien ses deux documents — la liaison correcte dépend donc strictement de l'insensibilité.
+        PushBatchRequestDto? bound = JsonSerializer.Deserialize<PushBatchRequestDto>(json, HostMinimalApiOptions());
+        bound!.Documents.Should().HaveCount(2);
+    }
 
     [Fact]
     public void Batch_response_status_is_serialized_by_name()

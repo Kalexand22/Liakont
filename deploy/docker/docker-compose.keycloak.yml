@@ -27,7 +27,8 @@ services:
       - liakont-keycloak
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.0
+    # Tag de PATCH précis (non flottant) — politique de version Keycloak : ADR-0020 (avenant).
+    image: quay.io/keycloak/keycloak:26.0.8
     container_name: liakont-keycloak
     command: start-dev --import-realm
     environment:

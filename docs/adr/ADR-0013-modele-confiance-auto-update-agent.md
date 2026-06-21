@@ -52,9 +52,21 @@ et le contenu servi — mais **ne peut pas forger** une signature valide sans la
 peut que rejouer un couple (manifeste, signature) déjà signé → pointe un paquet légitime (hash
 vérifié) → aucune exécution de code arbitraire.
 
-**Authenticode** (signature du binaire de l'updater/des binaires) s'ajoute **en complément** dès qu'un
-certificat de signature de code est disponible — il ne remplace pas le manifeste signé (qui couvre la
-provenance applicative), il renforce la chaîne au niveau OS.
+**Taille de clé minimale (RSA ≥ 2048 bits, 3072 recommandé).** Le vérificateur
+(`RsaManifestSignatureVerifier`) **refuse** une clé publique dont le module est inférieur à 2048 bits :
+elle est traitée comme **clé absente** (fail-closed) — `HasKey=false`, toute mise à jour refusée. Une
+clé 1024 bits ne fonde donc **aucune** confiance d'auto-update, même si sa signature est mathématiquement
+valide. Le plancher est appliqué **deux fois** : au chargement par l'agent (côté exécution) **et** au
+provisionnement par l'installeur (`install-agent.ps1` valide la taille avant de poser
+`update-signing.pubkey.xml`, ADR-0019) — refuser tôt évite de poser une clé qui ne servirait jamais.
+
+**Authenticode** (signature OS des binaires de l'updater/de l'agent) s'ajoute **en complément** du
+manifeste signé (qui couvre la provenance applicative) ; il renforce la chaîne au niveau OS
+(SmartScreen/EDR, rejet d'un binaire posé hors-canal). **Il n'est plus traité comme un « fast-follow »
+ouvert : l'acquisition du certificat de signature de code est un PRÉREQUIS planifié AVANT tout
+déploiement de flotte large** (au-delà des pilotes/POC mono-poste). Jusqu'à ce qu'il soit en place, le
+manifeste signé reste la garantie de confiance ; un déploiement large sans Authenticode est un écart
+explicite à acter, pas un défaut silencieux.
 
 ### 2. Updater = exe séparé, jamais lancé depuis le dossier qu'il remplace
 

@@ -107,6 +107,56 @@ Classés en **🛑 Bloquant** (pas d'envoi) / **⚠️ Alerte** (envoi possible,
 | Facture d'origine connue du Tracking et déjà émise | 🛑 | |
 | Montants positifs (jamais négatifs sur un 381) | 🛑 | ✅ règle EN 16931 |
 
+### 3.5bis Classification du type source → facture/avoir — table tenant (item RD405, ADR-0004 D3-3)
+
+> **⚠️ AJOUT (2026-06-20 — item RD405, redline ADR-0004 finding RD4-16)** : spécification de la
+> classification du *type de document source* (`PivotDocumentDto.SourceDocumentKind`, brut) vers le type
+> canonique facture (UNTDID 1001 « 380 ») / avoir (« 381 »). Le mécanisme de validation est livré par
+> RD405 ; la PERSISTANCE de la table tenant (provisioning par seed) est l'item de suivi nommé en fin de
+> section.
+
+**Problème (finding RD4-16).** L'ADR-0004 D3-3 décide que « la classification facture/avoir vit dans
+Validation » : l'adaptateur ne classe PAS (le type source est souvent un signe ou un champ ambigu, propre
+à chaque logiciel), il transmet la valeur BRUTE dans `SourceDocumentKind`. Aujourd'hui, un avoir n'est
+détecté QUE par son signal STRUCTUREL EN 16931 — la présence d'une référence de facture d'origine
+(`CreditNoteRefs`, BG-3 ; `CreditNoteRule`, §3.5). **Trou** : une source qui ne porte la nature « avoir »
+que par un drapeau dans son type (`SourceDocumentKind`), SANS aucune référence d'origine (ex. avoir
+EncheresV6 sans `no_ba_lettrage`), serait traitée comme une **facture** → signe/sens inversé, envoi faux.
+
+**Règle produit (CLAUDE.md n°2/n°7).** La correspondance « valeur de type source → facture/avoir » N'EST
+PAS une règle fiscale universelle : elle **varie par logiciel source** et n'est connue que du déploiement.
+Elle est donc du **paramétrage de tenant**, JAMAIS devinée ni codée en dur :
+
+| Élément | Spécification |
+|---|---|
+| Table | Correspondance tenant `SourceDocumentKind` (chaîne brute de la source) → type canonique ∈ { facture (380), avoir (381) }. 0..n lignes par tenant. |
+| Validation métier | La table est **validée par l'expert-comptable du tenant** (comme la table de mapping TVA, F03) avant tout envoi. Aucune correspondance par défaut produit. |
+| Valeur NON cartographiée | « non classée » (`Unmapped`) : on ne devine pas. Le repli reste la détection STRUCTURELLE (`CreditNoteRefs`) — comportement inchangé, rétro-compatible. |
+| Provisioning | Canal de seed sanctionné `deployments/<client>/` (CLAUDE.md n°7), comme `mapping-tva.json`. Aucune donnée client dans le code ; les exemples du Core sont fictifs. |
+
+**Contrôle ajouté (BLOQUANT, jamais deviné).** Quand la table classe un document en **avoir** mais qu'il
+ne porte AUCUNE référence d'origine résoluble (`CreditNoteRefs` vide) :
+
+| Contrôle | Niveau | Détail |
+|---|---|---|
+| Avoir (classé par type source) sans aucune référence d'origine | 🛑 | `CREDIT_NOTE_KIND_WITHOUT_ORIGIN` — l'avoir est reconnu par sa nature mais son origine n'est pas résoluble : bloqué (aucune référence fabriquée, F07-F08 §B.4). L'opérateur rattache l'origine ou traite manuellement. |
+
+Un document classé **facture** (ou non cartographié) ne produit aucune anomalie de ce contrôle. Une fois
+l'origine renseignée (`CreditNoteRefs` non vide), les contrôles d'avoir nominaux de §3.5 (`CreditNoteRule`)
+prennent le relais (orphelin, original non émis, montants positifs).
+
+**Périmètre RD405 vs suivi.** RD405 livre le **mécanisme de validation** : l'abstraction tenant-scopée
+`ISourceDocumentKindClassifier` (Validation.Contracts), la règle `SourceDocumentKindCreditNoteRule`
+(Validation.Domain) qui la consomme, et son enregistrement. Le classificateur par défaut
+(`UnconfiguredSourceDocumentKindClassifier`) répond « non classé » partout — état honnête « aucune
+correspondance tenant provisionnée », sans invention. **Item de suivi (à planifier, NON couvert par
+RD405)** : persistance de la table tenant + import depuis `deployments/<client>/` (extension de
+`ImportTenantSeedCommand`, précédent FIX01b `mapping-tva.json`) + implémentation `ISourceDocumentKindClassifier`
+adossée à cette table (substituée au défaut par `services.Replace`, précédent SUP03), et — si l'EC doit la
+saisir sans IT — un écran de console (avec ses tests bUnit, règle review n°19). Tant que ce suivi n'est pas
+livré, le contrôle reste dormant en production (repli structurel `CreditNoteRefs`) ; le mécanisme est
+néanmoins **câblé et testé** (la règle tourne sur chaque document, le chemin bloquant est couvert).
+
 ## 4. Algorithmes (❓ à confirmer que les PA les appliquent, mais sans risque à les implémenter)
 
 ### 4.1 SIREN / SIRET — clé de Luhn

@@ -234,6 +234,23 @@ public sealed class CrossIndustryInvoiceSerializerTests
         act.Should().Throw<FacturXGenerationException>().WithMessage("*BR-CO-10/13*");
     }
 
+    [Fact]
+    public void Serialize_LineWithUnitCode_ProjectsItOnBilledQuantity()
+    {
+        // RD407 (BT-130) : quand le pivot porte une unité, le CII l'émet telle quelle (codes UN/ECE Rec 20),
+        // sinon C62 (cf. Serialize_MonoTaux…). La quantité réelle BT-129 reste émise — unité ↔ quantité cohérentes.
+        var line = new PivotLineDto(
+            "Article", netAmount: 100m, quantity: 5m, unitPriceNet: 20m,
+            taxes: new[] { new PivotLineTaxDto(20m, 20m, VatCategory.S) }, unitCode: "KGM");
+        var pivot = PivotFrom(new[] { line }, totalNet: 100m, totalTax: 20m, totalGross: 120m);
+
+        var root = Parse(_serializer.Serialize(pivot));
+
+        var quantity = root.Descendants(Ram + "BilledQuantity").First();
+        quantity.Attribute("unitCode")!.Value.Should().Be("KGM", "l'unité portée par le pivot est recopiée telle quelle");
+        quantity.Value.Should().Be("5", "la quantité réelle BT-129 du pivot est émise");
+    }
+
     private static PivotDocumentDto SingleLinePivot(
         decimal? unitPrice,
         decimal taxAmount,

@@ -135,6 +135,15 @@ fiscale **qualitative** inventée (n°2) ; bloquer plutôt qu'envoyer faux (n°3
 - **INV-FX-7** — BG-23 et BR-CO-17 (non validés en amont) sont **produits par le sérialiseur** et
   réconciliés avec les totaux portés (BR-CO-14/15) ; un écart non réconciliable → blocage tracé, jamais un
   CII non conforme.
+- **INV-FX-8** (RDF18) — Le `LicenseType` QuestPDF du chemin d'émission **n'est jamais codé en dur** : il
+  est déclaré par **topologie/instance** via la configuration `QuestPdf:LicenseType` et **validé au
+  déploiement** (fermé par défaut : valeur absente, vide, numérique ou inconnue → démarrage refusé,
+  message opérateur FR). Seuls les **noms** d'énumération QuestPDF (`Community` &lt; 1 M$ CA / `Professional`
+  / `Enterprise`) sont admis. La **déclaration du licensee** par topologie (ambiguïté de marque grise)
+  reste un geste de **paramétrage/déploiement** (DEC-3), jamais une donnée client dans le code
+  (`CLAUDE.md` n°7). Résolution co-localisée dans `FacturX.Infrastructure`
+  (`QuestPdfLicenseConfiguration`), seule couche Liakont à référencer QuestPDF (INV-FX-1) ; le Host ne
+  référence jamais QuestPDF.
 
 ## Conséquences
 
@@ -200,3 +209,31 @@ hors spec interne — un besoin EXTENDED non tranché par F16 bloque l'item).
   LICENSE & issues #1039/#812 ; github stephanstapel/ZUGFeRD-csharp ; verapdf.org +
   hub.docker.com/r/verapdf/cli ; mustangproject.org. AFRelationship : FNFE-MPE / Factur-X 1.0,
   akretion/factur-x, PDFlib KB.
+
+## Avenant 2026-06-20 (RDF18) — licence QuestPDF configurable par topologie + contrôle au déploiement
+
+Redline ADR fondateurs **RL-TR-6** (DEC-3). Le `LicenseType` QuestPDF était **codé en dur**
+(`LicenseType.Community`) en deux endroits — `FacturXModuleRegistration.cs` (chemin d'émission FISCALE) et
+le socle `Stratum.Common.UI/CommonUIServiceExtensions.cs` (exports PDF opérateur). La licence Community
+est gratuite **sous 1 M$ de CA**, mais elle s'applique au **scellement PDF/A-3** (INV-FX-1, chemin
+d'émission fiscale) et le « licensee » est **ambigu en marque grise** (intégrateur/hébergeur vs client
+final). Une licence figée dans le code ne peut pas être déclarée par déploiement.
+
+**Décision (code autonome, RDF18) :**
+1. Le `LicenseType` est **configurable** via `QuestPdf:LicenseType` (configuration de
+   topologie/instance) ; défaut documenté V1 = `Community` dans `appsettings.json`, **surchargeable** par
+   `deployments/<client>/` sans recompilation. Plus de licence en dur côté produit (INV-FX-8).
+2. **Contrôle au déploiement** (`QuestPdfLicenseConfiguration.Resolve`) : **fail-closed** — valeur
+   absente/vide/numérique/inconnue → démarrage refusé (message opérateur FR : clé + valeurs admises +
+   action). Le résolveur exige un **type explicite** (nom d'énumération), jamais une clé de licence.
+3. **Socle vendored NON modifié.** `Stratum.Common.UI` (R-PDF-4) garde son défaut `Community` pour ses
+   exports PDF opérateur (non fiscaux). Sur le chemin **fiscal**, `AddFacturXModule(IConfiguration)` est
+   composé **après** `AddCommonUI` dans `AppBootstrap` et **impose** la valeur configurée (dernière
+   écriture du statique global `QuestPDF.Settings.License`). Aucune entrée de provenance socle requise (le
+   socle reste inchangé).
+4. **Plan B documenté (non codé)** : si la contrainte de licence devient bloquante, le scellement PDF/A-3
+   pourrait migrer vers `ZUGFeRD.PDF-csharp` (cf. redline) — hors périmètre RDF18.
+
+La **déclaration du licensee** par topologie (DEC-3) reste un **arbitrage opérateur** au déploiement, pas
+une donnée codée. Cet avenant **complète** (ne remplace pas) la décision §1 ; l'ADR socle
+`ADR-0004-questpdf.md` n'est pas modifié.

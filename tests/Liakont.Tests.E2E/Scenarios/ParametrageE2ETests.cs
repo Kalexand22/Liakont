@@ -1,7 +1,9 @@
 namespace Liakont.Tests.E2E.Scenarios;
 
 using FluentAssertions;
+using Liakont.Host.Security;
 using Liakont.Tests.E2E;
+using Liakont.Tests.E2E.Support;
 using Microsoft.Playwright;
 using Xunit;
 using Xunit.Abstractions;
@@ -60,6 +62,7 @@ public sealed class ParametrageE2ETests : KeycloakBaseE2ETest
     }
 
     [Fact]
+    [SensitivePermissionCoverage(LiakontPermissions.Settings, "parametrage")]
     public async Task Parametrage_user_sees_the_tenant_reversibility_export()
     {
         // Le rôle « parametrage » cumule liakont.read + liakont.actions + liakont.settings.

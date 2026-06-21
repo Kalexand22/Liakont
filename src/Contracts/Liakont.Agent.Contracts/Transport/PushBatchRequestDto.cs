@@ -21,14 +21,23 @@ public sealed class PushBatchRequestDto
     /// est inchangée. Persisté par tenant côté plateforme (PIV04) pour la détection de couverture
     /// TVA (TVA03). L'agent transmet le code BRUT, il n'interprète jamais le régime (CLAUDE.md n°2).
     /// </param>
+    /// <param name="extractorCapabilities">
+    /// Capacités DÉCLARÉES de la source (ADR-0004 D2, métadonnée de push). Champ AJOUTÉ (règle
+    /// add-only, contrat §4.1) : OPTIONNEL et en fin de DTO, donc compatible avec les agents N-1 (qui
+    /// l'omettent → <c>null</c>) ; l'enveloppe du lot n'est pas hashée, l'empreinte des documents est
+    /// inchangée. Persisté par agent/tenant côté plateforme (RD401) ; consommé par RD403 et les
+    /// différés tracés (RD409). L'agent DÉCLARE, il n'interprète jamais (CLAUDE.md n°6).
+    /// </param>
     public PushBatchRequestDto(
         string contractVersion,
         IReadOnlyList<PivotDocumentDto>? documents = null,
-        IReadOnlyList<SourceTaxRegimeDto>? sourceTaxRegimes = null)
+        IReadOnlyList<SourceTaxRegimeDto>? sourceTaxRegimes = null,
+        ExtractorCapabilitiesDto? extractorCapabilities = null)
     {
         ContractVersion = contractVersion;
         Documents = documents ?? Array.Empty<PivotDocumentDto>();
         SourceTaxRegimes = sourceTaxRegimes ?? Array.Empty<SourceTaxRegimeDto>();
+        ExtractorCapabilities = extractorCapabilities;
     }
 
     /// <summary>Version du contrat émise par l'agent.</summary>
@@ -42,4 +51,10 @@ public sealed class PushBatchRequestDto
     /// n'en transmet pas. Consommé par la détection de couverture TVA (TVA03).
     /// </summary>
     public IReadOnlyList<SourceTaxRegimeDto> SourceTaxRegimes { get; }
+
+    /// <summary>
+    /// Capacités déclarées de la source (métadonnée de push, jamais hashée). <c>null</c> quand l'agent
+    /// n'en transmet pas (agent N-1). Persisté par agent/tenant côté plateforme (RD401).
+    /// </summary>
+    public ExtractorCapabilitiesDto? ExtractorCapabilities { get; }
 }

@@ -2,7 +2,7 @@
 
 **Date :** 2026-06-03
 
-**Statut :** Accepté (2026-06-03)
+**Statut :** Accepté (2026-06-03) — **complété par l'[addendum ADR-0004-bis](ADR-0004-bis-reclassements-redline-2026-06.md)** (redline 2026-06-19/20, lot RD4) qui RECLASSE plusieurs décisions au vu de l'implémentation (notamment : débours art. 267 = hors V1 tant qu'aucune F-spec ne tranche ; scission BG-30 = différé tracé ; `Payee` inerte signalé). À lire conjointement.
 
 ---
 
@@ -130,12 +130,12 @@ Décision ∈ { **Pivot V1** · **Capability** · **Contrat IExtractor** · **Di
 | Acompte + montant prépayé + chaînage acompte→solde | BT-113 | **Pivot V1** | **P1** |
 | Autoliquidation (reverse charge — BTP, intra-UE, import) | catégorie `AE` | **Pivot V1** | **P1** |
 | Régime de la marge (occasion, art, agences de voyage) | catégorie + VATEX | **Pivot V1** | **P1** |
-| Débours (art. 267 — hors base TVA) | ligne hors base | **Pivot V1** | **P1** |
+| Débours (art. 267 — hors base TVA) | ligne hors base | **Hors V1** — F-spec avant tout code (amendé par [ADR-0004-bis](ADR-0004-bis-reclassements-redline-2026-06.md) R2 ; F15 l.375 prime : non sourcé → bloqué, jamais mappé en « O ») | P1 (différé sourçable) |
 | Franchise en base (art. 293 B) | catégorie `E` + VATEX | **Pivot V1** | **P1** |
 | TVA sur encaissements vs débits (fait générateur) | mention + timing flux 10.4 | **Pivot V1** | **P1** |
 | Multi-taux / DOM / Corse / taux particuliers | référentiel de taux étendu | **Pivot V1** | **P1** |
 | Éco-contributions / taxes parafiscales (non-TVA) | charges niveau doc BG-21 | **Pivot V1** | P1 si base TVA |
-| Devise étrangère + taux de change (TVA exprimée en EUR) | BT-111 (+ BT-6, règle BR-53) | **Pivot V1** | P1 si étranger |
+| Devise étrangère + taux de change (TVA exprimée en EUR) | — (BT-111/BT-6 non introduits) | **Hors V1 — EUR-only (verrou bloquant)** : cibles produit FULL EURO (décision Karl 2026-06-19, RD408) ; document non-EUR BLOQUÉ en Validation, pas de gestion multi-devises | P3 (verrou) |
 | Remises/escomptes/charges niveau document | BG-20 / BG-21 | **Pivot V1** | P2 |
 | Écart d'arrondi ligne vs global (toléré) | BT-114 | **Pivot V1** (régler F4) | P2 |
 
@@ -166,6 +166,27 @@ Décision ∈ { **Pivot V1** · **Capability** · **Contrat IExtractor** · **Di
 | BTP : situations de travaux cumulatives, retenue de garantie | **Différé (réservé)** | — |
 | Tiers payant (payeur ≠ destinataire — santé) | **Différé (réservé)** | — |
 
+##### Suivi RD406 (redline 2026-06-19) — concrétisation des « Différé (réservé) » et de la capacité `FlowKind`
+
+La Conséquence §5 (« ce qui reste hors V1 est *réservé*, pas oublié ») était **normative mais non
+tenue** pour la Famille 3 : la capacité `FlowKind` était décrite mais absente du contrat, et les cas
+« Différé (réservé) » n'avaient **aucun emplacement nommé**. RD406 tranche **par cas** (CLAUDE.md n°2 :
+aucune règle inventée — uniquement des slots réservés inertes, sans logique métier) :
+
+| Cas Famille 3 | Décision RD406 | Emplacement réservé (inerte V1) |
+|---|---|---|
+| POS B2C agrégé (`FlowKind`) | **(a) slot capacité réservé** | `ExtractorCapabilities.FlowKind` (défaut `UnitInvoice`) |
+| Abonnement / usage (période) | **(a) champ optionnel réservé** | `PivotDocumentDto.InvoicePeriod` (EN 16931 BG-14 : BT-73/BT-74) |
+| Marketplace / plateforme tripartite | **(b) rupture assumée à V-next** | — (modèle tripartite hors EN 16931 cœur ; pas de slot d'extraction présumable) |
+| B2G (Chorus Pro : code service + engagement) | **(b) rupture assumée à V-next** | — (donnée de **transmission/acheteur**, portée par le plug-in PA Chorus Pro + le profil tenant, **pas** extraite de la source ; réserver un BT dans le contrat d'extraction risquerait une correspondance fausse — CLAUDE.md n°2) |
+| BTP : retenue de garantie / situations cumulatives | **(b) rupture assumée à V-next** | — (mécanisme financier sans slot EN 16931 unique ; décision source à sourcer) |
+| Tiers payant (payeur ≠ destinataire) | **(b) rupture assumée à V-next** | — (santé ; hors cibles produit V1) |
+
+**(a)** = un futur connecteur est un **ajout** (le slot existe déjà, nul par défaut, hash canonique
+inchangé tant qu'il est absent — prouvé par test). **(b)** = aucun slot d'extraction réservé : le cas
+est une **rupture assumée**, ré-arbitrée à V-next quand une source réelle l'exige (la cohérence ADR ↔
+contrat est rétablie : §5 ne promet plus un slot pour ces cas). Aucun de ces slots n'est consommé en V1.
+
 ---
 
 ## Conséquences
@@ -193,7 +214,12 @@ Décision ∈ { **Pivot V1** · **Capability** · **Contrat IExtractor** · **Di
    #8 (capacités déclarées) sont **étendues à la frontière d'extraction**.
 5. **Ce qui reste hors V1 est réservé, pas oublié.** Les `Différé (réservé)` exigent un
    emplacement nommé dans le contrat (capacité ou champ optionnel) pour qu'un futur connecteur
-   soit un ajout, jamais une rupture.
+   soit un ajout, jamais une rupture. **Tenu par RD406** (redline 2026-06-19, voir le tableau
+   « Suivi RD406 » sous la matrice Famille 3) : les cas où un slot d'extraction est présumable
+   et standard sont **réservés maintenant** (`FlowKind`, `InvoicePeriod` BG-14 — inertes, hash
+   inchangé) ; les cas sans slot d'extraction présumable (marketplace, B2G code service, BTP,
+   tiers payant) sont requalifiés en **rupture assumée à V-next** — §5 ne promet plus un slot
+   pour eux, ce qui rétablit la cohérence ADR ↔ contrat.
 
 ---
 

@@ -64,6 +64,7 @@ public sealed class ContractCouplingGuardTests
         "tests/Liakont.Agent.Core.Tests/Liakont.Agent.Core.Tests.csproj -> tests/_shared/contract-v1/PivotCanonicalReader.cs",
         "tests/Liakont.Agent.Core.Tests/Liakont.Agent.Core.Tests.csproj -> tests/_shared/contract-v1/PivotContractGoldenTests.cs",
         "tests/Liakont.Agent.Core.Tests/Liakont.Agent.Core.Tests.csproj -> tests/fixtures/contrat-v1/*.json",
+        "tests/Liakont.Agent.Core.Tests/Liakont.Agent.Core.Tests.csproj -> tests/fixtures/contrat-v2/*.json",
     };
 
     // Nom du paquet (Include) sur un PackageReference / GlobalPackageReference. Guillemets simples ou

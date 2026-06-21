@@ -109,3 +109,28 @@ matrice §3 en un **catalogue immuable** (code Liakont, jamais `Stratum.*`) :
 > la garde — d'où un défaut latent jusqu'au premier écran exigeant un rôle élevé non super-admin).
 
 Conception : `docs/adr/ADR-0017-pont-role-permission-claims-oidc.md` (item producteur : `IDN01`).
+
+## 7. Note de divergence — ADR-0013 socle (« RBAC unchanged / Neutral »)
+
+> Note **Liakont** (RDF12, 2026-06-20). L'ADR socle `docs/adr/socle/ADR-0013-keycloak-identity-provider.md`
+> n'est **PAS modifié** ici (règle du socle vendored : `blueprint.md` §4, `socle/README.md` — un ADR socle
+> ne se rouvre pas) ; cette note consigne la nuance côté Liakont.
+
+L'ADR-0013 socle affirme en §**Neutral** que « **Stratum's RBAC is unchanged** — downstream modules see the
+same `IActorContext` and permission model » et, dans son flux, que « `PermissionPolicyProvider` checks
+Stratum's **Grant table** (unchanged) ». Sous l'authentification **OIDC** de Liakont, cette affirmation est
+**partiellement superseded** :
+
+- Les permissions Liakont **ne sont plus dérivées de la table `Grant`** du socle : elles sont **recréées**
+  par projection **rôle realm → claim `permission`** au sign-in (pont **ADR-0017**, livré par **IDN01** —
+  voir §6 ci-dessus). Le contrôle d'autorisation lit le **claim `permission`** du principal, pas la table
+  `Grant`.
+- Ce qui **reste vrai** d'ADR-0013 : l'abstraction `IActorContext` est inchangée (les modules consomment
+  toujours le même contrat d'acteur) et le **modèle** permission-based (politiques par permission) est
+  conservé — seule la **source** des permissions change (claims OIDC projetés, et non la table `Grant`).
+- Conséquence à garder en tête : le **caveat de révocation** (claims figés au sign-in) propre au chemin
+  OIDC (§6, ADR-0017 §Négatif, fenêtre bornée pour les permissions **sensibles** par RDF10) n'existait pas
+  dans le modèle « Grant table » du socle. C'est une divergence **assumée** de Liakont, pas un bug du socle.
+
+Le mapping realm↔tenant laissé « ouvert » par ce même ADR socle (« 1:1 vs shared realm with attributes ») est,
+lui, tranché par `docs/adr/ADR-0021-realm-keycloak-unique-isolation-par-claim.md` (realm **unique partagé**).

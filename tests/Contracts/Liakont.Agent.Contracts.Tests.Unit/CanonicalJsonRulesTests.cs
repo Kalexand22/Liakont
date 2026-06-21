@@ -182,6 +182,57 @@ public sealed class CanonicalJsonRulesTests
     }
 
     [Fact]
+    public void UnitCode_absent_is_omitted_so_line_hash_is_unchanged()
+    {
+        // RD407 : champ additif BT-130. Une ligne sans unité (UnitCode null) ne doit RIEN ajouter au
+        // JSON canonique — empreinte des goldens B2C inchangée octet par octet.
+        var line = new PivotLineDto(description: "ligne", netAmount: 100m);
+        string json = CanonicalJson.Serialize(Build(lines: new[] { line }));
+
+        json.Should().NotContain("\"UnitCode\"", "absent = OMIS, jamais émis (hash B2C inchangé)");
+    }
+
+    [Fact]
+    public void UnitCode_blank_is_normalized_to_absent()
+    {
+        // Une chaîne vide/blanche équivaut à « absent » : jamais émise (sinon elle changerait le hash).
+        var line = new PivotLineDto(description: "ligne", netAmount: 100m, unitCode: "   ");
+        string json = CanonicalJson.Serialize(Build(lines: new[] { line }));
+
+        json.Should().NotContain("\"UnitCode\"");
+    }
+
+    [Fact]
+    public void UnitCode_surrounding_whitespace_is_trimmed()
+    {
+        // Normalisation de surface : un code padné est borné, sinon les espaces fuiraient dans l'attribut
+        // CII et brouilleraient l'empreinte canonique pour un simple écart d'espacement source.
+        var line = new PivotLineDto(description: "ligne", netAmount: 100m, unitCode: "  KGM ");
+        string json = CanonicalJson.Serialize(Build(lines: new[] { line }));
+
+        json.Should().Contain("\"UnitCode\":\"KGM\"").And.NotContain("KGM ", "les espaces de bord sont retirés");
+    }
+
+    [Fact]
+    public void UnitCode_when_present_is_emitted_at_end_of_line_and_changes_the_hash()
+    {
+        var withUnit = new PivotLineDto(description: "ligne", netAmount: 100m, unitCode: "KGM");
+        string json = CanonicalJson.Serialize(Build(lines: new[] { withUnit }));
+
+        json.Should().Contain("\"UnitCode\":\"KGM\"", "le code UN/ECE Rec 20 porté est recopié tel quel");
+        json.IndexOf("\"SourceData\"", StringComparison.Ordinal)
+            .Should().BeLessThan(
+                json.IndexOf("\"UnitCode\"", StringComparison.Ordinal),
+                "champ ADDITIF émis en FIN de la ligne (ADR-0007)");
+
+        var withoutUnit = new PivotLineDto(description: "ligne", netAmount: 100m);
+        PayloadHasher.ComputeHash(Build(lines: new[] { withUnit }))
+            .Should().NotBe(
+                PayloadHasher.ComputeHash(Build(lines: new[] { withoutUnit })),
+                "porter une unité distingue l'empreinte (sensibilité), l'absence la laisse intacte");
+    }
+
+    [Fact]
     public void Serialize_rejects_a_null_document()
     {
         Action act = () => CanonicalJson.Serialize(null!);
@@ -243,7 +294,7 @@ public sealed class CanonicalJsonRulesTests
     /// </summary>
     private static void WalkFullyPopulatedDtoNodes(Action<IDictionary<string, object?>, Type> assert)
     {
-        string json = CanonicalJson.Serialize(ContractTests.ContractFixtures.BuildFullyPopulatedDocument());
+        string json = CanonicalJson.Serialize(BuildFullyPopulated());
         var root = ContractTests.PivotCanonicalReader.ParseToMap(json);
 
         assert(root, typeof(PivotDocumentDto));
@@ -257,6 +308,7 @@ public sealed class CanonicalJsonRulesTests
         assert(Element(root, "CreditNoteRefs", 0), typeof(PivotDocumentRefDto));
         assert(Element(root, "Payments", 0), typeof(PivotPaymentDto));
         assert(Element(root, "DocumentCharges", 0), typeof(PivotDocumentChargeDto));
+        assert(Child(root, "InvoicePeriod"), typeof(PivotInvoicePeriodDto));
     }
 
     private static void AssertAllPropertiesArePresent(IDictionary<string, object?> node, Type dtoType)
@@ -296,6 +348,133 @@ public sealed class CanonicalJsonRulesTests
 
     private static IDictionary<string, object?> Element(IDictionary<string, object?> node, string key, int index) =>
         (IDictionary<string, object?>)((List<object?>)node[key]!)[index]!;
+
+    private static PivotDocumentDto BuildFullyPopulated()
+    {
+        var address = new PivotAddressDto(
+            line1: "1 rue de la Paix",
+            line2: "Bât B",
+            postalCode: "75001",
+            city: "Paris",
+            countryCode: "FR");
+
+        var supplier = new PivotPartyDto(
+            name: "Fournisseur Fictif SA",
+            siren: "123456789",
+            siret: "12345678900012",
+            vatNumber: "FR12345678901",
+            address: address,
+            email: "contact@fournisseur-fictif.example",
+            isCompanyHint: true);
+
+        var customer = new PivotPartyDto(
+            name: "Client Fictif SARL",
+            siren: "987654321",
+            siret: "98765432100099",
+            vatNumber: "FR98765432109",
+            address: new PivotAddressDto(
+                line1: "2 avenue de l'Opéra",
+                line2: "Étage 3",
+                postalCode: "69001",
+                city: "Lyon",
+                countryCode: "FR"),
+            email: "facturation@client-fictif.example",
+            isCompanyHint: true);
+
+        var invoicer = new PivotPartyDto(
+            name: "Emetteur Fictif SAS",
+            siren: "111222333",
+            siret: "11122233300011",
+            vatNumber: "FR11122233301",
+            address: new PivotAddressDto(
+                line1: "3 boulevard Haussmann",
+                line2: "Suite 12",
+                postalCode: "75009",
+                city: "Paris",
+                countryCode: "FR"),
+            email: "emission@emetteur-fictif.example",
+            isCompanyHint: true);
+
+        var payee = new PivotPartyDto(
+            name: "Bénéficiaire Fictif SNC",
+            siren: "444555666",
+            siret: "44455566600044",
+            vatNumber: "FR44455566604",
+            address: new PivotAddressDto(
+                line1: "4 place Vendôme",
+                line2: "RDC",
+                postalCode: "75001",
+                city: "Paris",
+                countryCode: "FR"),
+            email: "paiement@beneficiaire-fictif.example",
+            isCompanyHint: true);
+
+        var totals = new PivotTotalsDto(
+            totalNet: 1000.00m,
+            totalTax: 200.00m,
+            totalGross: 1200.00m,
+            sourceTotalGross: 1200.00m);
+
+        var lineTax = new PivotLineTaxDto(
+            taxAmount: 200.00m,
+            rate: 20.00m,
+            categoryCode: VatCategory.S,
+            vatexCode: "VATEX-EU-G");
+
+        var line = new PivotLineDto(
+            description: "Prestation fictive de test",
+            netAmount: 1000.00m,
+            quantity: 2m,
+            unitPriceNet: 500.00m,
+            sourceRegimeCodes: new[] { "TVA_20" },
+            taxes: new[] { lineTax },
+            sourceLineRef: "LIG-001",
+            sourceData: "{\"raw\":\"line\"}",
+            unitCode: "C62");
+
+        var creditNoteRef = new PivotDocumentRefDto(
+            number: "FA-2026-001",
+            issueDate: new DateTime(2026, 1, 15),
+            sourceReference: "SRC-FA-001");
+
+        var payment = new PivotPaymentDto(
+            paymentDate: new DateTime(2026, 2, 1),
+            amount: 1200.00m,
+            method: "virement",
+            relatedDocumentNumber: "FA-2026-001",
+            sourceReference: "PAY-001");
+
+        var documentCharge = new PivotDocumentChargeDto(
+            isCharge: true,
+            amount: 10.00m,
+            reason: "éco-contribution",
+            reasonCode: "ECO",
+            sourceRegimeCodes: new[] { "ECO_CONTRIB" });
+
+        return new PivotDocumentDto(
+            sourceDocumentKind: "FA",
+            number: "FA-2026-TEST",
+            issueDate: new DateTime(2026, 3, 1),
+            sourceReference: "SRC-2026-TEST",
+            supplier: supplier,
+            totals: totals,
+            operationCategory: OperationCategory.PrestationServices,
+            currencyCode: "EUR",
+            customer: customer,
+            lines: new[] { line },
+            creditNoteRefs: new[] { creditNoteRef },
+            payments: new[] { payment },
+            documentCharges: new[] { documentCharge },
+            invoicer: invoicer,
+            payee: payee,
+            isSelfBilled: true,
+            prepaidAmount: 100.00m,
+            sourceData: "{\"raw\":\"doc\"}",
+            paymentDueDate: new DateTime(2026, 3, 31),
+            invoicePeriod: new PivotInvoicePeriodDto(
+                startDate: new DateTime(2026, 1, 1),
+                endDate: new DateTime(2026, 1, 31)));
+    }
 
     private static PivotDocumentDto Build(
         string number = "AV-1",

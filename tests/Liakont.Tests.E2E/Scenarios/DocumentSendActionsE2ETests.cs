@@ -3,7 +3,9 @@ namespace Liakont.Tests.E2E.Scenarios;
 using System;
 using System.Threading.Tasks;
 using FluentAssertions;
+using Liakont.Host.Security;
 using Liakont.Tests.E2E;
+using Liakont.Tests.E2E.Support;
 using Microsoft.Playwright;
 using Npgsql;
 using Xunit;
@@ -55,6 +57,7 @@ public sealed class DocumentSendActionsE2ETests : KeycloakBaseE2ETest
     }
 
     [Fact]
+    [SensitivePermissionCoverage(LiakontPermissions.Actions, "operateur")]
     public async Task Operator_sees_and_opens_the_send_confirmation_under_oidc()
     {
         // « operateur » = lecture + liakont.actions (projeté depuis le rôle realm par IDN01, sous OIDC réel).

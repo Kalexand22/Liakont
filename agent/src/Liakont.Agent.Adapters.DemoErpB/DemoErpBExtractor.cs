@@ -20,6 +20,14 @@ using Liakont.Agent.Core.Logging;
 /// DIFFÉRENT de DemoErpA (anglais, acheteur en ligne, régime sur la ligne, types « I »/« C ») pour
 /// exercer un second adaptateur réellement distinct. Idempotent (R2), aucune écriture.
 /// </summary>
+/// <remarks>
+/// Note d'inversion (redline RD409, finding RD4-18) : NE PAS mapper la lettre du nom d'adaptateur
+/// (DemoErpA / DemoErpB) sur la lettre du panel de validation de l'ADR-0004 (« Source A/B/C/D ») —
+/// ce sont deux jeux INDÉPENDANTS. En particulier, l'ADR nomme « Source A » la source aux montants
+/// <c>float</c> ; côté démo, c'est <b>DemoErpB</b> (cette classe) qui porte les montants <c>double</c>
+/// legacy (+ leur conservation brute dans <c>SourceData</c>). Aucun changement de comportement attaché
+/// à cette note : elle évite seulement une confusion de lecture.
+/// </remarks>
 public sealed class DemoErpBExtractor : IExtractor
 {
     private const int QueryTimeoutSeconds = 30;
@@ -61,6 +69,10 @@ public sealed class DemoErpBExtractor : IExtractor
     {
         _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
         _log = log ?? throw new ArgumentNullException(nameof(log));
+
+        // R9 (gate « document finalisé », ADR-0004 D4 Famille 2) : la source de démonstration ne contient
+        // que des pièces émises (pas d'état brouillon) → l'adaptateur s'engage à n'extraire que des
+        // documents finalisés (extractsOnlyFinalizedDocuments: true).
         Capabilities = new ExtractorCapabilities(
             providesSourceDocuments: false,
             providesUnlinkedDocumentPool: false,
@@ -71,7 +83,8 @@ public sealed class DemoErpBExtractor : IExtractor
             emitterIdentitySource: EmitterIdentitySource.FilledByPlatform,
             hasStoredHeaderTotal: true,
             isMutableAfterIssue: false,
-            numberUniquenessScope: NumberUniquenessScope.Global);
+            numberUniquenessScope: NumberUniquenessScope.Global,
+            extractsOnlyFinalizedDocuments: true);
     }
 
     /// <inheritdoc />

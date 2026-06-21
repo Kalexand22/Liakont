@@ -92,4 +92,15 @@ public enum DocumentEventType
     /// par le pipeline au moment de la finalisation (FX07), pas une décision de la machine à états.
     /// </summary>
     DocumentPaTransmissionJournaled,
+
+    /// <summary>
+    /// Référence PA (n° de flux) d'un dépôt ASYNCHRONE accepté, enregistrée sur un document RESTÉ
+    /// <c>Sending</c> (item PIPE01, D7) : une Plateforme Agréée asynchrone (p. ex. Chorus Pro) a ACCEPTÉ le
+    /// dépôt sans encore l'émettre et a renvoyé un identifiant de flux. La référence est persistée sur le
+    /// document pour que le raccrochage (RecoverSendingAsync) interroge la PA par cet identifiant et NE
+    /// re-dépose JAMAIS le flux (anti double-dépôt async, CLAUDE.md n°3). Fait d'audit append-only SYSTÈME
+    /// (le dépôt n'est pas une action opérateur) — jamais réécrit après coup. N'emporte AUCUNE transition
+    /// d'état : le document reste <c>Sending</c> en attente de la confirmation différée.
+    /// </summary>
+    DocumentPaReferenceRecorded,
 }

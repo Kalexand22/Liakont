@@ -72,9 +72,17 @@ public sealed class ContractFixtureTests
     private static readonly HashSet<string> BatchOutOfIllustrativeScope = new HashSet<string>(StringComparer.Ordinal)
     {
         nameof(PushBatchRequestDto.SourceTaxRegimes),
+        nameof(PushBatchRequestDto.ExtractorCapabilities),
     };
 
     private static string FixturesDirectory => Path.Combine(AppContext.BaseDirectory, "fixtures", "contrat-v1");
+
+    /// <summary>
+    /// Golden d'enveloppe du seam de cohabitation N/N-1 (RDF08) : mêmes documents que la v1, portés
+    /// par la version <see cref="ContractFixtures.CohabitationNextVersion"/>. Pas de golden de document
+    /// ici — le modèle de payload est partagé tant qu'aucune rupture réelle n'existe.
+    /// </summary>
+    private static string V2FixturesDirectory => Path.Combine(AppContext.BaseDirectory, "fixtures", "contrat-v2");
 
     [Theory]
     [MemberData(nameof(ContractFixtures.DocumentCases), MemberType = typeof(ContractFixtures))]
@@ -169,6 +177,56 @@ public sealed class ContractFixtureTests
         map.ContainsKey(nameof(HeartbeatRequestDto.LastSuccessfulSyncUtc)).Should().BeTrue();
     }
 
+    // ── Seam de cohabitation N/N-1 (RDF08) ──────────────────────────────────────────────────────
+    // ADR-0001/F12 promet « la plateforme supporte N ET N-1 ». Ces tests matérialisent l'axe de
+    // SÉRIALISATION du seam AVANT toute rupture réelle : un jeu de golden d'enveloppe v2
+    // (tests/fixtures/contrat-v2/) prouve, des DEUX côtés (net48 + .NET 10), que l'axe de version
+    // négociée (URL/en-tête) est ORTHOGONAL à l'empreinte par document. L'axe de NÉGOCIATION du seam
+    // (426 / N-1) est exercé par AgentContractVersionPolicyTests (plateforme).
+    [Fact]
+    public void Cohabitation_v2_batch_envelope_is_canonical_and_shares_v1_document_payloads()
+    {
+        string v1Golden = ReadFixture(ContractFixtures.BatchFixtureName + ".json");
+        string v2Golden = ReadV2Fixture(ContractFixtures.BatchFixtureName + ".json");
+
+        // 1. Identité octet-pour-octet cross-runtime de l'enveloppe v2 (preuve net48 == .NET 10).
+        ContractFixtures.ComposeBatchRequestJson(ContractFixtures.CohabitationNextVersion).Should().Be(
+            v2Golden, "le golden v2 est l'unique sortie canonique attendue des deux côtés (F12 §3.4)");
+
+        // 2. L'enveloppe v2 ne diffère de la v1 QUE par la valeur de ContractVersion : remplacer la
+        //    version N par N-1 redonne EXACTEMENT la v1 (axe de version orthogonal au payload).
+        v2Golden.Replace(
+                "\"ContractVersion\":\"" + ContractFixtures.CohabitationNextVersion + "\"",
+                "\"ContractVersion\":\"" + AgentContractVersion.ContractVersion + "\"")
+            .Should().Be(v1Golden, "seule la version négociée distingue les enveloppes v1 et v2");
+
+        // 3. Les documents embarqués portent une empreinte IDENTIQUE à leurs golden v1 : un document
+        //    poussé sous contrat N ou N-1 hashe pareil (anti-doublon stable à travers le seam).
+        foreach (string name in new[] { "facture-standard-b2c", "avoir-simple-lie" })
+        {
+            string docJson = CanonicalJson.Serialize(ContractFixtures.GetDocument(name));
+            v2Golden.Should().Contain(docJson, "le lot v2 transporte les mêmes payloads canoniques que la v1");
+            PayloadHasher.ComputeHash(docJson).Should().Be(
+                FrozenHashes[name],
+                "l'empreinte d'un document est invariante par version de contrat négociée (axe orthogonal)");
+        }
+    }
+
+    [Fact]
+    public void Cohabitation_v2_heartbeat_envelope_is_canonical_and_version_only_differs()
+    {
+        string v1Golden = ReadFixture(ContractFixtures.HeartbeatFixtureName + ".json");
+        string v2Golden = ReadV2Fixture(ContractFixtures.HeartbeatFixtureName + ".json");
+
+        ContractFixtures.ComposeHeartbeatJson(ContractFixtures.CohabitationNextVersion).Should().Be(
+            v2Golden, "le golden v2 du heartbeat est l'unique sortie canonique attendue des deux côtés");
+
+        v2Golden.Replace(
+                "\"ContractVersion\":\"" + ContractFixtures.CohabitationNextVersion + "\"",
+                "\"ContractVersion\":\"" + AgentContractVersion.ContractVersion + "\"")
+            .Should().Be(v1Golden, "seule la version négociée distingue les heartbeats v1 et v2");
+    }
+
     /// <summary>
     /// Garde de complétude des composeurs d'enveloppe ILLUSTRATIVE écrits À LA MAIN (le writer
     /// canonique ne réinjecte pas un sous-document déjà sérialisé). Chaque propriété publique du DTO
@@ -228,6 +286,13 @@ public sealed class ContractFixtureTests
 
             WriteCanonical(outDir!, ContractFixtures.BatchFixtureName, ContractFixtures.ComposeBatchRequestJson());
             WriteCanonical(outDir!, ContractFixtures.HeartbeatFixtureName, ContractFixtures.ComposeHeartbeatJson());
+
+            // Golden d'enveloppe du seam de cohabitation N/N-1 (RDF08), dans le dossier sœur contrat-v2.
+            string? parent = Path.GetDirectoryName(outDir!.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            string v2OutDir = Path.Combine(parent!, "contrat-v2");
+            Directory.CreateDirectory(v2OutDir);
+            WriteCanonical(v2OutDir, ContractFixtures.BatchFixtureName, ContractFixtures.ComposeBatchRequestJson(ContractFixtures.CohabitationNextVersion));
+            WriteCanonical(v2OutDir, ContractFixtures.HeartbeatFixtureName, ContractFixtures.ComposeHeartbeatJson(ContractFixtures.CohabitationNextVersion));
             throw new InvalidOperationException(
                 "Golden files régénérés dans " + outDir + ". Retirez LIAKONT_REGEN_FIXTURES/LIAKONT_FIXTURE_OUT, "
                 + "reportez les empreintes dans FrozenHashes, puis committez — un run de tests ne doit jamais régénérer silencieusement.");
@@ -241,6 +306,12 @@ public sealed class ContractFixtureTests
 
         File.Exists(Path.Combine(FixturesDirectory, ContractFixtures.BatchFixtureName + ".json")).Should().BeTrue();
         File.Exists(Path.Combine(FixturesDirectory, ContractFixtures.HeartbeatFixtureName + ".json")).Should().BeTrue();
+
+        // Golden d'enveloppe du seam de cohabitation N/N-1 (RDF08).
+        File.Exists(Path.Combine(V2FixturesDirectory, ContractFixtures.BatchFixtureName + ".json")).Should().BeTrue(
+            "golden v2 manquant : " + ContractFixtures.BatchFixtureName + " (régénérer via LIAKONT_REGEN_FIXTURES=1)");
+        File.Exists(Path.Combine(V2FixturesDirectory, ContractFixtures.HeartbeatFixtureName + ".json")).Should().BeTrue(
+            "golden v2 manquant : " + ContractFixtures.HeartbeatFixtureName + " (régénérer via LIAKONT_REGEN_FIXTURES=1)");
     }
 
     private static void AssertEnvelopeCoverage(Type dtoType, string composedJson, HashSet<string> outOfScope)
@@ -269,6 +340,14 @@ public sealed class ContractFixtureTests
         string path = Path.Combine(FixturesDirectory, fileName);
         File.Exists(path).Should().BeTrue(
             "la fixture " + fileName + " doit être présente (copiée en sortie ; régénérer via LIAKONT_REGEN_FIXTURES=1)");
+        return File.ReadAllText(path);
+    }
+
+    private static string ReadV2Fixture(string fileName)
+    {
+        string path = Path.Combine(V2FixturesDirectory, fileName);
+        File.Exists(path).Should().BeTrue(
+            "le golden v2 " + fileName + " doit être présent (copié en sortie ; régénérer via LIAKONT_REGEN_FIXTURES=1)");
         return File.ReadAllText(path);
     }
 

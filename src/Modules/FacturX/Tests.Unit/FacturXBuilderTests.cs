@@ -28,6 +28,7 @@ using Xunit;
 /// (Tests.Integration, INV-FX-5) — ces deux outils sont la source de vérité pour <c>/AFRelationship</c>
 /// et le Schematron EN 16931, que PdfPig n'expose pas (F16 §8).
 /// </summary>
+[Collection(QuestPdfLicenseCollectionFixture.Name)]
 public sealed class FacturXBuilderTests
 {
     static FacturXBuilderTests()

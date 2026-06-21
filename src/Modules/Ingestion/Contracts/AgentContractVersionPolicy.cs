@@ -18,9 +18,23 @@ public static class AgentContractVersionPolicy
 
     /// <summary>
     /// Indique si la version de contrat déclarée par l'agent est supportée. Une version absente,
-    /// vide, inconnue ou antérieure à N-1 n'est PAS supportée (→ 426).
+    /// vide, inconnue ou antérieure à N-1 n'est PAS supportée (→ 426). Délègue à la décision pure
+    /// <see cref="IsSupported(string?, string, string?)"/> avec la matrice live (<see cref="Current"/>,
+    /// <see cref="Previous"/>).
     /// </summary>
-    public static bool IsSupported(string? contractVersion)
+    public static bool IsSupported(string? contractVersion) => IsSupported(contractVersion, Current, Previous);
+
+    /// <summary>
+    /// Décision PURE de support de version pour une matrice (N, N-1) arbitraire : une version est
+    /// supportée si elle vaut <paramref name="current"/> (N) ou <paramref name="previous"/> (N-1, si
+    /// non nul) ; une version absente, vide, inconnue ou antérieure à N-1 ne l'est pas (→ 426).
+    ///
+    /// <para>Cette surcharge matérialise le seam de cohabitation N/N-1 (RDF08, ADR-0001/F12 §6.4) :
+    /// elle rend la branche N-1 — jamais exercée par la matrice live tant que <see cref="Previous"/>
+    /// vaut <c>null</c> — testable AVANT la première rupture de contrat, sans fausser la politique
+    /// servie en production. La logique 426 reste la même fonction des deux côtés.</para>
+    /// </summary>
+    internal static bool IsSupported(string? contractVersion, string current, string? previous)
     {
         if (string.IsNullOrWhiteSpace(contractVersion))
         {
@@ -28,7 +42,7 @@ public static class AgentContractVersionPolicy
         }
 
         var version = contractVersion.Trim();
-        return string.Equals(version, Current, StringComparison.Ordinal)
-            || (Previous is not null && string.Equals(version, Previous, StringComparison.Ordinal));
+        return string.Equals(version, current, StringComparison.Ordinal)
+            || (previous is not null && string.Equals(version, previous, StringComparison.Ordinal));
     }
 }

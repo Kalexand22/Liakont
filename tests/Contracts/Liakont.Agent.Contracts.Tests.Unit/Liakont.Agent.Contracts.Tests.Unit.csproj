@@ -35,6 +35,9 @@
        côtés (mêmes fichiers, mêmes empreintes — preuve de compatibilité cross-runtime). -->
   <ItemGroup>
     <None Include="..\..\fixtures\contrat-v1\*.json" Link="fixtures\contrat-v1\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Golden d'enveloppe du seam de cohabitation N/N-1 (RDF08) : preuve cross-runtime que l'axe de
+         version négociée est orthogonal à l'empreinte par document. -->
+    <None Include="..\..\fixtures\contrat-v2\*.json" Link="fixtures\contrat-v2\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

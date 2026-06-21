@@ -58,5 +58,7 @@ PA (INV-FX-4) : c'est le pipeline appelant, pas FacturX, qui décide de génére
   `/AFRelationship`, nom de pièce jointe — recopiées verbatim d'ADR-0023 §3 / INV-FX-3). Le sérialiseur
   CII maison (pivot → `CrossIndustryInvoice`) arrive en FX03.
 - **Application** : `IFacturXBuilder` (port). Les handlers/services de génération arrivent en FX03/FX04.
-- **Infrastructure** : `FacturXModuleRegistration` (`AddFacturXModule()` + licence QuestPDF Community).
+- **Infrastructure** : `FacturXModuleRegistration` (`AddFacturXModule(IConfiguration)` + déclaration de
+  la licence QuestPDF par configuration via `QuestPdf:LicenseType` — contrôle au déploiement, fermé par
+  défaut : valeur absente ou non reconnue bloque le démarrage).
   L'implémentation `IFacturXBuilder` (scellement PDF/A-3 QuestPDF) est livrée par FX04.

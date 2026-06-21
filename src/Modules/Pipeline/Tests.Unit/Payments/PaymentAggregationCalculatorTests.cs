@@ -31,7 +31,7 @@ public sealed class PaymentAggregationCalculatorTests
             Service(Day2, 60.00m, Line(20m, 50.00m, 10.00m)),
         };
 
-        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true);
+        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true, sourceExposesPayments: true);
 
         result.Exclusions.Should().BeEmpty();
         result.Aggregates.Should().HaveCount(3);
@@ -52,7 +52,7 @@ public sealed class PaymentAggregationCalculatorTests
             Service(Day1, 60.00m, Line(20m, 50.00m, 10.00m)),
         };
 
-        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true);
+        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true, sourceExposesPayments: true);
 
         result.Aggregates.Should().ContainSingle();
         result.Aggregates[0].TaxableBase.Should().Be(150.00m);
@@ -68,7 +68,7 @@ public sealed class PaymentAggregationCalculatorTests
             Service(Day1, 87.50m, Line(20m, 100.00m, 20.00m), Line(10m, 50.00m, 5.00m)),
         };
 
-        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true);
+        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true, sourceExposesPayments: true);
 
         result.Aggregates[0].Should().BeEquivalentTo(new { Rate = 10m, TaxableBase = 25.00m, VatAmount = 2.50m });
         result.Aggregates[1].Should().BeEquivalentTo(new { Rate = 20m, TaxableBase = 50.00m, VatAmount = 10.00m });
@@ -83,7 +83,7 @@ public sealed class PaymentAggregationCalculatorTests
             Service(Day1, 100.00m, Line(20m, 100.00m, 20.00m)),
         };
 
-        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true);
+        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true, sourceExposesPayments: true);
 
         result.Aggregates[0].TaxableBase.Should().Be(83.33m);
         result.Aggregates[0].VatAmount.Should().Be(16.67m);
@@ -98,7 +98,7 @@ public sealed class PaymentAggregationCalculatorTests
             Service(Day1, -120.00m, Line(20m, 100.00m, 20.00m)),
         };
 
-        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true);
+        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true, sourceExposesPayments: true);
 
         result.Aggregates[0].TaxableBase.Should().Be(-100.00m);
         result.Aggregates[0].VatAmount.Should().Be(-20.00m);
@@ -113,7 +113,7 @@ public sealed class PaymentAggregationCalculatorTests
             Payment(Day1, 120.00m, OperationCategory.Mixte, Line(20m, 100.00m, 20.00m)),
         };
 
-        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true);
+        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true, sourceExposesPayments: true);
 
         result.Aggregates.Should().BeEmpty();
         result.Exclusions.Should().ContainSingle()
@@ -128,7 +128,7 @@ public sealed class PaymentAggregationCalculatorTests
             Payment(Day1, 120.00m, OperationCategory.LivraisonBiens, Line(20m, 100.00m, 20.00m)),
         };
 
-        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true);
+        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true, sourceExposesPayments: true);
 
         result.Aggregates.Should().BeEmpty();
         result.Exclusions.Should().ContainSingle()
@@ -144,7 +144,7 @@ public sealed class PaymentAggregationCalculatorTests
             Service(Day1, 120.00m, Line(20m, 100.00m, 20.00m, "AE")),
         };
 
-        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true);
+        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true, sourceExposesPayments: true);
 
         result.Aggregates.Should().BeEmpty();
         result.Exclusions.Should().ContainSingle()
@@ -160,7 +160,7 @@ public sealed class PaymentAggregationCalculatorTests
             Service(Day1, 120.00m, Line(20m, 50.00m, 10.00m, "S"), Line(null, 50.00m, 0.00m, "AE")),
         };
 
-        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true);
+        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true, sourceExposesPayments: true);
 
         result.Aggregates.Should().BeEmpty();
         result.Exclusions.Should().ContainSingle()
@@ -175,7 +175,7 @@ public sealed class PaymentAggregationCalculatorTests
             Service(Day1, 120.00m, Line(null, 100.00m, 20.00m)),
         };
 
-        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true);
+        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true, sourceExposesPayments: true);
 
         result.Aggregates.Should().BeEmpty();
         result.Exclusions.Should().ContainSingle()
@@ -190,7 +190,7 @@ public sealed class PaymentAggregationCalculatorTests
             Service(Day1, 0.00m, Line(20m, 0.00m, 0.00m)),
         };
 
-        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true);
+        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true, sourceExposesPayments: true);
 
         result.Aggregates.Should().BeEmpty();
         result.Exclusions.Should().ContainSingle()
@@ -204,7 +204,7 @@ public sealed class PaymentAggregationCalculatorTests
         var fiscal = HappyFiscal() with { HasFeeImputationMethod = false };
         var payments = new List<ResolvedPayment> { Service(Day1, 120.00m, Line(20m, 100.00m, 20.00m)) };
 
-        var result = PaymentAggregationCalculator.Aggregate(payments, fiscal, paSupportsDomesticPaymentReporting: true);
+        var result = PaymentAggregationCalculator.Aggregate(payments, fiscal, paSupportsDomesticPaymentReporting: true, sourceExposesPayments: true);
 
         result.Aggregates.Should().ContainSingle();
         result.Aggregates[0].Status.Should().Be(PaymentAggregationStatus.Suspended);
@@ -220,7 +220,7 @@ public sealed class PaymentAggregationCalculatorTests
         var fiscal = HappyFiscal() with { HasOperationCategory = hasCategory, HasReportingFrequency = hasFrequency };
         var payments = new List<ResolvedPayment> { Service(Day1, 120.00m, Line(20m, 100.00m, 20.00m)) };
 
-        var result = PaymentAggregationCalculator.Aggregate(payments, fiscal, paSupportsDomesticPaymentReporting: true);
+        var result = PaymentAggregationCalculator.Aggregate(payments, fiscal, paSupportsDomesticPaymentReporting: true, sourceExposesPayments: true);
 
         result.Aggregates.Should().ContainSingle();
         result.Aggregates[0].Status.Should().Be(PaymentAggregationStatus.Suspended);
@@ -233,7 +233,7 @@ public sealed class PaymentAggregationCalculatorTests
         var fiscal = HappyFiscal() with { VatOnDebits = null };
         var payments = new List<ResolvedPayment> { Service(Day1, 120.00m, Line(20m, 100.00m, 20.00m)) };
 
-        var result = PaymentAggregationCalculator.Aggregate(payments, fiscal, paSupportsDomesticPaymentReporting: true);
+        var result = PaymentAggregationCalculator.Aggregate(payments, fiscal, paSupportsDomesticPaymentReporting: true, sourceExposesPayments: true);
 
         result.Aggregates[0].Status.Should().Be(PaymentAggregationStatus.Suspended);
     }
@@ -245,7 +245,7 @@ public sealed class PaymentAggregationCalculatorTests
         var fiscal = HappyFiscal() with { VatOnDebits = true };
         var payments = new List<ResolvedPayment> { Service(Day1, 120.00m, Line(20m, 100.00m, 20.00m)) };
 
-        var result = PaymentAggregationCalculator.Aggregate(payments, fiscal, paSupportsDomesticPaymentReporting: true);
+        var result = PaymentAggregationCalculator.Aggregate(payments, fiscal, paSupportsDomesticPaymentReporting: true, sourceExposesPayments: true);
 
         result.Aggregates.Should().ContainSingle();
         result.Aggregates[0].Status.Should().Be(PaymentAggregationStatus.NotRequired);
@@ -257,7 +257,7 @@ public sealed class PaymentAggregationCalculatorTests
     {
         var payments = new List<ResolvedPayment> { Service(Day1, 120.00m, Line(20m, 100.00m, 20.00m)) };
 
-        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: false);
+        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: false, sourceExposesPayments: true);
 
         result.Aggregates.Should().ContainSingle();
         result.Aggregates[0].Status.Should().Be(PaymentAggregationStatus.PendingCapability);
@@ -266,10 +266,47 @@ public sealed class PaymentAggregationCalculatorTests
     [Fact]
     public void Empty_Payments_Produces_No_Aggregates()
     {
-        var result = PaymentAggregationCalculator.Aggregate(new List<ResolvedPayment>(), HappyFiscal(), paSupportsDomesticPaymentReporting: true);
+        var result = PaymentAggregationCalculator.Aggregate(new List<ResolvedPayment>(), HappyFiscal(), paSupportsDomesticPaymentReporting: true, sourceExposesPayments: true);
 
         result.Aggregates.Should().BeEmpty();
         result.Exclusions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Source_Not_Exposing_Payments_Marks_Source_Without_Payments()
+    {
+        // RD403 : source qui n'expose pas les encaissements → e-reporting de paiement non applicable. Le statut
+        // prime sur les paramètres fiscaux (tout est renseigné + capacité PA présente) : la source est le verrou.
+        var payments = new List<ResolvedPayment> { Service(Day1, 120.00m, Line(20m, 100.00m, 20.00m)) };
+
+        var result = PaymentAggregationCalculator.Aggregate(payments, HappyFiscal(), paSupportsDomesticPaymentReporting: true, sourceExposesPayments: false);
+
+        result.Aggregates.Should().ContainSingle("l'agrégat reste calculé pour la traçabilité.");
+        result.Aggregates[0].Status.Should().Be(PaymentAggregationStatus.SourceWithoutPayments);
+    }
+
+    [Fact]
+    public void Source_Exposing_But_Zero_Payments_Is_Distinct_From_Source_Without_Payments()
+    {
+        // RD403 : « zéro encaissement » d'une source qui EXPOSE les paiements = aucun agrégat (rien à qualifier),
+        // PAS le statut SourceWithoutPayments. La distinction est portée par sourceExposesPayments: true.
+        var result = PaymentAggregationCalculator.Aggregate(new List<ResolvedPayment>(), HappyFiscal(), paSupportsDomesticPaymentReporting: true, sourceExposesPayments: true);
+
+        result.Aggregates.Should().BeEmpty();
+        result.Exclusions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Vat_On_Debits_Primes_Over_Source_Without_Payments()
+    {
+        // TVA sur les débits (F9 disparaît) prime même si la source n'expose pas les encaissements : NotRequired.
+        var payments = new List<ResolvedPayment> { Service(Day1, 120.00m, Line(20m, 100.00m, 20.00m)) };
+        var fiscal = HappyFiscal() with { VatOnDebits = true };
+
+        var result = PaymentAggregationCalculator.Aggregate(payments, fiscal, paSupportsDomesticPaymentReporting: true, sourceExposesPayments: false);
+
+        result.Aggregates.Should().ContainSingle();
+        result.Aggregates[0].Status.Should().Be(PaymentAggregationStatus.NotRequired);
     }
 
     private static PaymentFiscalContext HappyFiscal() => new()

@@ -81,8 +81,9 @@ public sealed class KeycloakE2EWebFactory : IAsyncLifetime, IAsyncDisposable
             .Replace("localhost:*", $"localhost:{_port}", StringComparison.Ordinal);
         var realmBytes = System.Text.Encoding.UTF8.GetBytes(realmJson);
 
+        // Tag de PATCH précis (non flottant) — politique de version Keycloak : ADR-0020 (avenant).
         _keycloak = new ContainerBuilder()
-            .WithImage("quay.io/keycloak/keycloak:26.0")
+            .WithImage("quay.io/keycloak/keycloak:26.0.8")
             .WithCommand("start-dev", "--import-realm")
             .WithEnvironment("KC_BOOTSTRAP_ADMIN_USERNAME", "admin")
             .WithEnvironment("KC_BOOTSTRAP_ADMIN_PASSWORD", "admin")
