@@ -16,7 +16,7 @@ using Liakont.Agent.Core.Logging;
 /// Adaptateur de DÉMONSTRATION DemoErpA : lit une base SQL Server fictive (ERP normalisé, montants
 /// <c>decimal</c>) en LECTURE SEULE STRICTE par ODBC (CLAUDE.md n°5, F01-F02 R1), et transforme ses
 /// factures en pivot EN 16931 via <see cref="DemoErpARowMapper"/>. Sert à éprouver le câblage AGT02
-/// (ADR-0023) et l'installation d'un service contre une vraie source. Aucune écriture, aucun verrou,
+/// (ADR-0031) et l'installation d'un service contre une vraie source. Aucune écriture, aucun verrou,
 /// aucune transaction d'écriture ; requêtes <c>SELECT</c> paramétrées avec timeout court. Idempotent
 /// (R2 : la même période renvoie les mêmes <see cref="PivotDocumentDto.SourceReference"/>).
 /// </summary>

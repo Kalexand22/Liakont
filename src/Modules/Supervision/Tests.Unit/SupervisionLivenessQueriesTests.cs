@@ -58,5 +58,8 @@ public sealed class SupervisionLivenessQueriesTests
 
         public Task<IReadOnlyList<JobDto>> ListByStatusAsync(string status, int limit = 50, CancellationToken ct = default) =>
             throw new NotSupportedException();
+
+        public Task<bool> HasPendingJobOfTypeAsync(string jobType, Guid? companyId, CancellationToken ct = default) =>
+            throw new NotSupportedException();
     }
 }

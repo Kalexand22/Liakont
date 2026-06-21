@@ -16,7 +16,7 @@ using Liakont.Agent.Core.Time;
 using Liakont.Agent.Core.Transport;
 
 /// <summary>
-/// Composition root du CYCLE DE RUN RÉEL de l'agent (AGT02, ADR-0023), partagée par la commande CLI
+/// Composition root du CYCLE DE RUN RÉEL de l'agent (AGT02, ADR-0031), partagée par la commande CLI
 /// <c>run</c> et le service Windows. Charge <c>agent.json</c>, déchiffre les secrets (DPAPI, ICI
 /// seulement — jamais journalisés, CLAUDE.md n°10), résout l'adaptateur configuré et assemble
 /// extraction → file locale → drainage (push + réconciliation) → journal de run. Aucune logique métier

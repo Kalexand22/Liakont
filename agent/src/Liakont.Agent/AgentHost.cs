@@ -10,7 +10,7 @@ using Liakont.Agent.Core.Logging;
 /// <summary>
 /// Composition de l'hôte d'exécution de l'agent (AGT01), partagée par le service Windows et le mode
 /// console. AGT01 fournit l'enveloppe (thread de fond + arrêt propre) ; le run réel (extraction → push)
-/// est composé par AGT02 (ADR-0023) via <see cref="AgentRunComposition"/>, le MÊME composition root que
+/// est composé par AGT02 (ADR-0031) via <see cref="AgentRunComposition"/>, le MÊME composition root que
 /// la commande CLI <c>run</c>. L'agent n'a aucune logique métier (CLAUDE.md n°6) : l'hôte ne fait que
 /// poser le cycle et garantir l'arrêt propre.
 /// </summary>
@@ -38,7 +38,7 @@ internal sealed class AgentHost : IDisposable
             throw new ArgumentNullException(nameof(log));
         }
 
-        // AGT02 (ADR-0023) : compose le cycle réel (extraction → file locale → push) depuis agent.json.
+        // AGT02 (ADR-0031) : compose le cycle réel (extraction → file locale → push) depuis agent.json.
         // TOUT échec de composition — config absente/invalide, secrets illisibles (déchiffrement DPAPI),
         // file locale SQLite corrompue/verrouillée, URL de plateforme invalide… — bascule en cycle NEUTRE
         // journalisé plutôt que d'abattre le service (pas de boucle de redémarrage SCM ; codex P2). La cause

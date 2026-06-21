@@ -1,15 +1,16 @@
 # ADR-0005 — L'agent dans un dépôt Git séparé ; contrat partagé via NuGet versionné
 
-- **Statut** : **Reporté / Conditionnel** (re-statué le 2026-06-20 — RDF12). *Décision de cible toujours
-  valable*, mais sa **mise en œuvre n'est plus rattachée à un déclencheur vivant** : le déclencheur
-  d'origine (« démarrage du segment `agent`, lots AGT ») est **entièrement écoulé** (GATE_AGENT done) **sans
+- **Statut** : **Reporté / Conditionnel** (re-statué le 2026-06-20 — RDF12 ; §Conséquences réévaluées
+  le 2026-06-20 — RDL10, redline ADR-0005/0006/0007). *Décision de cible toujours valable*, mais sa
+  **mise en œuvre n'est plus rattachée à un déclencheur vivant** : le déclencheur d'origine
+  (« démarrage du segment `agent`, lots AGT ») est **entièrement écoulé** (GATE_AGENT done) **sans
   que la bascule ait eu lieu**. État réel : l'agent (`Liakont.Agent.Cli/Core`, tests) **et** la plateforme
   (`Liakont.Host`, modules `Ingestion`/`Documents`/`Pipeline`/`Transmission`/PA…) consomment encore
   `Liakont.Agent.Contracts` par **ProjectReference cross-solution**, pas par PackageReference NuGet. Voir
   l'avenant 2026-06-20 (re-statut + date butoir + conditions de déclenchement).
   *(Statut antérieur : « Accepté (2026-06-03), mise en œuvre outillage différée au démarrage du segment
   `agent` ».)*
-- **Date** : 2026-06-03 (re-statué le 2026-06-20 — RDF12)
+- **Date** : 2026-06-03 (re-statué le 2026-06-20 — RDF12 ; §Conséquences réévaluées — RDL10)
 - **Contexte décisionnel** : `blueprint.md` §3-4, `docs/conception/F12` (architecture agent),
   `docs/conception/F13` (installateur + profils intégrateur), `CLAUDE.md` règles 5-6,
   `orchestration/protocol.md`, `tools/verify-fast.ps1`, ADR-0001 (pivot — option B « cross-repo »
@@ -37,20 +38,33 @@ Le besoin : faire de l'agent un **dépôt Git distinct**. Justifications, indép
 - **CI dédiée** (net48 x86/x64) et possibilité de confier / auditer le code agent sans exposer
   toute la plateforme.
 
-État réel au moment de la décision : l'agent est au stade **squelette** (SOL01/SOL02 — projets
-`Liakont.Agent.*` + `Liakont.Agent.Contracts` + tests d'architecture). Les lots **AGT/ADP/OPS ne
-sont pas implémentés** : aucune logique d'extraction/buffer/push réelle, pas d'installateur, pas
-d'adaptateur ODBC. On est **très en amont** du segment `agent` (priorité 5500+) — il n'y a rien de
-substantiel à déplacer aujourd'hui.
+État réel **au moment de la décision (2026-06-03)** : l'agent était au stade **squelette**
+(SOL01/SOL02 — projets `Liakont.Agent.*` + `Liakont.Agent.Contracts` + tests d'architecture), les
+lots AGT/ADP/OPS n'étant pas implémentés. La décision a donc tablé sur « rien de substantiel à
+déplacer aujourd'hui » et sur une bascule **bon marché**.
+
+> ⚠️ **Cette prémisse est PÉRIMÉE (réévaluation du 2026-06-20, RDL10).** Les segments `agent`,
+> `adapter-encheresv6` et la part agent de `deploiement-toolkit` sont livrés : l'agent compte
+> aujourd'hui **8 projets de production** (≈ 190 fichiers `.cs`, ≈ 15 900 LOC) — extraction ODBC
+> réelle, transport/buffer/auto-update, installeur WinForms, updater et 3 adaptateurs. La fenêtre
+> « scission bon marché » est **révolue** : la cible (dépôt séparé + contrat NuGet) reste valide,
+> mais la bascule est désormais un **chantier de migration** à planifier explicitement, pas une
+> formalité. L'inventaire de couplage exhaustif et la séquence de transition sont en §Conséquences.
 
 ## Décision
 
 1. **Un dépôt produit unique séparé** : `liakont-agent`. C'est un PRODUIT partagé par tous les
    clients — **pas** un template forké/cloné par client final.
 2. **Contenu** : le cœur générique (`Liakont.Agent`, `Liakont.Agent.Core`, `Liakont.Agent.Cli`,
-   `Liakont.Agent.Installer` — F13) + les **adaptateurs en plug-ins**, un par logiciel source
+   `Liakont.Agent.Installer` — F13), l'**updater de flotte** (`Liakont.Agent.Updater`, AGT04 /
+   ADR-0013 — il fait partie du produit agent : c'est lui qui applique l'auto-update non négociable
+   du point 5) + les **adaptateurs en plug-ins**, un par logiciel source
    (`Liakont.Agent.Adapters.EncheresV6`, futurs Sage/AS400…). Un adaptateur varie selon le
-   **logiciel**, jamais selon le client.
+   **logiciel**, jamais selon le client. Les **adaptateurs de démonstration** `DemoErpA`/`DemoErpB`
+   (ADR-0031 D5) sont **embarqués dans l'agent** et clairement marqués démo — ils éprouvent le
+   câblage `IExtractor` contre de vraies sources ODBC (données fictives sous `deployments/demo-local/`,
+   règle n°7) ; ils **restent donc dans le dépôt agent** comme adaptateurs de référence, ils ne sont
+   PAS reclassés en fixtures de test (un service installé doit les connaître — ADR-0031 D5).
 3. **Le contrat partagé via NuGet versionné** : `Liakont.Agent.Contracts` (netstandard2.0, aucune
    logique) est publié sur un feed privé et **consommé** par l'agent (net48) **et** par le module
    `Ingestion` de la plateforme (net10), au lieu d'une référence projet intra-repo. La
@@ -69,31 +83,121 @@ substantiel à déplacer aujourd'hui.
 
 **Positif** : isolation de sécurité, CI dédiée, cycles de vie découplés, auditabilité du code agent.
 
-**À traiter au démarrage du segment `agent` (mise en œuvre DIFFÉRÉE — PAS maintenant)** :
+> **Réévaluation du 2026-06-20 (RDL10).** La §Conséquences ci-dessous a été **réécrite** après que
+> les segments agent ont été livrés. La cible (dépôt séparé + contrat NuGet) est inchangée ; ce qui
+> change, c'est l'**ampleur de la bascule** : ce n'est plus une formalité de squelette mais un
+> chantier de migration dont l'inventaire de couplage doit être **exhaustif et à jour** sous peine
+> de faux-vert (deux ancres de hash SHA-256 qui divergent, preuve net48 perdue). Les **gardes
+> exécutables** correspondantes (pureté déclarative du contrat, anti-dérive des chemins
+> cross-solution, comptage des golden côté agent) sont portées par **RDL11** ; le déplacement de
+> `PivotReconciliation` hors du paquet publiable par **RDL12**.
 
-- `orchestration/protocol.md` : étendre l'orchestration au **multi-repo** (quel dépôt pour quel
-  segment, `build-agent-context`, branches, merge-back, partage `$ORCH_REPO`). C'est précisément le
-  point qu'ADR-0001 signalait non géré — chantier à valider avec l'humain, à ne pas improviser.
-- `tools/verify-fast.ps1` : le Step 4 (build/test agent) **migre** vers le dépôt agent ; le dépôt
-  plateforme ne build plus l'agent. Même discipline (verify-fast + codex-review) dans le repo agent.
-- **Référence du contrat (couplage à défaire)** : aujourd'hui `Liakont.Agent.Core` référence
-  `Agent.Contracts` par **ProjectReference cross-solution** (`..\..\..\src\Contracts\...`) — exactement
-  le couplage que cet ADR remplace. La bascule substitue une **PackageReference NuGet** à cette
-  ProjectReference et **adapte les tests d'architecture** qui codent en dur le chemin
-  `src/Contracts/Liakont.Agent.Contracts/...` (`agent/tests/.../AgentProjectReferenceTests.cs`) ainsi
-  que l'hypothèse « la plateforme n'est pas publiée en paquet » (commentaires de
-  `AgentProjectReferenceTests` / `ContractsPurityTests`).
-- `orchestration/manifest.yaml` : les segments `agent` et `adapter-encheresv6` **ciblent le dépôt
-  agent** (introduire un champ `repo:` au niveau segment dans `MANIFEST-CONVENTIONS.md`).
-- **CI** : pipeline net48 x86/x64 dans le dépôt agent ; publication de `Agent.Contracts` sur le feed
-  privé depuis la plateforme.
+### Inventaire de bascule (état au 2026-06-20 — à re-vérifier au démarrage effectif du chantier)
+
+**1. Code agent à déplacer (≈ 190 fichiers, ≈ 15 900 LOC) — 8 projets de production**, aujourd'hui
+sous `agent/src/` :
+
+| Projet | Rôle | Va au dépôt agent |
+|---|---|---|
+| `Liakont.Agent` | hôte/service Windows | oui |
+| `Liakont.Agent.Core` | extraction, buffer, push, cycle de run | oui |
+| `Liakont.Agent.Cli` | ligne de commande | oui |
+| `Liakont.Agent.Installer` | installeur WinForms + profils intégrateur (F13) | oui |
+| `Liakont.Agent.Updater` | auto-update de flotte (AGT04 / ADR-0013) | oui (produit, point 5) |
+| `Liakont.Agent.Adapters.EncheresV6` | adaptateur ODBC réel | oui (plug-in) |
+| `Liakont.Agent.Adapters.DemoErpA` | adaptateur **démo** embarqué (ADR-0031 D5) | oui (réf. démo, pas fixtures) |
+| `Liakont.Agent.Adapters.DemoErpB` | adaptateur **démo** embarqué (ADR-0031 D5) | oui (réf. démo, pas fixtures) |
+
+Plus les 7 projets de tests agent (`agent/tests/`) et leur outillage (`agent/tests/_shared/`).
+
+**2. Couplages cross-solution `agent/` → dépôt plateforme à défaire (recensement complet)** —
+sous-comptés par la rédaction d'origine (« 1 ProjectReference ») ; le réel est :
+
+- **6 `ProjectReference` vers `src/Contracts/Liakont.Agent.Contracts`** (chemin
+  `..\..\..\src\Contracts\...`) : 2 en production (`Liakont.Agent.Core`, `Liakont.Agent.Cli`) +
+  4 en tests (`*.Adapters.DemoErpA.Tests`, `*.Adapters.DemoErpB.Tests`, `*.Adapters.EncheresV6.Tests`,
+  `*.Core.Tests`). La bascule substitue **une `PackageReference` NuGet** (`Liakont.Agent.Contracts`,
+  feed privé) à **chacune** de ces 6 références, et adapte les tests d'architecture qui codent en dur
+  le chemin `src/Contracts/...` + l'hypothèse « la plateforme n'est pas publiée en paquet »
+  (`AgentProjectReferenceTests`, `ContractsPurityTests`).
+- **5 `Compile`-link cross-solution vers `tests/_shared/contract-v1/*.cs`** dans
+  `Liakont.Agent.Core.Tests` — dont le **lecteur canonique de référence** `PivotCanonicalReader.cs`
+  et les golden tests (`PivotContractGoldenTests.cs`, `ContractFixtures.cs`, `ContractFixtureTests.cs`,
+  `CanonicalEnumGuardTests.cs`). C'est l'ancre qui prouve **net48** que l'agent et la plateforme
+  partagent le MÊME hash de contrat.
+- **1 copie de fixtures cross-solution** : `None Include="..\..\..\tests\fixtures\contrat-v1\*.json"`
+  (`CopyToOutputDirectory`) dans `Liakont.Agent.Core.Tests` — les golden `.json` figés (empreintes
+  SHA-256 de référence).
+
+**3. Décision — vecteur de partage cross-repo du contrat de hash (à acter AVANT la bascule).**
+À la scission, les liens `Compile`/`None` ci-dessus ne peuvent plus pointer dans l'autre dépôt.
+Deux issues seulement, dont une seule est acceptable :
+
+- ❌ **Dupliquer** le lecteur + les golden dans le dépôt agent → deux ancres SHA-256 qui **divergent
+  silencieusement** : exactement le faux-vert que `F12 §3.4` interdit. **Rejeté.**
+- ✅ **Partager via paquet** : publier un `Liakont.Agent.Contracts.TestKit` (NuGet, `contentFiles` :
+  le lecteur `PivotCanonicalReader.cs`, les golden tests et les fixtures `.json`) **consommé des deux
+  côtés** (net48 agent + net10 plateforme). Source UNIQUE des golden ; un changement de contrat casse
+  les deux côtés au même endroit. **Vecteur retenu** (à spécifier au chantier ; cf. garde RDL11 qui
+  empêche le lien de « disparaître » silencieusement du run agent).
+
+**4. Séquence de transition `verify-fast` / CI (codent le mono-repo en dur aujourd'hui).** À la
+bascule, dans l'ordre, en gardant la **preuve de hash net48 re-jouée** à tout moment :
+
+1. Publier `Liakont.Agent.Contracts` (+ le `.TestKit`) sur le feed privé depuis la plateforme.
+2. Dépôt agent : remplacer les 6 `ProjectReference` et les liens `_shared`/fixtures par les
+   `PackageReference` correspondantes ; CI net48 x86/x64 dédiée (aujourd'hui le **job `agent:`** de
+   `.github/workflows/ci.yml` — build x86 + x64 + tests `ci-test.ps1` + self-tests packaging).
+3. Dépôt plateforme : **retirer le Step 4** de `tools/verify-fast.ps1` (build/test
+   `agent/Liakont.Agent.sln`) **et** le job `agent:` de la CI ; sortir `SOL02` du gardien bootstrap
+   (`Test-SolItemPending`) — sinon la garde anti faux-vert exigera une solution agent qui n'est plus là.
+4. La plateforme **continue de re-jouer** la preuve de hash via le golden empaqueté (`.TestKit`
+   consommé par un test net10 côté `src/`), pour que le retrait du build agent local ne supprime PAS
+   la preuve net48↔net10 (la preuve vient désormais du paquet, plus du lien de fichier).
+
+**5. Orchestration multi-repo (`orchestration/protocol.md`).** Étendre l'orchestration au multi-repo
+(quel dépôt pour quel segment, `build-agent-context`, branches, merge-back, partage `$ORCH_REPO`) —
+le point qu'ADR-0001 signalait non géré. Les segments **entièrement agent** — `agent` (lots `AGT`) et
+`adapter-encheresv6` (lots `ADP`) — **ciblent le dépôt agent** : matérialisé par un champ **`repo:` au
+niveau segment**, désormais **réservé/spécifié dans `MANIFEST-CONVENTIONS.md`** (défaut = dépôt
+plateforme courant ; à renseigner sur ces deux segments au chantier).
+⚠️ **`deploiement-toolkit` est un cas MIXTE, pas un segment-cible** : ses lots `[OPS, BRD, DOC]`
+mêlent des items **agent** (OPS05 packaging agent, OPS08a/b/c installeur WinForms) et des items
+**plateforme** (OPS03 assistant tenant, OPS01a appliance, OPS07 publication de versions). Un `repo:`
+unique au niveau segment ne peut PAS exprimer ce partage : il **doit d'abord être scindé** (part agent
+/ part plateforme) au chantier de migration AVANT qu'on puisse y router un `repo:` — il n'est donc PAS
+listé comme cible `repo: liakont-agent` tant que ce découpage n'est pas tranché. Chantier à valider
+avec l'humain, à ne pas improviser.
 
 **Garde-fous de cet ADR** :
 
-- Il **acte la cible**, il ne **déplace pas** le squelette agent et **ne crée pas** le dépôt. Aucune
+- Il **acte la cible**, il ne **déplace pas** le code agent et **ne crée pas** le dépôt. Aucune
   incohérence n'est introduite : tant que la bascule n'est pas faite, l'agent reste dans `agent/` et
   `verify-fast` continue de builder les deux solutions.
-- Il **ne modifie pas** l'orchestration runtime (`manifest.yaml`, `state.yaml`, `protocol.md`).
+- La réévaluation du 2026-06-20 (RDL10) est **documentaire** : elle met l'inventaire à jour et tranche
+  le vecteur de partage, elle ne **déclenche pas** la migration ni ne modifie l'orchestration runtime
+  (`manifest.yaml`, `state.yaml`, `protocol.md`). Les gardes exécutables sont RDL11/RDL12.
+
+### Placement de `PivotReconciliation` (RDL12, 2026-06-20)
+
+La formule de réconciliation **BR-CO-13** (EN 16931, F04 §3.3 ; total HT = Σ lignes ± charges/remises
+de niveau document, arrondi half-up) est portée par `PivotReconciliation`, **source UNIQUE** de la
+validation bloquante `LineTotalsRule` (module `Validation`) et de l'affichage console du contrôle de
+cohérence `DocumentLineProjection` (Host, FIX205). C'est de la **logique de validation fiscale** : par
+la décision 3 ci-dessus (« le contrat NuGet n'a aucune logique ») et CLAUDE.md n°6 (« l'agent n'a
+AUCUNE logique métier »), elle ne peut **pas** vivre dans `Liakont.Agent.Contracts`, qui sera publié et
+consommé par l'agent net48 à la bascule.
+
+- **Décision** : `PivotReconciliation` est déplacée de `src/Contracts/Liakont.Agent.Contracts` vers un
+  assembly **plateforme-seul** `src/Platform/Liakont.Platform.Pivot` (net10), qui référence le contrat
+  agent pour les DTOs/arrondi mais **n'est jamais référencé par l'agent** ni inclus dans le paquet du
+  contrat. `LineTotalsRule` et `DocumentLineProjection` y référent. **Aucune valeur calculée ne change**
+  (déplacement, pas réécriture) : `LineTotalsRule` reste la source unique BR-CO-13, inchangée.
+- **Après RDL12, le paquet publiable du contrat ne porte plus que** writer canonique + hasher +
+  arrondi (`PivotRounding`) + DTOs — exactement ce dont l'agent a besoin.
+- **Garde anti-régression** : `ContractArchitectureTests.Contracts_Assembly_Carries_No_Fiscal_Reconciliation_Logic`
+  échoue si un type `*Reconciliation` réapparaît dans le contrat agent ; la pureté BCL du contrat
+  (`ContractCouplingGuardTests`, `ContractsPurityTests`) et les gardes de frontière agent restent vertes.
 
 ## Alternatives rejetées
 
@@ -155,4 +259,8 @@ tort comme « en attente de » alors que rien ne le déclenchera plus.
 - `docs/conception/F13-Installateur-Agent-Profils-Integrateur.md` (installateur + profils intégrateur)
 - `docs/conception/F12-Architecture-Plateforme-Agent.md` (architecture agent, contrat d'ingestion)
 - `docs/adr/ADR-0001-pivot-plateforme-agent.md` (option B cross-repo pesée), `ADR-0003` (stack agent)
-- `orchestration/protocol.md`, `tools/verify-fast.ps1`
+- `docs/adr/ADR-0013` (updater de flotte), `ADR-0031` D5 (adaptateurs de démo `DemoErpA`/`DemoErpB`)
+- `docs/conception/F12-Architecture-Plateforme-Agent.md` §3.4 (anti faux-vert : une seule ancre de hash)
+- `orchestration/protocol.md`, `tools/verify-fast.ps1` (Step 4), `.github/workflows/ci.yml` (job `agent:`)
+- `orchestration/MANIFEST-CONVENTIONS.md` (champ `repo:` au niveau segment)
+- `tasks/redline-adr-005-006-007.md` (findings A5-coupling-1/5, A5-fix-1/4/5 ; RDL10/RDL11/RDL12)

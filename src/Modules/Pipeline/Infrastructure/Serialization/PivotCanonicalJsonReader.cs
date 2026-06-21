@@ -55,7 +55,15 @@ public static class PivotCanonicalJsonReader
         isSelfBilled: Bool(element, "IsSelfBilled"),
         prepaidAmount: DecimalOrNull(element, "PrepaidAmount"),
         sourceData: StrOrNull(element, "SourceData"),
-        paymentDueDate: DateOrNull(element, "PaymentDueDate"));
+        paymentDueDate: DateOrNull(element, "PaymentDueDate"),
+        invoicePeriod: TryObject(element, "InvoicePeriod", out JsonElement invoicePeriod) ? ReadInvoicePeriod(invoicePeriod) : null);
+
+    // EN 16931 BG-14 (RD406, slot abonnement) : objet additif optionnel, miroir exact de
+    // CanonicalJson.WriteInvoicePeriod (StartDate=BT-73 puis EndDate=BT-74, dates yyyy-MM-dd). Absent du
+    // JSON → null (le writer omet un optionnel null) ; un document sans période traverse le staging inchangé.
+    private static PivotInvoicePeriodDto ReadInvoicePeriod(JsonElement element) => new(
+        startDate: Date(element, "StartDate"),
+        endDate: Date(element, "EndDate"));
 
     private static PivotPartyDto ReadParty(JsonElement element) => new(
         name: Str(element, "Name"),
@@ -159,7 +167,7 @@ public static class PivotCanonicalJsonReader
         where TEnum : struct =>
         Enum.Parse<TEnum>(name);
 
-    // Nature d'opération optionnelle (ADR-0023 amendé) : absente du JSON → null (la plateforme la remplit à
+    // Nature d'opération optionnelle (ADR-0031 amendé) : absente du JSON → null (la plateforme la remplit à
     // l'ingestion ; un pivot émis par l'agent ne la porte pas). Miroir exact du writer (omis si null).
     private static OperationCategory? ReadOperationCategory(JsonElement element) =>
         TryString(element, "OperationCategory", out string value) ? EnumByName<OperationCategory>(value) : null;

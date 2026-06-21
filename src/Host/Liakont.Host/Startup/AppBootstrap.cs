@@ -72,6 +72,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
+using Stratum.Common.Abstractions.Jobs;
 using Stratum.Common.Abstractions.MultiTenancy;
 using Stratum.Common.Abstractions.Security;
 using Stratum.Common.Infrastructure.Actions;
@@ -163,8 +164,14 @@ public static class AppBootstrap
         builder.Services.AddStratumGis(builder.Configuration);
 
         // Multi-tenant job runner (SOL06) — fans an ITenantJob out over all active tenants.
-        // Requires ITenantScopeFactory (registered by AddStratumMultiTenancy above).
-        builder.Services.AddTenantJobs();
+        // Requires ITenantScopeFactory (registered by AddStratumMultiTenancy above). The optional per-tenant
+        // time budget (RDL08, A6-scale-3) is bound from the "TenantJobs" section; absent → disabled (null).
+        builder.Services.AddTenantJobs(opts =>
+            builder.Configuration.GetSection(TenantJobRunnerOptions.SectionName).Bind(opts));
+
+        // De-duplication guard for the recurring scheduler (RDL08, A6-scale-2): consulted by JobScheduler
+        // before enqueuing, suppresses an enqueue when a Pending job of the same type/scope already exists.
+        builder.Services.AddScoped<IRecurringJobEnqueueGuard, RecurringJobEnqueueGuard>();
 
         // Modules
         builder.Services.AddIdentityModule(builder.Configuration);
@@ -239,9 +246,9 @@ public static class AppBootstrap
         // Bascule tacite des acceptations d'auto-factures 389 (MND04, ADR-0024 §4) : le handler de fan-out
         // (gabarit DailyAnchoring/SOL06) bascule PendingAcceptance → TacitlyAccepted pour les documents sous
         // mandat écrit dont l'échéance (DeadlineUtc) est échue. La CADENCE n'est PAS fixée par la spec (F15
-        // §2.3 ne fixe que l'échéance par document) : aucune n'est inventée ici → pas d'entrée
-        // SystemJobDefinitions ; la planification reste un geste opérateur (admin des schedules), comme le
-        // récapitulatif SUP03 (optionnel, non amorcé).
+        // §2.3 ne fixe que l'échéance par document) : aucune n'est inventée → entrée SystemJobDefinitions de
+        // classe DeploymentCadence (cron null, NON amorcée) pour que le diagnostic de démarrage signale un job
+        // jamais planifié (RDL07/A6-cons-2) ; la planification reste un geste opérateur (admin des schedules).
         builder.Services.AddJobHandler<SelfBilledAcceptanceTacitTrigger, SelfBilledAcceptanceTacitFanOutHandler>(
             "Bascule tacite des acceptations d'auto-factures");
 
@@ -262,9 +269,10 @@ public static class AppBootstrap
         // à rétention courte (proposition 90 j configurable) et PURGEABLE — distinct par construction de la
         // piste d'audit append-only (documents.document_events) et du coffre WORM probant. Le handler de purge
         // fait le fan-out par tenant (TenantJobRunner, SOL06) ; sa PLANIFICATION (cron) reste un geste opérateur
-        // via l'admin des planifications, comme le digest de supervision — aucune cadence inventée (la cadence
-        // d'un housekeeping de rétention courte relève du déploiement). L'ÉCRITURE de la trace (au moment de la
-        // transmission) est câblée par FX07.
+        // via l'admin des planifications — aucune cadence inventée (housekeeping de rétention courte = cadence de
+        // déploiement) : entrée SystemJobDefinitions de classe DeploymentCadence (cron null, non amorcée) pour
+        // que le diagnostic de démarrage signale un job jamais planifié (RDL07/A6-cons-2). L'ÉCRITURE de la trace
+        // (au moment de la transmission) est câblée par FX07.
         builder.Services.AddSupportTraceModule(builder.Configuration);
         builder.Services.AddJobHandler<SupportTracePurgeTrigger, SupportTracePurgeFanOutHandler>("Purge de la trace de support du Factur-X");
 
@@ -369,6 +377,13 @@ public static class AppBootstrap
         // de pipeline ici (PIP01b-d) ; le pipeline ne référence aucune PA concrète (CLAUDE.md n°6).
         builder.Services.AddPipelineModule();
 
+        // RDL06 — les 4 fan-out SYSTÈME récurrents du pipeline (SendAll/SyncAll/AggregatePaymentsAll/
+        // RectifyReportsAll) sont câblés ICI via AddJobHandler (l'extension vit dans le module Job, que seul le
+        // Host référence) : c'est AddJobHandler qui pose la JobHandlerRegistration singleton vue par le
+        // JobHandlerResolver (dispatch) et le JobTypeCatalog (planification). Leur PLANIFICATION (cron) reste un
+        // geste opérateur via l'admin des schedules, comme l'ancrage TRK06 et la supervision.
+        builder.Services.AddPipelineSystemJobHandlers();
+
         // SEND déclenché par une ACTION de console (API02a, ADR-0016) : handler SYSTÈME du déclencheur
         // MONO-TENANT SendTenantTrigger. Enregistré au composition root (comme DailyAnchoring/Supervision)
         // pour exposer sa JobHandlerRegistration au JobHandlerResolver — c'est lui que le JobWorker résout
@@ -462,8 +477,9 @@ public static class AppBootstrap
         // (cf. CanonicalJson / fixtures contrat-v1). Sans convertisseur string→enum, System.Text.Json
         // attend un nombre et rejette un lot au format documenté en 400 au model-binding (requête) et
         // émet le statut de réponse en nombre. Scopé aux trois enums du contrat (deux en requête, un en
-        // réponse — voir AgentApiJson) pour ne pas toucher le format des autres enums.
-        builder.Services.ConfigureHttpJsonOptions(options => AgentApiJson.ConfigureContractEnums(options.SerializerOptions));
+        // réponse — voir AgentApiJson) pour ne pas toucher le format des autres enums. RDL04 ajoute le
+        // rejet strict des membres inconnus sur les DTOs du contrat (intégrité du hash N+1→N).
+        builder.Services.ConfigureHttpJsonOptions(options => AgentApiJson.ConfigureContractBinding(options.SerializerOptions));
 
         // Le module ERP Party n'est pas vendoré (seul Party.Contracts — décision D1). Identity
         // dépend de IPartyQueries par injection ; Liakont ne lie pas ses utilisateurs à des Party

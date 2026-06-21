@@ -203,7 +203,7 @@ public class AgentRunCycleTests
         using (var db = new TempDatabase())
         using (var queue = new LocalQueue(db.Path, new MutableClock(Now)))
         {
-            // Aucun filigrane : la borne déclarée extractFromUtc sert de borne basse au premier run (ADR-0023).
+            // Aucun filigrane : la borne déclarée extractFromUtc sert de borne basse au premier run (ADR-0031).
             var extractor = new FixtureExtractor(
                 "Fixture",
                 documents: new[] { PivotTestData.Document("REF-1", new DateTime(2026, 6, 3, 0, 0, 0, DateTimeKind.Utc)) });

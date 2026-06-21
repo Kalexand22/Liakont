@@ -5,7 +5,7 @@ using System.Collections.Generic;
 
 /// <summary>
 /// Configuration SPÉCIFIQUE d'un adaptateur source (section <c>adapterConfig.&lt;nom&gt;</c> de
-/// <c>agent.json</c>, ADR-0023). Le chargeur générique ne connaît pas les champs d'un adaptateur
+/// <c>agent.json</c>, ADR-0031). Le chargeur générique ne connaît pas les champs d'un adaptateur
 /// donné : il transporte une section nommée de paires clé→valeur (chaînes). C'est la FABRIQUE de
 /// chaque adaptateur qui lit et valide SA section (présence de l'émetteur, nature d'opération…),
 /// avec des messages opérateur français (CLAUDE.md n°12). Aucun secret ici : la clé API et la

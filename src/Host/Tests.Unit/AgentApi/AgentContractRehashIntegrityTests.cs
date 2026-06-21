@@ -42,7 +42,7 @@ public sealed class AgentContractRehashIntegrityTests
     private static JsonSerializerOptions HostMinimalApiOptions()
     {
         var services = new ServiceCollection();
-        services.ConfigureHttpJsonOptions(options => AgentApiJson.ConfigureContractEnums(options.SerializerOptions));
+        services.ConfigureHttpJsonOptions(options => AgentApiJson.ConfigureContractBinding(options.SerializerOptions));
         using ServiceProvider provider = services.BuildServiceProvider();
         return provider.GetRequiredService<IOptions<HttpJsonOptions>>().Value.SerializerOptions;
     }

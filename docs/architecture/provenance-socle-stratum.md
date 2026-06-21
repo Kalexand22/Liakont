@@ -188,12 +188,27 @@ tête de run-tests.ps1 pour rendre le parsing indépendant de la locale (le gard
 ### 4.12 `tools/socle-provenance-check.ps1` + `tools/socle-baseline.sha1` — garde automatique (SOL03)
 La règle « le socle vendored ne se modifie pas silencieusement » (CLAUDE.md n.11) est désormais
 **vérifiée automatiquement**. `tools/socle-baseline.sha1` épingle le hash de blob git
-(`git hash-object`, indépendant de la plateforme) de chacun des 1226 fichiers vendored
-(`src/Common` + `src/Modules/{Identity,Party,Job,Notification,Audit}` ; le Host adapté `Liakont.Host`
-est exclu — code Liakont, pas `Stratum.*`). À chaque `verify-fast`, le script recalcule les hashes :
-tout fichier épinglé qui a dérivé du baseline (modifié ou supprimé) DOIT figurer, **par son chemin
-repo-relatif EXACT**, dans le bloc de consignation balisé ci-dessous (`SOCLE-CONSIGNED-DRIFT`), sinon
-`verify-fast` échoue (exit 2).
+(`git hash-object`, indépendant de la plateforme) de chacun des **vrais fichiers vendorés
+`Stratum.*`** sous les racines vendorées (`src/Common` + `src/Modules/{Identity,Party,Job,Notification,
+Audit}` ; le Host adapté `Liakont.Host` est exclu — code Liakont, pas `Stratum.*`). À chaque
+`verify-fast`, le script recalcule les hashes : tout fichier épinglé qui a dérivé du baseline (modifié
+ou supprimé) DOIT figurer, **par son chemin repo-relatif EXACT**, dans le bloc de consignation balisé
+ci-dessous (`SOCLE-CONSIGNED-DRIFT`), sinon `verify-fast` échoue (exit 2).
+
+**Les ajouts Liakont sont exclus du périmètre épinglé (correctif RDL09, finding A6-prov-1).** Un
+fichier AJOUTÉ par Liakont sous une racine vendorée (code Liakont placé dans l'arbre vendored, pas un
+fichier `Stratum.*` : mécanique multi-tenant SOL06, catalogue/exécutions de jobs FIX210/FIX211,
+affichage des dates côté navigateur, provisioning utilisateur Keycloak OPS03…) **n'est pas épinglé** :
+l'éditer est du travail Liakont normal, pas une dérive du socle. Ces fichiers sont identifiés — et
+exclus de `-Generate` **comme** de la vérification — par un **marqueur de tête** : leur **première
+ligne** contient la chaîne littérale `Liakont addition` (convention §4.14 ; ex. `// Liakont addition
+(SOL06): …`, `@* Liakont addition … *@`, `-- Liakont addition …`). Un vrai fichier `Stratum.*` ne
+porte jamais ce marqueur : il reste épinglé et toute édition réelle reste détectée. Avant RDL09 le
+baseline épinglait ces ajouts (régénération OPS03 non consignée — A6-prov-1), ce qui faisait échouer
+`verify-fast` sur une édition LÉGITIME d'un de ces fichiers (faux positif « dérive socle non
+consignée ») : la garde poussait alors au mauvais geste. Le décompte exact des fichiers épinglés est
+**tenu à jour à chaque régénération dans le journal §4.37** (1226 à la régénération RDL09) — il n'est
+plus codé en dur ici.
 
 **Matching par chemin exact, jamais par nom de fichier** (correctif review SOL03 round 1, P1) : les
 noms de fichiers vendored sont très souvent en collision (`ServiceCollectionExtensions.cs` ×14,
@@ -201,18 +216,23 @@ noms de fichiers vendored sont très souvent en collision (`ServiceCollectionExt
 `AssemblyInfo.cs`…). Un match par leaf ou par sous-chaîne laisserait passer une modification
 silencieuse du fichier B dès qu'un homonyme A est consigné — exactement le faux-vert corrigé ici.
 
-Workflow d'une modification légitime future d'un fichier `Stratum.*` : (1) éditer le fichier,
+Workflow d'une modification légitime future d'un fichier `Stratum.*` EXISTANT : (1) éditer le fichier,
 (2) ajouter une sous-section 4.x narrative ci-dessus, (3) ajouter son **chemin repo-relatif exact**
 dans le bloc `SOCLE-CONSIGNED-DRIFT` ci-dessous. (Optionnel : régénérer le baseline avec
 `tools/socle-provenance-check.ps1 -Generate` pour « cuire » le nouvel état — il ne dérive alors plus
-et peut être retiré du bloc.) Limite assumée : un fichier AJOUTÉ sous un dossier vendored (ex.
-mécanique multi-tenant Liakont de SOL06) n'est pas épinglé par le baseline — la garde cible la
-modification/suppression silencieuse d'un fichier vendored existant, exactement la règle n.11.
+et peut être retiré du bloc ; **toute régénération est consignée au journal §4.37**.)
 
-Le baseline a été généré sur l'état consigné courant (vendoring SOL01 + les modifications des sections
-4.1–4.11 ci-dessus) : ces modifications sont déjà **incorporées** dans le baseline et ne dérivent donc
-pas — le bloc de consignation est par conséquent **vide** tant qu'aucune dérive POST-baseline n'a été
-introduite.
+Workflow d'un AJOUT Liakont sous une racine vendorée (pas un fichier `Stratum.*`) : (1) créer le
+fichier en mettant le **marqueur de tête `Liakont addition (…)` en première ligne** (syntaxe de
+commentaire du type de fichier), (2) le décrire dans une sous-section 4.x. Il est alors automatiquement
+exclu du périmètre épinglé — ne **jamais** l'inscrire dans le bloc `SOCLE-CONSIGNED-DRIFT` (réservé aux
+fichiers `Stratum.*` épinglés qui dérivent).
+
+État du baseline : il est généré sur l'état COURANT de l'arbre (les modifications consignées des
+sections 4.x sont « cuites » dedans). Après une régénération complète, les fichiers `Stratum.*`
+épinglés sont conformes au baseline et **ne dérivent pas** : le bloc `SOCLE-CONSIGNED-DRIFT` ci-dessous
+est alors **informatif** (trace, pour la re-convergence NuGet, des fichiers `Stratum.*` qui divergent
+de l'amont) et n'est consulté par la garde que lorsqu'un fichier épinglé dérive effectivement.
 
 Format du bloc : un chemin repo-relatif EXACT par ligne (ex. `src/Modules/Identity/Infrastructure/
 Security/ReflectionPermissionCatalog.cs`). Les lignes vides et les lignes de commentaire (`<!--`,
@@ -241,13 +261,14 @@ src/Modules/Job/Web/JobNavSectionProvider.cs
 src/Modules/Job/Infrastructure/JobHandlerResolver.cs
 src/Modules/Job/Contracts/Queries/IJobQueries.cs
 src/Modules/Job/Infrastructure/Queries/PostgresJobQueries.cs
+<!-- §4.38 — RDL08 : dé-duplication à l'enqueue des jobs récurrents (anti-empilement) -->
+src/Modules/Job/Infrastructure/JobScheduler.cs
 src/Common/Infrastructure/Database/TenantProvisioningService.cs
 src/Common/Infrastructure/Keycloak/KeycloakRealmProvisioner.cs
 src/Common/Abstractions/MultiTenancy/KeycloakRealmProvisionRequest.cs
 src/Common/Abstractions/MultiTenancy/TenantProvisionResult.cs
 src/Common/Infrastructure/Database/ServiceCollectionExtensions.cs
 src/Common/UI/CommonUIServiceExtensions.cs
-src/Modules/Job/Web/Pages/AdminJobExecutions.razor
 src/Modules/Audit/Web/Pages/AdminAudit.razor
 src/Modules/Audit/Web/Pages/AdminAuditDetail.razor
 src/Modules/Audit/Web/Pages/AdminAuditPolicies.razor
@@ -273,7 +294,6 @@ src/Modules/Notification/Web/Pages/AdminIntegrations.razor
 <!-- §4.36 — lecture timestamptz via DbTimestamp (casts directs (DateTimeOffset)row.x corriges) -->
 src/Modules/Job/Infrastructure/PostgresJobUnitOfWork.cs
 src/Modules/Job/Infrastructure/Queries/PostgresScheduleQueries.cs
-src/Modules/Job/Infrastructure/Queries/PostgresJobExecutionsQueries.cs
 src/Modules/Notification/Infrastructure/PostgresNotificationUnitOfWork.cs
 src/Modules/Notification/Infrastructure/Queries/PostgresApiKeyQueries.cs
 src/Modules/Notification/Infrastructure/Queries/PostgresIntegrationConfigQueries.cs
@@ -327,10 +347,12 @@ SOL06 ajoute la mécanique `TenantJobRunner` (jobs multi-tenant — voir
 `docs/adr/ADR-0006-mecanique-jobs-multi-tenant.md` et `docs/architecture/tenant-jobs.md`) **sous les
 dossiers vendored `src/Common`**, conformément au choix de placement de l'ADR-0006 (réutilisable par
 tous les modules sans dépendance circulaire). Ce sont des **fichiers AJOUTÉS**, pas des modifications
-de fichiers `Stratum.*` existants : le baseline de provenance (§4.12) n'épingle que les fichiers
-vendorés existants, donc ces ajouts **ne dérivent pas** et ne figurent PAS dans le bloc
-`SOCLE-CONSIGNED-DRIFT` (réservé aux fichiers épinglés modifiés/supprimés). Ils sont consignés ici
-pour la re-convergence NuGet et marqués `// Liakont addition (SOL06)` en tête de fichier.
+de fichiers `Stratum.*` existants : le baseline de provenance (§4.12) n'épingle que les vrais fichiers
+`Stratum.*`, **jamais** un ajout Liakont (exclusion par marqueur de tête, cf. §4.12 — correctif
+RDL09). Ces ajouts **ne dérivent pas** et ne figurent PAS dans le bloc `SOCLE-CONSIGNED-DRIFT` (réservé
+aux fichiers `Stratum.*` épinglés modifiés/supprimés). Ils sont consignés ici pour la re-convergence
+NuGet et **doivent** porter le marqueur `// Liakont addition (SOL06)` en première ligne (c'est ce
+marqueur, désormais, qui les exclut automatiquement du périmètre épinglé).
 
 Fichiers ajoutés (namespaces cohérents avec l'assembly hôte ; code **Liakont**, pas Stratum amont) :
 - `src/Common/Abstractions/Jobs/` : `ITenantJob.cs`, `TenantJobContext.cs`, `ITenantJobRunner.cs`,
@@ -999,6 +1021,52 @@ touchés (chacun a un `RowReader` robuste, ex. `TenantSettingsRowReader.ToDateTi
 
 **Vérification** : build Release `0/0` (StyleCop) ; `DbTimestampTests` (unitaire) ; recette manuelle des
 pages admin socle (plus d'`InvalidCastException`). Aucun `*ColumnRegistry` ni `.razor` touché.
+
+### 4.37 Journal des régénérations du baseline de provenance (`-Generate`) — RDL09
+Chaque exécution de `tools/socle-provenance-check.ps1 -Generate` « cuit » l'état courant de l'arbre
+dans `tools/socle-baseline.sha1` ; c'est un acte délibéré qui REMPLACE la référence et doit donc être
+tracé (item, commit, raison, décompte). Avant RDL09 une régénération « OPS03 » avait été faite sans
+trace (A6-prov-2) : le décompte codé en dur en §4.12 (« 1226 ») était périmé (réel 1249) et la
+régénération elle-même invisible. Désormais, toute régénération s'inscrit ici.
+
+| Date | Item | Raison | Décompte fichiers épinglés |
+|---|---|---|---|
+| (non daté, antérieur à RDL09) | OPS03 (non consigné à l'époque) | Régénération après ajouts sous racines vendorées ; a par effet de bord épinglé les ajouts Liakont (cause d'A6-prov-1) | 1249 |
+| 2026-06-19 | RDL09 | Exclure les ajouts Liakont du périmètre épinglé (marqueur de tête `Liakont addition`) → lever la contradiction baseline↔doc §4.12/§4.14/ADR-0006 ; rebaser sur les seuls `Stratum.*` | 1226 |
+
+> Note RDL08 (2026-06-20) : **aucune régénération** — la modification de `JobScheduler`/`IJobQueries`/
+> `PostgresJobQueries` est absorbée par le bloc `SOCLE-CONSIGNED-DRIFT` (§4.38), pas par une re-cuisson du
+> baseline (qui resterait la référence stable). Le baseline reste à 1226.
+
+Au-delà du décompte, la régénération RDL09 a aussi : (a) ajouté le marqueur de tête `Liakont addition`
+aux 21 ajouts Liakont qui en étaient dépourvus (les 13 ajouts SOL06 le portaient déjà) — total 34
+ajouts désormais tous marqués et exclus ; (b) retiré du bloc `SOCLE-CONSIGNED-DRIFT` deux entrées qui
+étaient des ajouts Liakont (donc plus jamais épinglés) :
+`src/Modules/Job/Web/Pages/AdminJobExecutions.razor` et
+`src/Modules/Job/Infrastructure/Queries/PostgresJobExecutionsQueries.cs`.
+
+### 4.38 RDL08 — dé-duplication à l'enqueue des jobs récurrents (anti-empilement)
+RDL08 (redline ADR-0006, finding A6-scale-2) ajoute une garde de dé-duplication à l'enqueue : le
+`JobScheduler` récurrent ne doit pas empiler un déclencheur identique quand un job du même type/portée est
+déjà `Pending` (sinon un fan-out plus long que la cadence cron affame le worker mono-job). La logique de
+décision et la requête vivent côté **Liakont** (ajouts non épinglés, marqués `// Liakont addition (RDL08)`) :
+`Stratum.Common.Abstractions.Jobs.IRecurringJobEnqueueGuard` (+ impl. Host `RecurringJobEnqueueGuard`),
+`TenantJobRunnerOptions` (budget par tenant, A6-scale-3). Trois fichiers `Stratum.*` épinglés sont **modifiés**
+(ajouts additifs uniquement, aucune logique métier socle changée) :
+
+- `src/Modules/Job/Contracts/Queries/IJobQueries.cs` (déjà consigné) : signature `HasPendingJobOfTypeAsync`.
+- `src/Modules/Job/Infrastructure/Queries/PostgresJobQueries.cs` (déjà consigné) : implémentation SQL
+  (`EXISTS … status = 'Pending' AND company_id IS NOT DISTINCT FROM …`). `Pending`-only (jamais `Running`)
+  pour ne pas bloquer sur un `Running` orphelin — ADR-0006 §5.2.
+- `src/Modules/Job/Infrastructure/JobScheduler.cs` (**AJOUTÉ** au bloc CONSIGNED-DRIFT) : avant `InsertJobAsync`,
+  consulte `IRecurringJobEnqueueGuard` (résolu en option, `GetService` — comportement inchangé si absent) ;
+  si suppression, avance `next_run_at` et saute l'enqueue avec un log `Information` structuré.
+
+`TenantJobRunner.cs` (ajout SOL06, NON épinglé) gagne le budget par tenant (linked CTS). Aucune table ni
+migration socle modifiée. La dérive de ces trois fichiers est absorbée par le bloc `SOCLE-CONSIGNED-DRIFT`
+ci-dessus — **le baseline n'est PAS régénéré** (il reste la référence stable ; régénérer est optionnel, §4.12).
+**Vérification** : `verify-fast` (2 solutions, dont `socle-provenance-check` exit 0) + `run-tests` (unit
+garde/runner + intégration `HasPendingJobOfTypeAsync` et seam DI réel sur 2 bases).
 
 ## 5. ADR du socle hérités
 

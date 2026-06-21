@@ -23,13 +23,13 @@ public sealed class PivotDocumentDto
     /// <param name="supplier">
     /// Le vendeur / fournisseur — l'émetteur au sens EN 16931 BG-4 (la SVV / l'entreprise cliente).
     /// <c>null</c> quand l'agent ne le porte pas : l'émetteur est l'identité du TENANT, REMPLIE par la
-    /// plateforme à l'ingestion depuis le profil tenant (ADR-0023 amendé) — l'agent n'extrait que la base
+    /// plateforme à l'ingestion depuis le profil tenant (ADR-0031 amendé) — l'agent n'extrait que la base
     /// source et ne devine jamais le SIREN (CLAUDE.md n°2).
     /// </param>
     /// <param name="totals">Totaux de contrôle (EN 16931 BG-22).</param>
     /// <param name="operationCategory">
     /// Nature de l'opération (mention obligatoire réforme). <c>null</c> côté agent : remplie par la
-    /// plateforme à l'ingestion depuis le paramétrage fiscal du tenant (ADR-0023 amendé).
+    /// plateforme à l'ingestion depuis le paramétrage fiscal du tenant (ADR-0031 amendé).
     /// </param>
     /// <param name="currencyCode">Devise ISO 4217 (EN 16931 BT-5). Défaut « EUR ».</param>
     /// <param name="customer">Le destinataire (EN 16931 BG-7) — nul en B2C sans tiers identifié.</param>
@@ -118,7 +118,7 @@ public sealed class PivotDocumentDto
 
     /// <summary>
     /// Le vendeur / fournisseur (EN 16931 BG-4). <c>null</c> tant que la plateforme ne l'a pas rempli
-    /// depuis le profil tenant à l'ingestion (ADR-0023 amendé).
+    /// depuis le profil tenant à l'ingestion (ADR-0031 amendé).
     /// </summary>
     public PivotPartyDto? Supplier { get; }
 
@@ -127,7 +127,7 @@ public sealed class PivotDocumentDto
 
     /// <summary>
     /// Nature de l'opération (mention obligatoire réforme). <c>null</c> tant que la plateforme ne l'a
-    /// pas remplie depuis le paramétrage fiscal du tenant à l'ingestion (ADR-0023 amendé).
+    /// pas remplie depuis le paramétrage fiscal du tenant à l'ingestion (ADR-0031 amendé).
     /// </summary>
     public OperationCategory? OperationCategory { get; }
 

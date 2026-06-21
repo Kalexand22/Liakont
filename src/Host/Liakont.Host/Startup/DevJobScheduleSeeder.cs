@@ -47,8 +47,16 @@ internal static partial class DevJobScheduleSeeder
             var sender = scope.ServiceProvider.GetRequiredService<ISender>();
             var uowFactory = scope.ServiceProvider.GetRequiredService<IScheduleUnitOfWorkFactory>();
 
+            // Seuls les jobs à cadence SOURCÉE (RequiredSeeded) sont amorcés : les jobs à cadence de
+            // déploiement (RDL07/A6-cons-2) n'ont pas de cron sourcé — leur planification reste un geste
+            // opérateur (le diagnostic de démarrage les signale s'ils manquent).
             foreach (var job in SystemJobDefinitions.All)
             {
+                if (job.Class != SystemJobClass.RequiredSeeded || job.CronExpression is null)
+                {
+                    continue;
+                }
+
                 await TrySeedScheduleAsync(sender, uowFactory, job, companyId, logger);
             }
         }
@@ -71,6 +79,13 @@ internal static partial class DevJobScheduleSeeder
         ILogger logger,
         CancellationToken ct = default)
     {
+        // Garde de cohérence : seul un job à cadence sourcée (cron non nul) est amorçable. Les appelants
+        // filtrent déjà, mais ne jamais amorcer un cron absent (cadence de déploiement, RDL07).
+        if (job.CronExpression is not { } cronExpression)
+        {
+            return;
+        }
+
         try
         {
             await using (var uow = await uowFactory.BeginAsync(ct))
@@ -87,13 +102,13 @@ internal static partial class DevJobScheduleSeeder
                 new CreateScheduleCommand
                 {
                     Name = job.ScheduleName,
-                    CronExpression = job.CronExpression,
+                    CronExpression = cronExpression,
                     JobType = job.JobType,
                     CompanyId = companyId,
                 },
                 ct);
 
-            LogScheduleSeeded(logger, job.ScheduleName, job.CronExpression);
+            LogScheduleSeeded(logger, job.ScheduleName, cronExpression);
         }
         catch (Exception ex)
         {

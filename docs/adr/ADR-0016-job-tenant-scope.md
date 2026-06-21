@@ -1,6 +1,12 @@
 # ADR-0016 — Scope tenant d'un job déclenché depuis la console (action HTTP → worker)
 
-- **Statut** : Proposé (2026-06-08).
+- **Statut** : Accepté (acté le 2026-06-20, item RDL13 ; proposé le 2026-06-08).
+  **Mise en œuvre : item API02a** (livré et testé). La garde anti-fan-out cross-tenant est verrouillée par
+  `SendTenantTriggerHandlerIntegrationTests` (exécution réelle, isolation prouvée sur ≥ 2 bases tenant).
+- **Raffine [ADR-0006](ADR-0006-mecanique-jobs-multi-tenant.md)** : ADR-0006 pose le fan-out **tous-tenants**
+  (`RunForAllTenantsAsync`) pour les déclencheurs **planifiés (cron)** ; le présent ADR tranche que toute action
+  de **console** est **mono-tenant** (`SendTenantTrigger`, tenant de l'opérateur). Cron = tous-tenants ;
+  console = un tenant.
 - **Date** : 2026-06-08
 - **Contexte décisionnel** : `orchestration/items/API.yaml` (API02a, bloqué le 2026-06-07),
   `session-log/orch-20260607T215354Z-kalexand-slot2_API02a.md` (diagnostic sur pièce),

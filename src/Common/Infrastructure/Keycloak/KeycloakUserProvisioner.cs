@@ -1,3 +1,4 @@
+// Liakont addition (OPS03 §4.25): provisioning utilisateur Keycloak - not part of the original Stratum vendoring.
 namespace Stratum.Common.Infrastructure.Keycloak;
 
 using System.Net;

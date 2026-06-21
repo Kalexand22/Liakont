@@ -84,7 +84,7 @@ internal static class Program
         return new CommandRouter(commands);
     }
 
-    // Cycle de run RÉEL (AGT02, ADR-0023) : compose extraction → push depuis agent.json et l'exécute une
+    // Cycle de run RÉEL (AGT02, ADR-0031) : compose extraction → push depuis agent.json et l'exécute une
     // fois (même composition que le service via AgentRunComposition). La commande `run` porte la
     // sérialisation par verrou partagé avec le service et le rapport ; une config invalide bloque (n°3).
     private static bool RealRunCycle(TextWriter output)
