@@ -181,6 +181,15 @@ meta:
   #   GATE_PA_SUPERPDP. Recoupements : Sending=PIPE01, échéance BT-9=EXT01. Bandes REBANDÉES au merge du
   #   2026-06-19 (main avait rempli 98xx/99xx/100xx avec RDL/RDF/RD4) : CP=101xx, PIPE=102xx, RBF=103xx.
   #   ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS merge (RBF01→RBF09 + GATE_RECETTE_BUCODI `pending`).
+  # version 35 (2026-06-21, geste opérateur interactif) = RBF01 re-découpé en RBF01a + RBF01b après blocage
+  #   du runner (session orch-20260620-121850-slot1, confirmé par audit adversarial du 2026-06-21). RBF01a =
+  #   piliers A+B (acompte/échéance à la source + blocage CHECK d'un dû positif sans échéance ; acceptances
+  #   #1/#2/#4) = CONSTRUCTIBLE maintenant. RBF01b = mentions légales FR BR-FR-05 (PMT/PMD/AAB, acceptance #3)
+  #   = GELÉ phase 2 (artefacts FNFE-MPE absents [action A4] ; ADR-0023 « besoin EXTENDED-CTC-FR non tranché
+  #   par F16 ⇒ bloque » ; params tenant taux-pénalités/escompte absents ; canal note BG-1 SuperPDP non confirmé).
+  #   GATE_RECETTE_BUCODI re-pointée sur [RBF01a, RBF01b, RBF02..RBF09] (décision opérateur 2026-06-21 : la
+  #   recette attend les DEUX — aucune facture sans ses mentions légales obligatoires). state.yaml : RBF01
+  #   retiré (superseded), RBF01a `pending` + RBF01b `blocked` (précédent split API01a-c/API01d).
   # version 31 = nouveau segment `adr-redline-fondateurs` + lot RDF : redline prospectif des ADR fondateurs
   #   (ADR-0001 pivot / ADR-0002 IdP / ADR-0003 stack agent) et descendance, demande de Karl le 2026-06-19
   #   (source : tasks/redline-adr-fondateurs.md ; 32 findings verifies). 18 items RDF01->RDF18 +
@@ -735,7 +744,8 @@ items:
   # ── RBF (Recette Bucodi Fixes) — dette de la nuit envoi B2B SuperPDP (2026-06-18→19) ──
   # Détail + acceptances : items/RBF.yaml. Source : tasks/recette-demo-bucodi.md (RB16→RB28) + audit
   # code-sale. RB22 (Sending) recoupe PIPE01 ; échéance BT-9 = EXT01. ⚠️ PAS ENCORE seedé (cf. note v30).
-  - { id: RBF01, lot: RBF, priority: 10300, depends_on: [] }
+  - { id: RBF01a, lot: RBF, priority: 10300, depends_on: [] }
+  - { id: RBF01b, lot: RBF, priority: 10302, depends_on: [RBF01a] }
   - { id: RBF02, lot: RBF, priority: 10305, depends_on: [] }
   - { id: RBF03, lot: RBF, priority: 10310, depends_on: [] }
   - { id: RBF04, lot: RBF, blueprint: docs-spec-item, priority: 10315, depends_on: [] }
@@ -744,7 +754,7 @@ items:
   - { id: RBF07, lot: RBF, blueprint: blazor-page-item, priority: 10330, depends_on: [] }
   - { id: RBF08, lot: RBF, blueprint: blazor-page-item, priority: 10335, depends_on: [] }
   - { id: RBF09, lot: RBF, priority: 10340, depends_on: [] }
-  - { id: GATE_RECETTE_BUCODI, type: gate, executor: human, priority: 10390, depends_on: [RBF01, RBF02, RBF03, RBF04, RBF05, RBF06, RBF07, RBF08, RBF09] }
+  - { id: GATE_RECETTE_BUCODI, type: gate, executor: human, priority: 10390, depends_on: [RBF01a, RBF01b, RBF02, RBF03, RBF04, RBF05, RBF06, RBF07, RBF08, RBF09] }
 
   # ── RDL (segment adr-redline — redline ADR-0005/0006/0007, manifest v33) ──
   # PLANIFIÉ : APRÈS merge, seeder `pending` RDL01→RDL13 + GATE_ADR_REDLINE dans $ORCH_REPO/state.yaml
