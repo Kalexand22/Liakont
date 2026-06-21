@@ -36,9 +36,9 @@ internal sealed class FakePlatformClient : IPlatformClient
 
     public List<string> PoolPdfPushes { get; } = new List<string>();
 
-    public PushBatchOutcome PushDocuments(IReadOnlyList<string> canonicalDocumentJsons, IReadOnlyList<SourceTaxRegimeDto> sourceTaxRegimes)
+    public PushBatchOutcome PushDocuments(IReadOnlyList<string> canonicalDocumentJsons, IReadOnlyList<SourceTaxRegimeDto> sourceTaxRegimes, ExtractorCapabilitiesDto? extractorCapabilities = null)
     {
-        PushedBatches.Add(new PushedBatch(canonicalDocumentJsons, sourceTaxRegimes));
+        PushedBatches.Add(new PushedBatch(canonicalDocumentJsons, sourceTaxRegimes, extractorCapabilities));
         return OnPushDocuments != null
             ? OnPushDocuments(canonicalDocumentJsons, sourceTaxRegimes)
             : new PushBatchOutcome(PlatformResponseKind.Ok);
@@ -82,14 +82,17 @@ internal sealed class FakePlatformClient : IPlatformClient
 
     internal sealed class PushedBatch
     {
-        public PushedBatch(IReadOnlyList<string> documents, IReadOnlyList<SourceTaxRegimeDto> sourceTaxRegimes)
+        public PushedBatch(IReadOnlyList<string> documents, IReadOnlyList<SourceTaxRegimeDto> sourceTaxRegimes, ExtractorCapabilitiesDto? extractorCapabilities)
         {
             Documents = documents;
             SourceTaxRegimes = sourceTaxRegimes;
+            ExtractorCapabilities = extractorCapabilities;
         }
 
         public IReadOnlyList<string> Documents { get; }
 
         public IReadOnlyList<SourceTaxRegimeDto> SourceTaxRegimes { get; }
+
+        public ExtractorCapabilitiesDto? ExtractorCapabilities { get; }
     }
 }

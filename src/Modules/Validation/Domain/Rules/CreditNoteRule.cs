@@ -19,12 +19,13 @@ using Liakont.Modules.Validation.Contracts.CreditNotes;
 /// <remarks>
 /// <para><b>Détection d'un avoir.</b> Cette règle traite un document comme un avoir lorsqu'il porte au
 /// moins une référence de document d'origine (<see cref="PivotDocumentDto.CreditNoteRefs"/>, le signal
-/// structurel EN 16931 BG-3). La classification générale facture/avoir à partir du type source brut
-/// (<see cref="PivotDocumentDto.SourceDocumentKind"/>) est un concern PLATEFORME distinct, non encore
-/// bâti et NON spécifié (la correspondance type-source → avoir varie par logiciel) : VAL04 ne l'invente
-/// pas (CLAUDE.md n°2). Conséquence assumée : un avoir émis SANS aucune référence d'origine relève de ce
-/// classificateur à venir ; ici, le cas orphelin couvert est l'avoir qui RÉFÉRENCE un original absent de
-/// la plateforme (cas réel : avoir EncheresV6 dont l'original est pré-réforme / hors passerelle).</para>
+/// structurel EN 16931 BG-3). La classification facture/avoir à partir du type source brut
+/// (<see cref="PivotDocumentDto.SourceDocumentKind"/>) est SPÉCIFIÉE (F04 §3.5bis, table tenant) et
+/// COUVERTE par une règle dédiée — <see cref="SourceDocumentKindCreditNoteRule"/> (RD405) — qui bloque le
+/// cas d'un avoir reconnu par son seul type source mais SANS aucune référence d'origine. Ici, le cas
+/// orphelin couvert est l'avoir qui RÉFÉRENCE un original absent de la plateforme (cas réel : avoir
+/// EncheresV6 dont l'original est pré-réforme / hors passerelle). La correspondance type-source → avoir
+/// varie par logiciel : ni cette règle ni l'autre ne l'inventent (CLAUDE.md n°2).</para>
 /// <para><b>Frontière.</b> La règle dépend de l'abstraction <see cref="IIssuedInvoiceLookup"/>
 /// (Contracts), jamais du module Documents directement (module-rules.md §3). La recherche est
 /// tenant-scopée par <see cref="DocumentValidationContext.CompanyId"/> (CLAUDE.md n°9). Détection seule,

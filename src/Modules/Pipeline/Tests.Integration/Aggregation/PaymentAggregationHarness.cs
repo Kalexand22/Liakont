@@ -13,6 +13,8 @@ using Liakont.Agent.Contracts.Pivot;
 using Liakont.Agent.Contracts.Serialization;
 using Liakont.Modules.Documents.Infrastructure;
 using Liakont.Modules.Ingestion.Contracts;
+using Liakont.Modules.Ingestion.Contracts.DTOs;
+using Liakont.Modules.Ingestion.Contracts.Queries;
 using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Domain.Payments;
@@ -68,6 +70,9 @@ public sealed class PaymentAggregationHarness : IAsyncLifetime
     private ServiceProvider? _provider;
     private string? _stagingRoot;
 
+    /// <summary>Capacité SOURCE « expose des encaissements » (RD403, ExposesPayments), configurable par test. Défaut : true (source normale).</summary>
+    private bool _sourceExposesPayments = true;
+
     /// <summary>Identité de l'unique société du tenant.</summary>
     public Guid CompanyId { get; } = Guid.NewGuid();
 
@@ -113,6 +118,9 @@ public sealed class PaymentAggregationHarness : IAsyncLifetime
 
         await _container.DisposeAsync();
     }
+
+    /// <summary>Configure la capacité SOURCE « expose des encaissements » (RD403, ExposesPayments).</summary>
+    public void SetSourceExposesPayments(bool exposes) => _sourceExposesPayments = exposes;
 
     /// <summary>Configure la capacité de transmission des paiements (Flux 10.4) du plug-in factice.</summary>
     public void SetPaymentReportingCapability(bool supported)
@@ -321,6 +329,11 @@ public sealed class PaymentAggregationHarness : IAsyncLifetime
 
         services.AddSingleton<IPaClientRegistry>(new MutablePaClientRegistry(() => PaClient));
 
+        // RD403 : capacités déclarées de la source (ExposesPayments). Le module Ingestion n'est pas câblé dans
+        // ce harnais d'agrégation (schéma ingestion non migré ici) ; on injecte un double configurable, comme
+        // le plug-in PA factice. Le SQL réel d'AnyAgentExposesPaymentsAsync est couvert côté Ingestion.
+        services.AddSingleton<IExtractorCapabilitiesQueries>(new ConfigurableExtractorCapabilitiesQueries(() => _sourceExposesPayments));
+
         return services.BuildServiceProvider();
     }
 
@@ -431,6 +444,20 @@ public sealed class PaymentAggregationHarness : IAsyncLifetime
         public IPaClient Resolve(PaAccountDescriptor account) => _client();
 
         public bool IsRegistered(string paType) => true;
+    }
+
+    /// <summary>Double configurable des capacités d'extraction (RD403) : seul <see cref="AnyAgentExposesPaymentsAsync"/> est consommé par l'agrégateur.</summary>
+    private sealed class ConfigurableExtractorCapabilitiesQueries : IExtractorCapabilitiesQueries
+    {
+        private readonly Func<bool> _exposesPayments;
+
+        public ConfigurableExtractorCapabilitiesQueries(Func<bool> exposesPayments) => _exposesPayments = exposesPayments;
+
+        public Task<ExtractorCapabilitiesSummaryDto?> GetByAgentAsync(string tenantId, Guid agentId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ExtractorCapabilitiesSummaryDto?>(null);
+
+        public Task<bool> AnyAgentExposesPaymentsAsync(string tenantId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_exposesPayments());
     }
 
     private sealed class SingleDatabaseConnectionFactory : ITenantConnectionFactory

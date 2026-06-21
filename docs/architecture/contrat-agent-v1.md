@@ -75,13 +75,14 @@ enum/champ-optionnel du sérialiseur cross-runtime ; l'agent lui-même ne rempli
 
 | DTO | Champs |
 |---|---|
-| `PushBatchRequestDto` | `ContractVersion`, `Documents` (liste de `PivotDocumentDto`), `SourceTaxRegimes` (liste de `SourceTaxRegimeDto` — métadonnée de push, ajout add-only §4.1, optionnel/en fin de DTO, enveloppe non hashée). |
+| `PushBatchRequestDto` | `ContractVersion`, `Documents` (liste de `PivotDocumentDto`), `SourceTaxRegimes` (liste de `SourceTaxRegimeDto` — métadonnée de push, ajout add-only §4.1, optionnel/en fin de DTO, enveloppe non hashée), `ExtractorCapabilities?` (`ExtractorCapabilitiesDto` — capacités déclarées de la source ADR-0004 D2, métadonnée de push, ajout add-only §4.1, optionnel/en fin de DTO, **omis du format fil quand `null`**, enveloppe non hashée ; persisté par agent/tenant côté plateforme — RD401). |
 | `PushBatchResponseDto` | `Results` (liste de `DocumentPushResultDto`). |
 | `DocumentPushResultDto` | `SourceReference`, `Status` (`Accepted`/`Duplicate`/`Rejected`), `Reason?`. |
 | `HeartbeatRequestDto` | `ContractVersion`, `AgentVersion`, `SentAtUtc`, `LastSuccessfulSyncUtc?`, puis **télémétrie d'exploitation ajoutée add-only (AGT03, §4.1)** : `ServiceState?`, `PushQueueDepth?`, `PushQueueErrorCount?`, `LastRunStartedUtc?`, `LastRunCompletedUtc?`, `LastRunOutcome?`, `LastError?`, `DiskFreeBytes?`. Tous optionnels (un agent N-1 les omet) ; exigés par F12 §2.5 et consommés par la supervision (F12 §5.2 « file qui grossit »/« run manqué », §5.3 dashboard). Enveloppe NON hashée → aucun impact d'empreinte. |
 | `HeartbeatResponseDto` | `ServerTimeUtc`, `Configuration`. |
 | `AgentConfigurationDto` | `ExtractionSchedule?`, `ExtractFromUtc?`, `ExtractToUtc?`, `LatestAgentVersion?`, `UpdateRequired` (défaut `false`, sûr), `UpdateUrl?`, `VersionManifestSignature?`. |
 | `SourceTaxRegimeDto` | `Code` (brut), `Label?`, `Occurrences` — métadonnée de push pour la détection de couverture TVA03. |
+| `ExtractorCapabilitiesDto` | `ProvidesSourceDocuments`, `ProvidesUnlinkedDocumentPool`, `HasDetailedLines`, `HasCreditNoteLink`, `ExposesPayments`, `RegimeKeyShape?`, `EmitterIdentitySource?`, `HasStoredHeaderTotal`, `IsMutableAfterIssue`, `NumberUniquenessScope?` — capacités DÉCLARÉES de la source (ADR-0004 D2, symétrique de `PaCapabilities`). Les formes énumérées voyagent en valeur BRUTE (nom de l'énumération source) ; l'agent DÉCLARE, il n'interprète jamais (CLAUDE.md n°6). Persisté par agent/tenant côté plateforme (RD401), consommé par RD403/RD409. |
 
 > **Frontière hash.** Seul le **payload PAR DOCUMENT** porte une empreinte canonique (anti-doublon).
 > Les enveloppes (batch, heartbeat) ne sont PAS hashées : leur encodage fil (négociation de contenu)

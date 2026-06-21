@@ -287,6 +287,51 @@ public class QueueDrainerTests
     }
 
     [Fact]
+    public void Extractor_capabilities_are_attached_to_the_push()
+    {
+        using (var db = new TempDatabase())
+        using (var queue = new LocalQueue(db.Path, new MutableClock(Now)))
+        {
+            EnqueueDocument(queue, "REF-1", "h1");
+            queue.SetState(
+                LocalQueue.ExtractorCapabilitiesKey,
+                JsonConvert.SerializeObject(new ExtractorCapabilitiesDto(exposesPayments: true, regimeKeyShape: "Composite")));
+            var client = new FakePlatformClient
+            {
+                OnPushDocuments = (docs, regimes) => Ok("REF-1", DocumentPushStatus.Accepted),
+            };
+            QueueDrainer drainer = Drainer(queue, client, new NullAgentLog());
+
+            drainer.DrainOnce();
+
+            client.PushedBatches.Should().ContainSingle();
+            client.PushedBatches[0].ExtractorCapabilities.Should().NotBeNull();
+            client.PushedBatches[0].ExtractorCapabilities!.ExposesPayments.Should().BeTrue();
+            client.PushedBatches[0].ExtractorCapabilities!.RegimeKeyShape.Should().Be("Composite");
+        }
+    }
+
+    [Fact]
+    public void Push_without_stashed_capabilities_attaches_null()
+    {
+        using (var db = new TempDatabase())
+        using (var queue = new LocalQueue(db.Path, new MutableClock(Now)))
+        {
+            EnqueueDocument(queue, "REF-1", "h1");
+            var client = new FakePlatformClient
+            {
+                OnPushDocuments = (docs, regimes) => Ok("REF-1", DocumentPushStatus.Accepted),
+            };
+            QueueDrainer drainer = Drainer(queue, client, new NullAgentLog());
+
+            drainer.DrainOnce();
+
+            client.PushedBatches.Should().ContainSingle();
+            client.PushedBatches[0].ExtractorCapabilities.Should().BeNull("aucune capacité rangée → rien à joindre.");
+        }
+    }
+
+    [Fact]
     public void Pdf_push_success_acknowledges_the_file()
     {
         using (var db = new TempDatabase())

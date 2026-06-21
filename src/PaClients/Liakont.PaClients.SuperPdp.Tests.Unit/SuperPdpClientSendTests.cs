@@ -112,6 +112,25 @@ public sealed class SuperPdpClientSendTests
     }
 
     [Fact]
+    public async Task Send_With_UnitCode_Keeps_neutral_C62_on_synthetic_quantity_one_line()
+    {
+        var handler = new RoutedHttpMessageHandler()
+            .OnConvert(HttpStatusCode.OK, SuperPdpTestData.CiiXml)
+            .OnPost(HttpStatusCode.OK, SuperPdpTestData.IssuedJson);
+        var client = SuperPdpTestData.CreateClient(handler);
+
+        await client.SendDocumentAsync(SuperPdpTestData.Invoice20WithUnitCode("F-UNITE", "KGM"));
+
+        // RD407 (BT-130) : la ligne SuperPDP est un agrégat synthétique émis en quantité 1 → son unité reste
+        // l'unité neutre C62, même quand le pivot porte une unité. Projeter « 1 KGM » au prix du total serait
+        // incohérent (CLAUDE.md n°3) : l'émission fidèle de BT-130 côté SuperPDP est un différé B2B (phase 2).
+        // FacturX, qui émet la quantité réelle, projette l'unité — cf. CrossIndustryInvoiceSerializerTests.
+        var invoice = ConvertBody(handler);
+        invoice.GetProperty("lines")[0].GetProperty("invoiced_quantity_code").GetString()
+            .Should().Be("C62", "l'agrégat quantité=1 garde l'unité neutre ; aucune unité réelle projetée sur une quantité forcée");
+    }
+
+    [Fact]
     public async Task Send_Without_PaymentDueDate_Omits_payment_due_date()
     {
         var handler = new RoutedHttpMessageHandler()
