@@ -66,10 +66,11 @@ public sealed class PivotDocumentDto
     /// Frais vendeur (BV) au grain lot, DONNÉE DE CALCUL de la marge e-reporting B2C (B2C-08) — JAMAIS des
     /// lignes facturées : porté HORS de <paramref name="lines"/>, sans aucune TVA distincte (CGI art. 297 E),
     /// et n'impacte pas <paramref name="totals"/>. Alimente le calcul de B2C-09b, pas le document transmis.
-    /// Paramètre ADDITIF en fin de constructeur (pattern EXT01, ADR-0007) : <c>null</c> par défaut et PRÉSERVÉ
-    /// tel quel (jamais coalescé en collection vide, contrairement à <paramref name="lines"/>) — émis dans le
-    /// JSON canonique SEULEMENT quand il est porté, pour que le hash d'un document sans frais vendeur reste
-    /// INCHANGÉ (octet par octet — seul un champ ABSENT est hash-neutre).
+    /// Paramètre ADDITIF en fin de constructeur (pattern EXT01, ADR-0007) : <c>null</c> par défaut ; une liste
+    /// VIDE est traitée comme ABSENTE (normalisée en <c>null</c> — l'inverse de <paramref name="lines"/> qui
+    /// coalesce <c>null</c> en collection vide). Émis dans le JSON canonique SEULEMENT quand il est porté
+    /// (non-null et non vide), pour que le hash d'un document sans frais vendeur reste INCHANGÉ (octet par
+    /// octet — seul un champ ABSENT, ou vide, est hash-neutre).
     /// </param>
     public PivotDocumentDto(
         string sourceDocumentKind,
@@ -114,7 +115,9 @@ public sealed class PivotDocumentDto
         SourceData = sourceData;
         PaymentDueDate = paymentDueDate;
         IsB2cReportingDeclaration = isB2cReportingDeclaration;
-        SellerFees = sellerFees;
+        // Vide ≡ absent : une liste non-null mais VIDE est normalisée en null pour rester hash-neutre
+        // (un frais vendeur vide ne porte aucune information ; seul un champ OMIS l'est — pattern EXT01).
+        SellerFees = sellerFees != null && sellerFees.Count > 0 ? sellerFees : null;
     }
 
     /// <summary>Type de document de la source, BRUT (ADR-0004 D3-3).</summary>
@@ -194,8 +197,8 @@ public sealed class PivotDocumentDto
 
     /// <summary>
     /// Frais vendeur (BV) au grain lot — DONNÉE DE CALCUL de la marge e-reporting B2C (B2C-08), alimente
-    /// B2C-09b. <c>null</c> pour tout document qui ne porte pas de frais vendeur (PRÉSERVÉ tel quel, jamais
-    /// coalescé en collection vide) : émis dans le JSON canonique SEULEMENT quand il est porté (champ additif
+    /// B2C-09b. <c>null</c> pour tout document qui ne porte pas de frais vendeur (une liste vide est normalisée en
+    /// <c>null</c> au constructeur) : émis dans le JSON canonique SEULEMENT quand il est porté (champ additif
     /// hash-neutre — pattern EXT01). N'est JAMAIS une ligne taxable et n'impacte ni <see cref="Lines"/> ni
     /// <see cref="Totals"/> ; aucune TVA distincte (CGI art. 297 E).
     /// </summary>

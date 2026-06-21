@@ -207,6 +207,19 @@ public sealed class CanonicalJsonRulesTests
     }
 
     [Fact]
+    public void SellerFees_empty_list_is_normalized_to_absent_and_stays_hash_neutral()
+    {
+        // B2C-08 : une liste de frais vendeur VIDE non-null est normalisée en absente (≡ null) — elle n'émet
+        // jamais « SellerFees:[] », pour que le hash reste neutre quel que soit ce que passe le producteur.
+        var withEmpty = Build(number: "F1", sellerFees: System.Array.Empty<PivotSellerFeeDto>());
+
+        withEmpty.SellerFees.Should().BeNull("une liste vide est normalisée en null au constructeur (vide ≡ absent).");
+        CanonicalJson.Serialize(withEmpty).Should().NotContain("SellerFees", "une liste vide n'émet aucune clé (jamais un tableau vide).");
+        PayloadHasher.ComputeHash(withEmpty)
+            .Should().Be(PayloadHasher.ComputeHash(Build(number: "F1")), "vide ou absent → même hash canonique (champ additif hash-neutre).");
+    }
+
+    [Fact]
     public void SellerFees_carry_no_tax_breakdown_and_do_not_inflate_totals()
     {
         // B2C-08 / art. 297 E : le frais vendeur est une DONNÉE DE CALCUL de marge, jamais une ligne taxable.
