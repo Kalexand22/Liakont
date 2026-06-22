@@ -52,7 +52,7 @@ public static class CanonicalJson
         writer.WriteString(document.SourceReference);
 
         // Émetteur optionnel : OMIS quand l'agent ne le porte pas (la plateforme le remplit à
-        // l'ingestion depuis le profil tenant — ADR-0023 amendé). Un document agent sans émetteur
+        // l'ingestion depuis le profil tenant — ADR-0031 amendé). Un document agent sans émetteur
         // produit un JSON canonique sans la clé « Supplier » (et « OperationCategory »).
         if (document.Supplier != null)
         {
@@ -66,7 +66,7 @@ public static class CanonicalJson
         if (document.OperationCategory.HasValue)
         {
             writer.WritePropertyName("OperationCategory");
-            writer.WriteString(document.OperationCategory.Value.ToString());
+            writer.WriteEnum(document.OperationCategory.Value);
         }
 
         writer.WritePropertyName("CurrencyCode");
@@ -142,6 +142,14 @@ public static class CanonicalJson
             WriteArray(writer, document.SellerFees, WriteSellerFee);
         }
 
+        // EN 16931 BG-14 (slot réservé abonnement — RD406) : champ ADDITIF en FIN (ADR-0007), émis
+        // SEULEMENT s'il est porté — un document sans période produit le JSON canonique INCHANGÉ.
+        if (document.InvoicePeriod != null)
+        {
+            writer.WritePropertyName("InvoicePeriod");
+            WriteInvoicePeriod(writer, document.InvoicePeriod);
+        }
+
         writer.EndObject();
     }
 
@@ -155,6 +163,16 @@ public static class CanonicalJson
         WriteOptionalString(writer, "SourceRegimeCode", fee.SourceRegimeCode);
         WriteOptionalString(writer, "SourceLineRef", fee.SourceLineRef);
         WriteOptionalString(writer, "Description", fee.Description);
+        writer.EndObject();
+    }
+
+    private static void WriteInvoicePeriod(CanonicalJsonWriter writer, PivotInvoicePeriodDto period)
+    {
+        writer.BeginObject();
+        writer.WritePropertyName("StartDate");
+        writer.WriteDate(period.StartDate);
+        writer.WritePropertyName("EndDate");
+        writer.WriteDate(period.EndDate);
         writer.EndObject();
     }
 
@@ -221,6 +239,11 @@ public static class CanonicalJson
         WriteArray(writer, line.Taxes, WriteLineTax);
         WriteOptionalString(writer, "SourceLineRef", line.SourceLineRef);
         WriteOptionalString(writer, "SourceData", line.SourceData);
+
+        // EN 16931 BT-130 (RD407) : unité de mesure, champ ADDITIF en FIN (ADR-0007), émis SEULEMENT
+        // s'il est porté — une ligne sans unité produit le JSON canonique INCHANGÉ (hash identique
+        // octet par octet ; l'unité neutre C62 est appliquée par l'émetteur, pas par le pivot).
+        WriteOptionalString(writer, "UnitCode", line.UnitCode);
         writer.EndObject();
     }
 
@@ -234,7 +257,7 @@ public static class CanonicalJson
         if (tax.CategoryCode.HasValue)
         {
             writer.WritePropertyName("CategoryCode");
-            writer.WriteString(tax.CategoryCode.Value.ToString());
+            writer.WriteEnum(tax.CategoryCode.Value);
         }
 
         WriteOptionalString(writer, "VatexCode", tax.VatexCode);

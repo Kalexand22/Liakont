@@ -2,19 +2,14 @@ namespace Liakont.Modules.Pipeline.Infrastructure;
 
 using Liakont.Modules.Ingestion.Contracts.Events;
 using Liakont.Modules.Pipeline.Application;
-using Liakont.Modules.Pipeline.Contracts.Jobs;
 using Liakont.Modules.Pipeline.Contracts.Queries;
-using Liakont.Modules.Pipeline.Infrastructure.Aggregation;
 using Liakont.Modules.Pipeline.Infrastructure.Check;
 using Liakont.Modules.Pipeline.Infrastructure.Persistence;
 using Liakont.Modules.Pipeline.Infrastructure.Queries;
 using Liakont.Modules.Pipeline.Infrastructure.Rectification;
-using Liakont.Modules.Pipeline.Infrastructure.Send;
-using Liakont.Modules.Pipeline.Infrastructure.Sync;
 using Microsoft.Extensions.DependencyInjection;
 using Stratum.Common.Abstractions.Events;
 using Stratum.Common.Infrastructure.Database;
-using Stratum.Modules.Job.Contracts;
 
 /// <summary>
 /// Enregistrement DI du module Pipeline. PIP01a a posé les fondations (migrations DbUp — la table
@@ -59,29 +54,20 @@ public static class PipelineModuleRegistration
         // est résolu par la requête HTTP, ITenantContext) — IServiceProvider injecté est celui du scope courant.
         services.AddScoped<Contracts.IDocumentRecheckService, DocumentRecheckService>();
 
-        // PIP01c — SEND : handler SYSTÈME du déclencheur SendAllTrigger (fan-out multi-tenant via
-        // ITenantJobRunner, SOL06). Le SendTenantJob lui-même n'est PAS enregistré (instancié par le handler,
-        // il résout ses services depuis le scope tenant — même patron que DailyAnchoringTenantJob).
-        services.AddScoped<IJobHandler<SendAllTrigger>, SendAllFanOutHandler>();
-
-        // PIP01d — SYNC : handler SYSTÈME du déclencheur SyncAllTrigger (fan-out multi-tenant, même patron que
-        // le SEND). Le SyncTenantJob est instancié par le handler et résout ses services depuis le scope tenant.
-        services.AddScoped<IJobHandler<SyncAllTrigger>, SyncAllFanOutHandler>();
-
-        // PIP03a — AGRÉGATION DE PAIEMENT : projection jour×taux + handler SYSTÈME du déclencheur
-        // AggregatePaymentsAllTrigger (fan-out multi-tenant, même patron que SEND/SYNC). Le job est instancié
-        // par le handler et résout ses services depuis le scope tenant.
+        // PIP03a — AGRÉGATION DE PAIEMENT : projection jour×taux (lue par GET /payments + page Encaissements).
         services.AddScoped<IPaymentAggregationStore, PostgresPaymentAggregationStore>();
-        services.AddScoped<IJobHandler<AggregatePaymentsAllTrigger>, AggregatePaymentsAllFanOutHandler>();
 
-        // PIP04 — RECTIFICATIFS (flux RE annule-et-remplace) : journal append-only des rectificatifs, service
-        // de rectification (build + idempotence + capacité + transmission) et handler SYSTÈME du déclencheur
-        // RectifyReportsAllTrigger (fan-out multi-tenant, même patron que SEND/SYNC/AGGREGATE). Le job est
-        // instancié par le handler et résout ses services depuis le scope tenant.
+        // PIP04 — RECTIFICATIFS (flux RE annule-et-remplace) : journal append-only des rectificatifs et service
+        // de rectification (build + idempotence + capacité + transmission).
         services.AddScoped<IReportRectificationLedger, PostgresReportRectificationLedger>();
         services.AddScoped<ReportRectificationService>();
-        services.AddScoped<IJobHandler<RectifyReportsAllTrigger>, RectifyReportsAllFanOutHandler>();
 
+        // RDL06 — les 4 déclencheurs de fan-out SYSTÈME du pipeline (SendAll / SyncAll / AggregatePaymentsAll /
+        // RectifyReportsAll) sont enregistrés par le HOST via AddJobHandler (AddPipelineSystemJobHandlers,
+        // l'extension AddJobHandler vit dans Stratum.Modules.Job.Infrastructure, hors frontière Contracts de ce
+        // module), comme l'ancrage quotidien (TRK06) ou la supervision. AddJobHandler ajoute la
+        // JobHandlerRegistration singleton SANS laquelle JobHandlerResolver/JobTypeCatalog ne voient pas le
+        // job → un AddScoped seul rendait ces déclencheurs ni planifiables ni dispatchables (jobs morts).
         return services;
     }
 }

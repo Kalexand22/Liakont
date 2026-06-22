@@ -63,3 +63,21 @@ Liakont (1 tenant = 1 client final, isolation physique par base — voir `bluepr
 Les deux numérotations sont **distinctes** et ne doivent pas être confondues : un `ADR-0001`
 dans `docs/adr/` (le pivot plateforme/agent de Liakont) n'a aucun rapport avec le
 `ADR-0001` de `docs/adr/socle/` (l'architecture de base de Stratum).
+
+### Collisions de numéro **cross-dossier** (socle vs Liakont) — homonymes, pas des doublons
+
+Parce que les deux numérotations sont indépendantes, **un même numéro existe des deux côtés** et désigne
+des décisions **sans aucun rapport**. Ce ne sont **pas** des doublons à résoudre (contrairement à la
+collision intra-Stratum du n°0010 ci-dessus) : chaque fichier est l'unique porteur de son numéro **dans son
+dossier**. À nommer explicitement pour lever toute ambiguïté de référence :
+
+| Numéro | `docs/adr/socle/` (Stratum hérité) | `docs/adr/` (Liakont propre) |
+|---|---|---|
+| **0011** | `ADR-0011-database-per-tenant.md` (isolation physique par tenant) | `ADR-0011-ancrage-temporel-rfc3161-opentimestamps.md` (ancrage temporel) |
+| **0013** | `ADR-0013-keycloak-identity-provider.md` (IdP OIDC du socle) | `ADR-0013-modele-confiance-auto-update-agent.md` (auto-update agent) |
+
+**Règle de référence** : toujours **préfixer le chemin** (`socle/ADR-0011…` vs `ADR-0011…` à la racine)
+quand le contexte ne lève pas l'ambiguïté. Un `ADR-0011` **non préfixé** désigne, par convention, l'ADR
+**Liakont** de `docs/adr/` ; l'ADR socle se cite toujours `docs/adr/socle/ADR-0011-database-per-tenant.md`.
+*(Les autres numéros présents des deux côtés — 0001/0002/0003/0004/0008/0009/0010/0012/0016 — relèvent de la
+même règle ; 0011 et 0013 sont nommés ici car ce sont les plus exposés aux renvois croisés.)*

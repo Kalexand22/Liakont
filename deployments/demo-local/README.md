@@ -1,7 +1,7 @@
 # demo-local — sources SQL Server fictives pour tester l'agent en local
 
 Bac à sable **local** servant à prouver l'extraction réelle de bout en bout d'un agent installé
-(item AGT02, ADR-0023). **Données 100 % fictives** (CLAUDE.md n°7) : aucune donnée client réelle,
+(item AGT02, ADR-0031). **Données 100 % fictives** (CLAUDE.md n°7) : aucune donnée client réelle,
 aucun SIREN/compte/chaîne ODBC de production. Ces scripts ne sont **pas** un déploiement client ;
 ils créent deux bases *sources* de démonstration que les adaptateurs `DemoErpA`/`DemoErpB` lisent
 **en lecture seule stricte** (CLAUDE.md n°5).

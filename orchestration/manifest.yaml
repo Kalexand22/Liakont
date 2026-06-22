@@ -181,6 +181,15 @@ meta:
   #   GATE_PA_SUPERPDP. Recoupements : Sending=PIPE01, échéance BT-9=EXT01. Bandes REBANDÉES au merge du
   #   2026-06-19 (main avait rempli 98xx/99xx/100xx avec RDL/RDF/RD4) : CP=101xx, PIPE=102xx, RBF=103xx.
   #   ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS merge (RBF01→RBF09 + GATE_RECETTE_BUCODI `pending`).
+  # version 35 (2026-06-21, geste opérateur interactif) = RBF01 re-découpé en RBF01a + RBF01b après blocage
+  #   du runner (session orch-20260620-121850-slot1, confirmé par audit adversarial du 2026-06-21). RBF01a =
+  #   piliers A+B (acompte/échéance à la source + blocage CHECK d'un dû positif sans échéance ; acceptances
+  #   #1/#2/#4) = CONSTRUCTIBLE maintenant. RBF01b = mentions légales FR BR-FR-05 (PMT/PMD/AAB, acceptance #3)
+  #   = GELÉ phase 2 (artefacts FNFE-MPE absents [action A4] ; ADR-0023 « besoin EXTENDED-CTC-FR non tranché
+  #   par F16 ⇒ bloque » ; params tenant taux-pénalités/escompte absents ; canal note BG-1 SuperPDP non confirmé).
+  #   GATE_RECETTE_BUCODI re-pointée sur [RBF01a, RBF01b, RBF02..RBF09] (décision opérateur 2026-06-21 : la
+  #   recette attend les DEUX — aucune facture sans ses mentions légales obligatoires). state.yaml : RBF01
+  #   retiré (superseded), RBF01a `pending` + RBF01b `blocked` (précédent split API01a-c/API01d).
   # version 31 = nouveau segment `adr-redline-fondateurs` + lot RDF : redline prospectif des ADR fondateurs
   #   (ADR-0001 pivot / ADR-0002 IdP / ADR-0003 stack agent) et descendance, demande de Karl le 2026-06-19
   #   (source : tasks/redline-adr-fondateurs.md ; 32 findings verifies). 18 items RDF01->RDF18 +
@@ -221,7 +230,21 @@ meta:
   #   RDL07 (run partiel). Détail + 12 réfutés : items/RDL.yaml + tasks/redline-adr-005-006-007.md.
   #   ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS merge : RDL01→RDL13 + GATE_ADR_REDLINE en `pending`
   #   (RDL01, RDL02, RDL06, RDL09, RDL10, RDL11, RDL12, RDL13 éligibles — depends_on []).
-  version: 34
+  # version 36 (2026-06-22, geste opérateur interactif) = re-split B2C-09b + dé-couplage agnostique de la
+  #   forme du payload « montant de marge » (cas DGFiP n°33), suite à l'audit du blocage de B2C-09b.
+  #   Constats : (1) la 2e jambe de la formule sourcée `marge = frais acheteur + frais vendeur` (F03 §2.4,
+  #   GATE_B2C_SOURCING done) n'a PAS de carrier pivot (seul SellerFees/B2C-08 existe) ; (2) la forme
+  #   canonique n°33 était cadrée « à confirmer auprès de B2Brouter » = couplage PA concret dans un concern
+  #   produit (violation n°8/16), re-sourcée SUR LE STANDARD (DGFiP n°33 / EN 16931 ; patch doc+commentaire
+  #   landé sur feat/ereporting-b2c). Re-découpage : + B2C-08c (carrier frais acheteur générique, miroir
+  #   B2C-08) ; B2C-09b devient le CALCUL seul (dep += B2C-08c) ; + B2C-09c = TRANSMISSION (dep B2C-09b +
+  #   GATE_B2C_SHAPE_SOURCING) ; + B2C-05b = SOURCING forme canonique n°33 (docs-spec, agent-propose/humain-
+  #   valide comme B2C-05) + GATE_B2C_SHAPE_SOURCING (intra-segment, SANS PR). GATE_EREPORTING_B2C : dep
+  #   B2C09b→B2C09c (couvre transitivement B2C08c + GATE_B2C_SHAPE_SOURCING). B2C-08b reste blocked (retrait
+  #   = décision séparée). NB : le champ version sautait 35 (commentaire RBF01 re-split sans bump du champ).
+  #   ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS merge (slots null) : B2C05b, GATE_B2C_SHAPE_SOURCING,
+  #   B2C08c, B2C09c en `pending` + B2C09b blocked→pending.
+  version: 36
   host: multi_agent_v1
 
 segments:
@@ -706,13 +729,17 @@ items:
   - { id: B2C04, lot: B2C, blueprint: blazor-page-item, priority: 9730, depends_on: [B2C01, B2C02, B2C03] }
   - { id: B2C05, lot: B2C, blueprint: docs-spec-item, priority: 9740, depends_on: [] }
   - { id: GATE_B2C_SOURCING, type: gate, executor: human, priority: 9745, depends_on: [B2C05] }
+  - { id: B2C05b, lot: B2C, blueprint: docs-spec-item, priority: 9746, depends_on: [] }
+  - { id: GATE_B2C_SHAPE_SOURCING, type: gate, executor: human, priority: 9747, depends_on: [B2C05b] }
   - { id: B2C06, lot: B2C, priority: 9750, depends_on: [] }
   - { id: B2C07, lot: B2C, priority: 9760, depends_on: [B2C06, GATE_B2C_SOURCING] }
   - { id: B2C08, lot: B2C, priority: 9770, depends_on: [B2C07] }
+  - { id: B2C08c, lot: B2C, priority: 9772, depends_on: [B2C08] }
   - { id: B2C08b, lot: B2C, blueprint: blazor-page-item, priority: 9775, depends_on: [GATE_B2C_SOURCING] }
   - { id: B2C09a, lot: B2C, priority: 9780, depends_on: [] }
-  - { id: B2C09b, lot: B2C, priority: 9790, depends_on: [B2C05, B2C08, B2C09a, B2C03] }
-  - { id: GATE_EREPORTING_B2C, type: gate, executor: human, priority: 9799, depends_on: [B2C04, B2C09a, B2C09b] }
+  - { id: B2C09b, lot: B2C, priority: 9790, depends_on: [B2C05, B2C08, B2C08c, B2C09a, B2C03] }
+  - { id: B2C09c, lot: B2C, priority: 9795, depends_on: [B2C09b, B2C09a, GATE_B2C_SHAPE_SOURCING] }
+  - { id: GATE_EREPORTING_B2C, type: gate, executor: human, priority: 9799, depends_on: [B2C04, B2C09a, B2C09c] }
 
   # Lot CP — Adaptateur Chorus Pro (plug-in PA B2G, plan tasks/plan-chorus-pro.md) — détail : items/CP.yaml
   # Bande REBANDÉE 101xx au merge du 2026-06-19 (main avait pris 98xx pour le lot RDL/adr-redline).
@@ -735,7 +762,8 @@ items:
   # ── RBF (Recette Bucodi Fixes) — dette de la nuit envoi B2B SuperPDP (2026-06-18→19) ──
   # Détail + acceptances : items/RBF.yaml. Source : tasks/recette-demo-bucodi.md (RB16→RB28) + audit
   # code-sale. RB22 (Sending) recoupe PIPE01 ; échéance BT-9 = EXT01. ⚠️ PAS ENCORE seedé (cf. note v30).
-  - { id: RBF01, lot: RBF, priority: 10300, depends_on: [] }
+  - { id: RBF01a, lot: RBF, priority: 10300, depends_on: [] }
+  - { id: RBF01b, lot: RBF, priority: 10302, depends_on: [RBF01a] }
   - { id: RBF02, lot: RBF, priority: 10305, depends_on: [] }
   - { id: RBF03, lot: RBF, priority: 10310, depends_on: [] }
   - { id: RBF04, lot: RBF, blueprint: docs-spec-item, priority: 10315, depends_on: [] }
@@ -744,7 +772,7 @@ items:
   - { id: RBF07, lot: RBF, blueprint: blazor-page-item, priority: 10330, depends_on: [] }
   - { id: RBF08, lot: RBF, blueprint: blazor-page-item, priority: 10335, depends_on: [] }
   - { id: RBF09, lot: RBF, priority: 10340, depends_on: [] }
-  - { id: GATE_RECETTE_BUCODI, type: gate, executor: human, priority: 10390, depends_on: [RBF01, RBF02, RBF03, RBF04, RBF05, RBF06, RBF07, RBF08, RBF09] }
+  - { id: GATE_RECETTE_BUCODI, type: gate, executor: human, priority: 10390, depends_on: [RBF01a, RBF01b, RBF02, RBF03, RBF04, RBF05, RBF06, RBF07, RBF08, RBF09] }
 
   # ── RDL (segment adr-redline — redline ADR-0005/0006/0007, manifest v33) ──
   # PLANIFIÉ : APRÈS merge, seeder `pending` RDL01→RDL13 + GATE_ADR_REDLINE dans $ORCH_REPO/state.yaml

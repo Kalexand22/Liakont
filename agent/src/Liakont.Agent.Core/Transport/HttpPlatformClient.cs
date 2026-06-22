@@ -66,14 +66,15 @@ public sealed class HttpPlatformClient : IPlatformClient
     /// <inheritdoc />
     public PushBatchOutcome PushDocuments(
         IReadOnlyList<string> canonicalDocumentJsons,
-        IReadOnlyList<SourceTaxRegimeDto> sourceTaxRegimes)
+        IReadOnlyList<SourceTaxRegimeDto> sourceTaxRegimes,
+        ExtractorCapabilitiesDto? extractorCapabilities = null)
     {
         if (canonicalDocumentJsons is null)
         {
             throw new ArgumentNullException(nameof(canonicalDocumentJsons));
         }
 
-        string body = BuildBatchBody(_contractVersion, canonicalDocumentJsons, sourceTaxRegimes ?? Array.Empty<SourceTaxRegimeDto>());
+        string body = BuildBatchBody(_contractVersion, canonicalDocumentJsons, sourceTaxRegimes ?? Array.Empty<SourceTaxRegimeDto>(), extractorCapabilities);
 
         try
         {
@@ -229,7 +230,7 @@ public sealed class HttpPlatformClient : IPlatformClient
         }
     }
 
-    private static string BuildBatchBody(string contractVersion, IReadOnlyList<string> canonicalDocumentJsons, IReadOnlyList<SourceTaxRegimeDto> regimes)
+    private static string BuildBatchBody(string contractVersion, IReadOnlyList<string> canonicalDocumentJsons, IReadOnlyList<SourceTaxRegimeDto> regimes, ExtractorCapabilitiesDto? capabilities)
     {
         var builder = new StringBuilder();
         builder.Append("{\"ContractVersion\":");
@@ -248,6 +249,15 @@ public sealed class HttpPlatformClient : IPlatformClient
 
         builder.Append("],\"SourceTaxRegimes\":");
         builder.Append(JsonConvert.SerializeObject(regimes));
+
+        // Champ d'enveloppe add-only (RD401) : OMIS quand absent → le format fil d'un agent N-1 est
+        // inchangé (aucun impact d'empreinte : seul le payload PAR DOCUMENT est hashé).
+        if (capabilities is not null)
+        {
+            builder.Append(",\"ExtractorCapabilities\":");
+            builder.Append(JsonConvert.SerializeObject(capabilities));
+        }
+
         builder.Append('}');
         return builder.ToString();
     }

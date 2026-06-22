@@ -52,7 +52,7 @@ internal static class DocumentCheckEvaluator
         "par l'expert-comptable avant tout envoi.";
 
     /// <summary>
-    /// Motif de blocage quand la nature d'opération du tenant n'est pas paramétrée (ADR-0023 amendé : la nature
+    /// Motif de blocage quand la nature d'opération du tenant n'est pas paramétrée (ADR-0031 amendé : la nature
     /// d'opération est remplie par la plateforme à l'ingestion depuis le paramétrage fiscal — elle n'est plus
     /// portée par l'agent). Absente = bloqué, jamais devinée (CLAUDE.md n°2/n°3).
     /// </summary>
@@ -96,7 +96,7 @@ internal static class DocumentCheckEvaluator
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(pivot);
 
-        // Émetteur rempli au READ-TIME depuis le profil tenant COURANT (ADR-0023 amendé / RB9) : l'agent ne
+        // Émetteur rempli au READ-TIME depuis le profil tenant COURANT (ADR-0031 amendé / RB9) : l'agent ne
         // porte plus l'émetteur, et l'anti-doublon F06 hashe le pivot SOURCE à l'ingestion. On enrichit ICI,
         // avant mapping/validation, pour que SupplierIdentityRule et la nature d'opération voient l'identité
         // du tenant. Idempotent : un émetteur déjà porté (389 = mandant) n'est pas écrasé.
@@ -176,7 +176,7 @@ internal static class DocumentCheckEvaluator
             }
         }
 
-        // Nature d'opération remplie par la plateforme à l'ingestion (ADR-0023 amendé). Si le paramétrage fiscal
+        // Nature d'opération remplie par la plateforme à l'ingestion (ADR-0031 amendé). Si le paramétrage fiscal
         // du tenant ne la porte pas, l'émetteur enrichi la laisse nulle → on bloque (jamais devinée, CLAUDE.md n°2).
         if (pivot.OperationCategory is null)
         {

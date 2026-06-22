@@ -6,7 +6,7 @@ using Liakont.Agent.Core.Hosting;
 using Liakont.Agent.Core.Storage;
 
 /// <summary>
-/// Tient le cycle de run COMPOSÉ (AGT02, ADR-0023) et ses ressources jetables (file locale SQLite,
+/// Tient le cycle de run COMPOSÉ (AGT02, ADR-0031) et ses ressources jetables (file locale SQLite,
 /// client HTTP) pour une libération propre. Le service Windows le garde le temps de sa vie ; la commande
 /// CLI <c>run</c> le libère après un run unique.
 /// </summary>

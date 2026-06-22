@@ -133,6 +133,21 @@ Format JSON, externe au code, versionné et horodaté :
 - La règle peut dépendre de la **part** (adjudication vs frais) et de flags source (`RegimeMarge`, `assujetti_tva`) — donc condition plus riche qu'un simple code.
 - Le **taux des frais** peut être calculé (`montant_tva_frais / montant_frais_ht`) plutôt que figé.
 
+#### 4.1 bis — Collection de régimes par ligne + scission BG-30 = différé tracé (redline RD409)
+
+> **Amendement RD409 (2026-06-20, addendum ADR-0004-bis).** La ligne pivot porte une **collection** de
+> régimes source bruts (`PivotLineDto.SourceRegimeCodes`, ADR-0004 D3-1), jamais une simple chaîne : une
+> source peut encoder un **couple de codes** (NAV) ou **plusieurs taxes sur une même ligne** (Axelor). La
+> **scission BG-30** (EN 16931 : exactement 1 catégorie de TVA par ligne pivot) d'une ligne multi-codes/
+> multi-taxes est un **différé tracé**, PAS « V1 » : l'**association** d'un code régime à une ventilation TVA
+> particulière n'est **pas sourcée** pour ce cas. Le moteur de CHECK **bloque délibérément** toute ligne qui
+> ne présente pas la forme NON AMBIGUË (exactement 1 code régime ET 1 ventilation) — avec un motif explicite,
+> sans jamais deviner l'association (CLAUDE.md n°2/n°3). Implémenté et testé :
+> `Liakont.Modules.Pipeline.Infrastructure.Check.CheckTvaMapping` (blocage de forme, lignes 53-61 ;
+> documentation de classe lignes 25-30). Les documents réels du contrat (golden files contrat-v1) sont tous
+> de la forme non ambiguë. La scission multi-codes ne sera implémentée que lorsque F03 sourcera l'association
+> régime→ventilation (table validée par l'expert-comptable du tenant, jamais une heuristique).
+
 ### 4.2 Sortie : `PivotLineTax` + trace
 
 Pour chaque ligne, le moteur produit le `PivotLineTax` (cf. F1/F2) **et** une `MappingTrace` :

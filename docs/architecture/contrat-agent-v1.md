@@ -75,19 +75,34 @@ enum/champ-optionnel du sérialiseur cross-runtime ; l'agent lui-même ne rempli
 
 | DTO | Champs |
 |---|---|
-| `PushBatchRequestDto` | `ContractVersion`, `Documents` (liste de `PivotDocumentDto`), `SourceTaxRegimes` (liste de `SourceTaxRegimeDto` — métadonnée de push, ajout add-only §4.1, optionnel/en fin de DTO, enveloppe non hashée). |
+| `PushBatchRequestDto` | `ContractVersion`, `Documents` (liste de `PivotDocumentDto`), `SourceTaxRegimes` (liste de `SourceTaxRegimeDto` — métadonnée de push, ajout add-only §4.1, optionnel/en fin de DTO, enveloppe non hashée), `ExtractorCapabilities?` (`ExtractorCapabilitiesDto` — capacités déclarées de la source ADR-0004 D2, métadonnée de push, ajout add-only §4.1, optionnel/en fin de DTO, **omis du format fil quand `null`**, enveloppe non hashée ; persisté par agent/tenant côté plateforme — RD401). |
 | `PushBatchResponseDto` | `Results` (liste de `DocumentPushResultDto`). |
 | `DocumentPushResultDto` | `SourceReference`, `Status` (`Accepted`/`Duplicate`/`Rejected`), `Reason?`. |
 | `HeartbeatRequestDto` | `ContractVersion`, `AgentVersion`, `SentAtUtc`, `LastSuccessfulSyncUtc?`, puis **télémétrie d'exploitation ajoutée add-only (AGT03, §4.1)** : `ServiceState?`, `PushQueueDepth?`, `PushQueueErrorCount?`, `LastRunStartedUtc?`, `LastRunCompletedUtc?`, `LastRunOutcome?`, `LastError?`, `DiskFreeBytes?`. Tous optionnels (un agent N-1 les omet) ; exigés par F12 §2.5 et consommés par la supervision (F12 §5.2 « file qui grossit »/« run manqué », §5.3 dashboard). Enveloppe NON hashée → aucun impact d'empreinte. |
 | `HeartbeatResponseDto` | `ServerTimeUtc`, `Configuration`. |
 | `AgentConfigurationDto` | `ExtractionSchedule?`, `ExtractFromUtc?`, `ExtractToUtc?`, `LatestAgentVersion?`, `UpdateRequired` (défaut `false`, sûr), `UpdateUrl?`, `VersionManifestSignature?`. |
 | `SourceTaxRegimeDto` | `Code` (brut), `Label?`, `Occurrences` — métadonnée de push pour la détection de couverture TVA03. |
+| `ExtractorCapabilitiesDto` | `ProvidesSourceDocuments`, `ProvidesUnlinkedDocumentPool`, `HasDetailedLines`, `HasCreditNoteLink`, `ExposesPayments`, `RegimeKeyShape?`, `EmitterIdentitySource?`, `HasStoredHeaderTotal`, `IsMutableAfterIssue`, `NumberUniquenessScope?` — capacités DÉCLARÉES de la source (ADR-0004 D2, symétrique de `PaCapabilities`). Les formes énumérées voyagent en valeur BRUTE (nom de l'énumération source) ; l'agent DÉCLARE, il n'interprète jamais (CLAUDE.md n°6). Persisté par agent/tenant côté plateforme (RD401), consommé par RD403/RD409. |
 
 > **Frontière hash.** Seul le **payload PAR DOCUMENT** porte une empreinte canonique (anti-doublon).
 > Les enveloppes (batch, heartbeat) ne sont PAS hashées : leur encodage fil (négociation de contenu)
 > est porté par l'ingestion (PIV04/PIV05). Les golden files `batch-mixte.json` / `heartbeat.json`
 > sont des **références ILLUSTRATIVES** du format fil (noms de propriété exacts des DTOs + horodatages
 > UTC `yyyy-MM-ddTHH:mm:ssZ`), pas un artefact hashé.
+
+> **Le fil v1 EST le canonique PascalCase — NON NÉGOCIABLE.** L'agent émet ses propriétés en
+> **PascalCase** (`ContractVersion`, `Documents`, `OperationCategory`, …) — c'est la sortie du writer
+> canonique (PIV02) et des golden files. La liaison côté plateforme (minimal-API, `AgentApiJson`)
+> utilise les défauts « Web » de `System.Text.Json` : `PropertyNamingPolicy = camelCase` **+**
+> `PropertyNameCaseInsensitive = true`. Le fil PascalCase ne se lie donc **que grâce à
+> l'insensibilité à la casse**. ⚠ Le fil v1 n'a **aucune négociation de format** : passer la liaison
+> en **camelCase strict** (`PropertyNameCaseInsensitive = false`) **casserait le contrat
+> SILENCIEUSEMENT** — `System.Text.Json` ne lèverait pas, il produirait un DTO **dégradé** (`Documents`
+> vide, `ContractVersion` null), d'où un lot vu comme « 0 document » ou une `NullReferenceException`
+> en aval. Tout durcissement de casse est donc une **rupture v2** (§4.2), jamais un réglage v1. Cette
+> propriété est **gardée par un contrôle négatif** (`AgentContractJsonBindingTests`,
+> `Pascalcase_wire_silently_loses_documents_when_case_insensitivity_is_disabled`) qui rend la
+> fragilité visible en CI ; voir l'avenant RDF15 d'ADR-0003.
 
 ---
 
@@ -107,6 +122,79 @@ enum/champ-optionnel du sérialiseur cross-runtime ; l'agent lui-même ne rempli
    (`ContractFixtureTests.FrozenHashes`) sont l'ancre : si une modification du writer ou d'un DTO
    change la sortie canonique, les tests cassent des DEUX côtés. C'est volontaire — la régénération
    est un acte explicite, revu en gate humaine.
+5. **Sens N+1 → N (déploiement non atomique) : la plateforme REFUSE un membre inconnu.** La plateforme
+   ne hashe pas les octets reçus — elle re-sérialise le DTO STJ-désérialisé (`IngestDocumentBatchHandler`).
+   Un agent N+1 portant un champ post-v1 dans un payload déclaré « 1 » verrait, sous le comportement STJ
+   par défaut, ce champ **droppé silencieusement** → empreinte plateforme ≠ empreinte agent → anti-doublon
+   (PIV04) et détection d'altération (TRK03) cassés. Défaut SÛR (RDL04, « bloquer plutôt qu'envoyer faux ») :
+   `JsonUnmappedMemberHandling.Disallow` est posé par réflexion sur **tous** les DTOs de
+   `Liakont.Agent.Contracts` (`AgentApiJson.ConfigureContractBinding`) → un membre inconnu **lève en
+   désérialisation (400)**, jamais droppé. (Pour les endpoints GET sans corps — ex. `/configuration` —
+   la règle 3 s'applique en premier : un en-tête `X-Contract-Version` > N reçoit `426 Upgrade Required`
+   avant tout traitement. Pour les endpoints POST portant un corps — `/documents/batch`, `/heartbeat` —
+   le binding de paramètre s'exécute avant le filtre `AgentApiAuthenticationFilter` : un membre inconnu
+   est rejeté en **400** dès la désérialisation, avant que le 426 ne puisse se déclencher. La propriété
+   de sûreté est préservée dans les deux cas — rejet propre, aucune corruption — mais l'ordre diffère.)
+
+### 4.1 Runbook de bascule v2 (points à muter ENSEMBLE)
+
+Une rupture (règle 2) ouvre la v2. Tous ces points changent dans la **même** transaction — un test
+d'invariant (`AgentContractVersionInvariantTests`) et la dérivation du préfixe d'URL réduisent les
+sources de vérité indépendantes, mais la liste reste à dérouler :
+
+1. **`AgentContractVersion.ContractVersion`** (`src/Contracts/Liakont.Agent.Contracts/AgentContractVersion.cs`) :
+   `"1"` → `"2"`. C'est la SEULE constante de version du payload.
+2. **`AgentContractVersion.Current`** : `"v1"` → `"v2"`. L'invariant `Current == "v" + ContractVersion`
+   est verrouillé par test ; le préfixe d'URL du groupe d'endpoints (`AgentApiEndpoints.MapAgentApi`)
+   en est DÉRIVÉ — aucun littéral `/api/agent/v2` à éditer à la main.
+3. **`AgentContractVersionPolicy.Previous`** (`src/Modules/Ingestion/Contracts`) : `null` → `"1"` —
+   la plateforme sert v2 (courante) **et** v1 (N-1) tant que des agents N-1 existent (règle 3, → `426`
+   au-delà). Décommissionner v1 (repasser `Previous` à `null`) est un acte ultérieur, séparé.
+4. **Golden files** (`tests/fixtures/contrat-v1/`) : créer le jeu `contrat-v2/` et figer ses hashes
+   (`FrozenHashes`) ; conserver `contrat-v1/` tant que v1 est servie. Régénération = acte explicite
+   revu en gate (cf. §5).
+5. **DTOs / writer / lecteur** : appliquer la rupture (renommage/suppression/type) au modèle pivot, au
+   `CanonicalJson` (writer) ET au `PivotCanonicalJsonReader` (lecteur prod, miroir du writer) — les
+   trois restent synchronisés au champ près (gardes de complétude par réflexion).
+6. **Docs** : dupliquer ce fichier en `contrat-agent-v2.md` (ou versionner les sections) et acter la
+   matrice de compatibilité N/N-1 à jour.
+
+### 4.1 Articulation des deux axes de version
+
+La version se porte sur **deux axes distincts et orthogonaux** — ne pas les confondre :
+
+| Axe | Porteur | Granularité | Qui décide |
+|---|---|---|---|
+| **Préfixe d'URL** (`/api/agent/v1/`) | route HTTP (`MapGroup`), constante `AgentContractVersion.Current` (`"v1"`) | grossière : ne change qu'à une **rupture** (§4.2) | acte humain revu (ajout d'un `MapGroup("/api/agent/v2")`) |
+| **Version de contrat négociée** (en-tête `X-Contract-Version`, champ `ContractVersion`) | `AgentContractVersion.ContractVersion` (`"1"`), `AgentContractVersionPolicy` | fine : N et N-1 cohabitent, plus ancien → `426` | la plateforme, à chaque requête (filtre) |
+
+- Le **préfixe d'URL** localise la famille de contrat ; la **version négociée** sélectionne, *à
+  l'intérieur* d'une requête, la compatibilité N/N-1 et déclenche le `426` (auto-update).
+- L'axe de version est **orthogonal à l'empreinte par document** : seul le *payload par document*
+  est hashé (anti-doublon PIV04) ; l'enveloppe (batch/heartbeat) qui porte la version ne l'est pas.
+  Un même document poussé sous contrat N ou N-1 a **la même empreinte** — un changement de version
+  négociée ne crée jamais de doublon ni de rupture d'empreinte.
+
+### 4.2 Seam de cohabitation N/N-1 matérialisé (RDF08)
+
+Le seam N/N-1 est **exercé par des tests dès la V1**, avant toute rupture réelle, pour qu'il ne soit
+pas découvert en production à la première évolution cassante :
+
+- **Négociation** — `AgentContractVersionPolicy.IsSupported(version, current, previous)` est une
+  décision PURE testée (`AgentContractVersionPolicyTests`) sur une matrice hypothétique
+  (`N="2"`, `N-1="1"`) : N et N-1 supportés, toute version antérieure à N-1 refusée (`426`). La
+  matrice *live* garde `Previous = null` (il n'existe pas encore de N-1) — la branche N-1 est donc
+  prouvée correcte sans fausser la politique servie.
+- **Sérialisation** — un jeu de **golden v2** (`tests/fixtures/contrat-v2/` : `batch-mixte.json`,
+  `heartbeat.json`) porte `ContractVersion: "2"` sur les **mêmes** documents que la v1. Les tests
+  cross-runtime (`ContractFixtureTests`, liés net48 + .NET 10) prouvent que l'enveloppe v2 est
+  identique octet par octet des deux côtés, qu'elle ne diffère de la v1 que par la valeur de
+  `ContractVersion`, et que les empreintes des documents embarqués sont inchangées.
+
+> Le **payload v2 reste celui de la V1** : aucune rupture métier n'existe encore, donc aucun DTO ni
+> golden de *document* v2 n'est inventé (CLAUDE.md n°2). Une vraie rupture future bascule
+> `Previous` sur `"1"`, ajoute le `MapGroup("/api/agent/v2")`, ajoute les golden de document v2 et
+> bumpe les empreintes figées — chemins déjà en place et verts grâce à ce seam.
 
 ---
 

@@ -267,6 +267,8 @@ public sealed class DocumentResolutionConsoleServiceTests
 
         public Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
+        public Task RecordPaSendingReferenceAsync(Guid documentId, string paDocumentId, string? paResponseSnapshot, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
         public Task MarkIssuedAsync(Guid documentId, DocumentIssuanceSnapshots snapshots, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task MarkRejectedByPaAsync(Guid documentId, DocumentRejectionSnapshots snapshots, CancellationToken cancellationToken = default) => throw new NotSupportedException();

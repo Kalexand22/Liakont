@@ -72,6 +72,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
+using Stratum.Common.Abstractions.Jobs;
 using Stratum.Common.Abstractions.MultiTenancy;
 using Stratum.Common.Abstractions.Security;
 using Stratum.Common.Infrastructure.Actions;
@@ -86,6 +87,7 @@ using Stratum.Common.Infrastructure.GridPreferences;
 using Stratum.Common.Infrastructure.HealthChecks;
 using Stratum.Common.Infrastructure.Http;
 using Stratum.Common.Infrastructure.Jobs;
+using Stratum.Common.Infrastructure.Keycloak;
 using Stratum.Common.Infrastructure.UiRules;
 using Stratum.Common.Infrastructure.Validation;
 using Stratum.Common.UI;
@@ -162,8 +164,14 @@ public static class AppBootstrap
         builder.Services.AddStratumGis(builder.Configuration);
 
         // Multi-tenant job runner (SOL06) — fans an ITenantJob out over all active tenants.
-        // Requires ITenantScopeFactory (registered by AddStratumMultiTenancy above).
-        builder.Services.AddTenantJobs();
+        // Requires ITenantScopeFactory (registered by AddStratumMultiTenancy above). The optional per-tenant
+        // time budget (RDL08, A6-scale-3) is bound from the "TenantJobs" section; absent → disabled (null).
+        builder.Services.AddTenantJobs(opts =>
+            builder.Configuration.GetSection(TenantJobRunnerOptions.SectionName).Bind(opts));
+
+        // De-duplication guard for the recurring scheduler (RDL08, A6-scale-2): consulted by JobScheduler
+        // before enqueuing, suppresses an enqueue when a Pending job of the same type/scope already exists.
+        builder.Services.AddScoped<IRecurringJobEnqueueGuard, RecurringJobEnqueueGuard>();
 
         // Modules
         builder.Services.AddIdentityModule(builder.Configuration);
@@ -238,9 +246,9 @@ public static class AppBootstrap
         // Bascule tacite des acceptations d'auto-factures 389 (MND04, ADR-0024 §4) : le handler de fan-out
         // (gabarit DailyAnchoring/SOL06) bascule PendingAcceptance → TacitlyAccepted pour les documents sous
         // mandat écrit dont l'échéance (DeadlineUtc) est échue. La CADENCE n'est PAS fixée par la spec (F15
-        // §2.3 ne fixe que l'échéance par document) : aucune n'est inventée ici → pas d'entrée
-        // SystemJobDefinitions ; la planification reste un geste opérateur (admin des schedules), comme le
-        // récapitulatif SUP03 (optionnel, non amorcé).
+        // §2.3 ne fixe que l'échéance par document) : aucune n'est inventée → entrée SystemJobDefinitions de
+        // classe DeploymentCadence (cron null, NON amorcée) pour que le diagnostic de démarrage signale un job
+        // jamais planifié (RDL07/A6-cons-2) ; la planification reste un geste opérateur (admin des schedules).
         builder.Services.AddJobHandler<SelfBilledAcceptanceTacitTrigger, SelfBilledAcceptanceTacitFanOutHandler>(
             "Bascule tacite des acceptations d'auto-factures");
 
@@ -261,9 +269,10 @@ public static class AppBootstrap
         // à rétention courte (proposition 90 j configurable) et PURGEABLE — distinct par construction de la
         // piste d'audit append-only (documents.document_events) et du coffre WORM probant. Le handler de purge
         // fait le fan-out par tenant (TenantJobRunner, SOL06) ; sa PLANIFICATION (cron) reste un geste opérateur
-        // via l'admin des planifications, comme le digest de supervision — aucune cadence inventée (la cadence
-        // d'un housekeeping de rétention courte relève du déploiement). L'ÉCRITURE de la trace (au moment de la
-        // transmission) est câblée par FX07.
+        // via l'admin des planifications — aucune cadence inventée (housekeeping de rétention courte = cadence de
+        // déploiement) : entrée SystemJobDefinitions de classe DeploymentCadence (cron null, non amorcée) pour
+        // que le diagnostic de démarrage signale un job jamais planifié (RDL07/A6-cons-2). L'ÉCRITURE de la trace
+        // (au moment de la transmission) est câblée par FX07.
         builder.Services.AddSupportTraceModule(builder.Configuration);
         builder.Services.AddJobHandler<SupportTracePurgeTrigger, SupportTracePurgeFanOutHandler>("Purge de la trace de support du Factur-X");
 
@@ -320,7 +329,7 @@ public static class AppBootstrap
         // Génération Factur-X (FX02-FX04) : enregistre le port IFacturXBuilder (sérialiseur CII maison +
         // scellement PDF/A-3 QuestPDF confiné à FacturX.Infrastructure, INV-FX-1). La décision de générer
         // reste au pipeline appelant (FacturX ne consulte aucune PaCapabilities — ADR-0023 INV-FX-4).
-        builder.Services.AddFacturXModule();
+        builder.Services.AddFacturXModule(builder.Configuration);
 
         // FX07 (F16 §6.1) : le plug-in PA GÉNÉRIQUE (Essentiel) et ses canaux de livraison Host sont câblés
         // ICI, EN MÊME TEMPS que la génération à l'étape Sending — au moment où le pipeline sait nourrir le
@@ -367,6 +376,13 @@ public static class AppBootstrap
         // (pipeline.run_logs) + points d'entrée Contracts consommés par CHECK/SEND/SYNC. AUCUN comportement
         // de pipeline ici (PIP01b-d) ; le pipeline ne référence aucune PA concrète (CLAUDE.md n°6).
         builder.Services.AddPipelineModule();
+
+        // RDL06 — les 4 fan-out SYSTÈME récurrents du pipeline (SendAll/SyncAll/AggregatePaymentsAll/
+        // RectifyReportsAll) sont câblés ICI via AddJobHandler (l'extension vit dans le module Job, que seul le
+        // Host référence) : c'est AddJobHandler qui pose la JobHandlerRegistration singleton vue par le
+        // JobHandlerResolver (dispatch) et le JobTypeCatalog (planification). Leur PLANIFICATION (cron) reste un
+        // geste opérateur via l'admin des schedules, comme l'ancrage TRK06 et la supervision.
+        builder.Services.AddPipelineSystemJobHandlers();
 
         // SEND déclenché par une ACTION de console (API02a, ADR-0016) : handler SYSTÈME du déclencheur
         // MONO-TENANT SendTenantTrigger. Enregistré au composition root (comme DailyAnchoring/Supervision)
@@ -461,8 +477,9 @@ public static class AppBootstrap
         // (cf. CanonicalJson / fixtures contrat-v1). Sans convertisseur string→enum, System.Text.Json
         // attend un nombre et rejette un lot au format documenté en 400 au model-binding (requête) et
         // émet le statut de réponse en nombre. Scopé aux trois enums du contrat (deux en requête, un en
-        // réponse — voir AgentApiJson) pour ne pas toucher le format des autres enums.
-        builder.Services.ConfigureHttpJsonOptions(options => AgentApiJson.ConfigureContractEnums(options.SerializerOptions));
+        // réponse — voir AgentApiJson) pour ne pas toucher le format des autres enums. RDL04 ajoute le
+        // rejet strict des membres inconnus sur les DTOs du contrat (intégrité du hash N+1→N).
+        builder.Services.ConfigureHttpJsonOptions(options => AgentApiJson.ConfigureContractBinding(options.SerializerOptions));
 
         // Le module ERP Party n'est pas vendoré (seul Party.Contracts — décision D1). Identity
         // dépend de IPartyQueries par injection ; Liakont ne lie pas ses utilisateurs à des Party
@@ -764,6 +781,13 @@ public static class AppBootstrap
         // câblé ; l'absence de tout fournisseur n'est jamais une erreur (un tenant Recorded démarre sans
         // plug-in — INV-SIGPROV-6).
         ValidateSignatureProviderConfiguration(app.Configuration, app.Services);
+
+        // Validation au démarrage du profil de déploiement (RDF11, redline ADR fondateurs RL-IDP-8) :
+        // le flag Keycloak:DedicatedRealmPerTenant choisit SaaS partagé (défaut) vs dédié mono-tenant.
+        // Fail-closed : en dédié sans API Admin Keycloak, le provisioning realm-par-tenant ne peut pas
+        // tourner → on bloque plutôt que d'activer une capacité latente sans son pré-requis (avenant
+        // RDF11 de l'ADR-0021 ; capacité dédiée hors périmètre INV-0021-*).
+        ValidateDedicatedRealmConfiguration(app.Configuration);
 
         // Signale l'activation du puits factice hors Development avant toute initialisation,
         // pour qu'un opérateur ayant posé PaClients:Fake:Enabled=true par erreur le voie immédiatement.
@@ -1077,6 +1101,30 @@ public static class AppBootstrap
     }
 
     /// <summary>
+    /// Validation au démarrage du flag de profil de déploiement <c>Keycloak:DedicatedRealmPerTenant</c>
+    /// (RDF11, redline ADR fondateurs RL-IDP-8). Délègue la décision pure (fail-closed) à
+    /// <see cref="DedicatedRealmStartupValidator"/> : en profil dédié sans API Admin Keycloak
+    /// configurée, le provisioning realm-par-tenant est impossible → échec explicite au démarrage.
+    /// No-op en profil SaaS partagé (défaut). Le flag est lu via la MÊME clé
+    /// (<c>Keycloak:DedicatedRealmPerTenant</c>) et la MÊME notion « API Admin configurée »
+    /// (<see cref="KeycloakAdminOptions.IsConfigured"/>) que les sites consommateurs (sélection DI du
+    /// provisioner, ciblage de realm), garantissant la cohérence au démarrage. La logique pure est
+    /// testée par <c>DedicatedRealmStartupValidatorTests</c>.
+    /// </summary>
+    /// <param name="configuration">Configuration de l'application (lit la section <c>Keycloak</c>).</param>
+    internal static void ValidateDedicatedRealmConfiguration(
+        Microsoft.Extensions.Configuration.IConfiguration configuration)
+    {
+        var dedicated = configuration.GetValue<bool>(
+            $"{KeycloakAdminOptions.SectionName}:DedicatedRealmPerTenant");
+        var adminConfigured =
+            configuration.GetSection(KeycloakAdminOptions.SectionName).Get<KeycloakAdminOptions>()?.IsConfigured
+            ?? false;
+
+        DedicatedRealmStartupValidator.Validate(dedicated, adminConfigured);
+    }
+
+    /// <summary>
     /// Applies any missing migrations to all active tenant databases.
     /// Must run after system migrations so that <c>outbox.tenants</c> is available.
     /// </summary>
@@ -1089,16 +1137,19 @@ public static class AppBootstrap
 
     /// <summary>
     /// Sélectionne l'implémentation d'<see cref="IIdentityProviderAuthenticator"/> à utiliser
-    /// selon « Identity:Provider » (décision D10). Par défaut Keycloak ; une alternative
-    /// in-process (ex. OpenIddict) s'ajoute dans le registre ci-dessous sans toucher au
-    /// reste du Host.
+    /// selon « Identity:Provider » (décision D10). Par défaut Keycloak. À ce jour il n'existe
+    /// qu'UNE entrée (Keycloak) : 0 implémentation OpenIddict. Ajouter une entrée au registre
+    /// ci-dessous est NÉCESSAIRE mais NON SUFFISANT pour brancher un autre IdP — le provisioning
+    /// realm/utilisateur, le 2FA et la résolution issuer/JWKS sont Keycloak-spécifiques et câblés
+    /// hors du sélecteur (voir avenant ADR-0002 du 2026-06-20 / RDF09).
     /// </summary>
     private static IIdentityProviderAuthenticator SelectIdentityProvider(
         string? providerName,
         KeycloakSettings keycloakSettings)
     {
-        // Registre des fabriques d'IdP, indexé par nom de fournisseur. Une alternative
-        // in-process (ex. OpenIddict) s'ajoute ici comme une entrée supplémentaire.
+        // Registre des fabriques d'IdP, indexé par nom de fournisseur. Une alternative in-process
+        // (ex. OpenIddict) s'ajouterait ici, mais l'entrée seule ne suffit pas : voir le résumé de
+        // méthode (provisioning/2FA/JWKS hors sélecteur) et l'avenant ADR-0002 du 2026-06-20.
         var providers = new Dictionary<string, Func<IIdentityProviderAuthenticator>>(StringComparer.OrdinalIgnoreCase)
         {
             ["Keycloak"] = () => new KeycloakIdentityProviderAuthenticator(keycloakSettings),

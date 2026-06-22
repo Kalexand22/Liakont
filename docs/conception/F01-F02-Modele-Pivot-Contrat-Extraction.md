@@ -95,7 +95,7 @@
 | `UnitPriceNet` | decimal | BT-146 | |
 | `NetAmount` | decimal | BT-131 | montant HT de la ligne |
 | `Tax` | PivotLineTax | BG-30 | ✅ |
-| `SourceRegimeCode` | string | — | **Le code régime TVA du système source, brut.** C'est le moteur de mapping (F3) qui le transforme — jamais l'adaptateur |
+| `SourceRegimeCodes` | IReadOnlyList&lt;string&gt; | — | **Les codes régime TVA du système source, BRUTS — une COLLECTION par ligne** (ADR-0004 D3-1 ; corrigé du singulier `string` au redline RD409). Une source peut porter un couple de codes (NAV) ou plusieurs taxes sur une même ligne (Axelor). C'est le moteur de mapping (F3) qui les transforme — jamais l'adaptateur. La **scission BG-30** (1 catégorie/ligne) d'une ligne multi-codes/multi-taxes est un **différé tracé** (cf. F03 §4.1 bis) : le moteur bloque délibérément tant que F03 ne source pas l'association régime→ventilation — jamais deviné (CLAUDE.md n°2/n°3) |
 | `SourceLineRef` | string | — | référence ligne source (traçabilité) |
 
 ### 3.4 `PivotLineTax` — la TVA d'une ligne (résultat du mapping F3)
@@ -170,7 +170,7 @@ public interface IExtractor
 |---|---|---|
 | R1 | **Lecture seule absolue** — aucune écriture, aucun verrou explicite, aucune transaction modifiante sur la source | Décision structurante produit (zéro autorisation éditeur nécessaire) |
 | R2 | **Idempotence** — deux extractions de la même période retournent les mêmes documents (mêmes `SourceReference`) | L'anti-doublon (F6) repose dessus |
-| R3 | **L'adaptateur ne mappe pas la TVA** — il fournit `SourceRegimeCode` brut + les montants calculés par la source | Le mapping est central, paramétrable et audité (F3) |
+| R3 | **L'adaptateur ne mappe pas la TVA** — il fournit `SourceRegimeCodes` bruts (collection par ligne, ADR-0004 D3-1) + les montants calculés par la source | Le mapping est central, paramétrable et audité (F3) |
 | R4 | **L'adaptateur ne valide pas** — il extrait ce qui existe, met `null` sur ce qui manque | La validation est centrale et homogène (F4) |
 | R5 | **L'adaptateur n'appelle jamais la PA** | Frontières strictes |
 | R6 | **Pas d'état interne** — l'adaptateur ne sait pas ce qui a déjà été envoyé (c'est le Tracking F6) | Adaptateur = fonction pure de la source |

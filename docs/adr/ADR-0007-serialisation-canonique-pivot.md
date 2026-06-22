@@ -58,12 +58,30 @@ d'être que `PivotRounding`. Aucune règle fiscale n'est portée ici.
 5. **`decimal` en culture INVARIANTE**, séparateur `.`, **échelle de la source PRÉSERVÉE**
    (`10.00m` → `10.00` ; `1234.5m` → `1234.5` ; `0m` → `0`), **jamais de notation exponentielle**
    (garanti par le type `decimal` ; vérifié par test). Aucun montant n'est en float/double (CLAUDE.md n°1).
-6. **Dates : format unique `yyyy-MM-dd`** en culture invariante (la composante horaire est ignorée —
-   les champs du pivot sont des dates : émission, paiement, référence). Les horodatages UTC des
-   enveloppes de transport (hors périmètre PIV02) utiliseront `yyyy-MM-ddTHH:mm:ssZ`.
-7. **Chaînes : sortie ASCII PUR.** Tout caractère `< 0x20` ou `> 0x7E` est échappé en `\uXXXX`
-   **hexadécimal minuscule** ; `"` → `\"` et `\` → `\\` ; les contrôles usuels utilisent `\b \f \n
-   \r \t`. C'est le point qui fait le plus diverger Newtonsoft (pas d'échappement non-ASCII) et STJ.
+6. **Dates : format unique `yyyy-MM-dd`** en culture invariante — **invariant « date calendaire »** :
+   seules les composantes Year/Month/Day sont émises, le `DateTimeKind` (Utc/Local/Unspecified),
+   l'heure et le fuseau sont **ignorés** (aucune conversion de fuseau). Deux `DateTime` de même date
+   calendaire mais de `Kind` différent produisent donc le MÊME octet (vérifié par test). Les champs du
+   pivot sont des dates (émission, paiement, référence) ; un adaptateur ne doit pas dériver une date du
+   pivot d'un `DateTimeOffset.ToLocalTime()` qui décalerait la composante calendaire près de minuit
+   (responsabilité de déterminisme de la source, cf. §traçabilité). Les horodatages UTC des enveloppes
+   de transport (hors périmètre PIV02) utiliseront `yyyy-MM-ddTHH:mm:ssZ`.
+7. **Chaînes (texte LIBRE) : normalisation Unicode NFC, puis sortie ASCII PUR.** Toute valeur de texte
+   libre (raison sociale, libellé, `SourceData`…) est d'abord **normalisée en NFC**
+   (`String.Normalize(NormalizationForm.FormC)`) : « café » précomposé (U+00E9) et décomposé
+   (U+0065 U+0301) sont la MÊME chaîne abstraite (équivalence canonique Unicode) et doivent produire la
+   MÊME empreinte — sinon une source ODBC renvoyant tantôt NFC tantôt NFD romprait l'anti-doublon (PIV04).
+   La forme NFC est **stable entre net48 et .NET 10** : la *Unicode Normalization Stability Policy* garantit
+   que la décomposition canonique d'un caractère **assigné** ne change jamais d'une version d'Unicode à
+   l'autre — l'empreinte reste donc identique des deux côtés. C'est **ancré par des tests NFC≡NFD exécutés
+   des DEUX côtés** (`CanonicalDeterminismTests`, lié net48 + .NET 10) : un cas Latin-1 (« café ») ET une
+   syllabe Hangul HORS Latin-1 (U+AC00 ≡ U+1100 U+1161), pour ne pas réduire la preuve à une garantie de
+   « policy » sur le seul Latin-1 ; les golden à empreinte figée complètent la couverture cross-runtime. La
+   normalisation est portée par le **seul** `WriteString` (texte libre) : noms de membres, dates et noms
+   d'énum sont du texte CONTRÔLÉ (ASCII) pour lequel NFC est un no-op. Ensuite, **sortie ASCII pur** : tout
+   caractère `< 0x20` ou `> 0x7E` est échappé en `\uXXXX` **hexadécimal minuscule** ; `"` → `\"` et
+   `\` → `\\` ; les contrôles usuels utilisent `\b \f \n \r \t`. C'est le point qui fait le plus diverger
+   Newtonsoft (pas d'échappement non-ASCII) et STJ. Une chaîne Unicode **mal formée** (surrogate isolé) ne peut pas être normalisée — `String.Normalize` lève ; on préserve alors l'échappement code-unité déterministe antérieur (aucun nouveau rejet introduit, hors périmètre).
 8. **Sortie compacte** : aucun espace ni saut de ligne hors des chaînes.
 9. **Empreinte** : SHA-256 des octets UTF-8 (identiques aux octets ASCII) → **hexadécimal minuscule
    de 64 caractères**.
@@ -75,10 +93,23 @@ d'être que `PivotRounding`. Aucune règle fiscale n'est portée ici.
   montant négatif, caractères non-ASCII) sérialisé doit produire la MÊME empreinte figée. Toute
   divergence runtime — ou régression de format — casse le test. PIV03 étendra à un jeu de fixtures.
 - **Round-trip sans perte** prouvé par un lecteur canonique de test (lié des deux côtés) : `désérialiser(sérialiser(doc))`
-  re-sérialise à l'identique. Le lecteur ne vit PAS en production (le contrat n'a besoin que du
-  writer + du hasher).
+  re-sérialise à l'identique. Le contrat lui-même n'a besoin que du writer + du hasher.
+- **Un lecteur canonique vit AUSSI en production** (amendement 2026-06-19, RDL02) : `PivotCanonicalJsonReader`
+  (module `Pipeline`, .NET 10) relit le pivot canonique depuis le magasin de staging (PIP00) pour le SEND
+  (`SendTenantJob`). Il est un **miroir STRICT du writer, au champ près** — le round-trip
+  `Serialize(Read(json)) == json` est garanti octet par octet (INV-PIPELINE-001/002). Il **NE RE-SÉRIALISE
+  JAMAIS pour ré-hacher** : la re-vérification du `payload_hash` porte sur la **string brute** lue du staging
+  (`IPayloadStagingStore.ReadAsync`), pas sur une re-sérialisation. Conséquence : writer, lecteur de test et
+  lecteur prod sont **trois artefacts à garder synchronisés au champ près**. Cette synchronisation est
+  verrouillée par des **gardes de complétude par RÉFLEXION** sur un document entièrement peuplé — côté writer
+  (`CanonicalJsonRulesTests`) et côté lecteur prod (`PivotCanonicalJsonReaderTests`, RDL02) : un champ pivot
+  ajouté mais oublié dans le lecteur prod serait amputé avant transmission PA (EXT01/BT-9 l'a frôlé), et fait
+  désormais échouer la garde.
 - Le **format canonique est la base du HASH**, pas nécessairement le format de la requête HTTP. PIV04
-  recalcule l'empreinte côté plateforme à partir du DTO reçu (et non du JSON HTTP brut).
+  recalcule l'empreinte côté plateforme à partir du DTO reçu (et non du JSON HTTP brut) — la plateforme
+  **re-désérialise les octets du fil via System.Text.Json** puis re-sérialise canoniquement et hashe le DTO
+  (`AgentApiEndpoints` → `IngestDocumentBatchHandler`). L'axe `wire→STJ→writer→hash` est ancré par un test
+  Host net10 sur le jeu de golden contrat-v1 (RDL02).
 
 ### Champs de traçabilité dans l'empreinte (`SourceData`, `SourceReference`)
 
@@ -97,6 +128,20 @@ Conséquences voulues :
   d'extraction ni d'ordre de champ instable). Cette stabilité est une **responsabilité de
   l'adaptateur** (lot ADP), pas du sérialiseur : PIV02 hashe fidèlement le payload défini par le
   contrat, sans en exclure de champ.
+
+  **Précision (amendement 2026-06-19, RDL05) — encodage vs contenu.** Il faut distinguer deux niveaux
+  de déterminisme, qui n'entrent pas en conflit : (a) le déterminisme de **contenu/structure** —
+  *quels* champs, *quelles* valeurs, *quel* ordre, pas d'horodatage d'extraction — relève de
+  l'adaptateur (ci-dessus) ; (b) la canonicalisation de la **forme d'encodage** d'une chaîne donnée —
+  échappement ASCII (règle 7) ET **normalisation Unicode NFC** — relève du writer, car elle est
+  transverse et identique pour toute chaîne. Normaliser en NFC dans le writer ne « transforme » pas le
+  contenu de la source au sens de la règle n°2 (CLAUDE.md) : NFC et NFD sont la **même chaîne abstraite**
+  (équivalence canonique), exactement comme `é` et la lettre `é` désignent le même caractère. Ce
+  n'est donc PAS une dérogation à F01-F02 §3.7.4 (aucun champ n'est exclu ni altéré sémantiquement),
+  mais la garantie que deux représentations d'octets canoniquement équivalentes ne cassent ni
+  l'anti-doublon (PIV04) ni la détection d'altération (TRK03). L'adaptateur reste libre de garantir NFC
+  en amont (R2) ; le writer rend cette garantie **inconditionnelle et impossible à oublier** sur tout
+  champ de texte libre présent ou futur.
 
 Exclure des champs de l'empreinte serait une **dérogation à F01-F02 §3.7.4** : non décidée ici (pas
 de source). Si une source réelle s'avérait incapable de produire un `SourceData` déterministe, le

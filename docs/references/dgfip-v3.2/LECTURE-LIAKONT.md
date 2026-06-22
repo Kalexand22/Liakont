@@ -18,6 +18,13 @@ Le changelog officiel (`3- XSD_v3.2/Changelog_XSD.md`) liste les changements v3.
 **Conclusion** : les specs internes F01-F11 (rédigées sur la base v3.1) restent valides.
 Aucune modification du backlog n'est requise par la v3.2.
 
+> **⚠️ Caveat (redline RD409, finding RD4-19, 2026-06-20).** Le verdict « delta MINIME » ci-dessus est
+> établi sur le **seul changelog XSD** (`Changelog_XSD.md`), qui ne couvre QUE les schémas. Il reste
+> **PROVISOIRE** tant que la veille de TEXTE n'est pas faite : l'**Annexe 7 « Règles de gestion » V1.9**
+> et le **Dossier général v3.2** peuvent porter des précisions absentes du changelog XSD. Action HUMAINE
+> planifiée et tracée ci-dessous (§ « Actions restantes ») ; tant qu'elle n'est pas cochée, ne pas
+> requalifier le delta en « définitivement minime ». Voir l'addendum `docs/adr/ADR-0004-bis-*.md` (§ Veille).
+
 ## Rappel d'architecture : pourquoi l'impact est structurellement faible
 
 Liakont ne dialogue **jamais directement** avec le PPF/DGFiP : il transmet des données
@@ -48,5 +55,7 @@ données transmises permettront à la PA de produire un flux valide), pas de for
 - [ ] Lecture du Dossier général v3.2 (PDF, ~3 MB) pour vérifier les évolutions de TEXTE
       (le changelog ne couvre que les XSD — les règles de gestion de l'Annexe 7 V1.9 et le
       dossier général peuvent contenir des précisions nouvelles vs v3.1)
-- [ ] Croiser l'Annexe 7 (règles de gestion V1.9) avec F04 lors du lot VAL
+- [ ] Croiser l'Annexe 7 (règles de gestion V1.9) avec F04 lors du lot VAL — **action de veille tracée
+      par RD409 (finding RD4-19)** : croiser règle par règle l'Annexe 7 V1.9 avec les contrôles F04, et
+      reporter ici tout écart ; ne pas conclure sur le seul changelog XSD (cf. caveat ci-dessus)
 - [ ] Télécharger les normes AFNOR XP Z12-012/-013/-014 (payantes, boutique AFNOR — non incluses ici)

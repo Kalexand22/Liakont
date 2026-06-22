@@ -14,7 +14,7 @@ using Newtonsoft.Json;
 /// autorisée et OBLIGATOIRE : la conversion des <c>float</c> legacy en <c>decimal</c> arrondi au centime
 /// half-up via <see cref="SourceAmounts"/> (ADR-0004 D3-7, CLAUDE.md n°1) ; l'original brut reste en SourceData.
 /// L'émetteur et la nature d'opération ne sont PAS portés par l'agent : la plateforme les remplit à
-/// l'ingestion depuis le profil tenant (ADR-0023 amendé) — l'agent n'extrait que la base source (F01-F02 §4.3).
+/// l'ingestion depuis le profil tenant (ADR-0031 amendé) — l'agent n'extrait que la base source (F01-F02 §4.3).
 /// </summary>
 internal static class DemoErpBRowMapper
 {
@@ -24,7 +24,7 @@ internal static class DemoErpBRowMapper
     /// <summary>Type de pièce source « avoir » (credit note).</summary>
     internal const string KindCreditNote = "C";
 
-    /// <summary>Préfixe NAMESPACÉ de la référence source (anti-collision cross-agent — ADR-0023 D8).</summary>
+    /// <summary>Préfixe NAMESPACÉ de la référence source (anti-collision cross-agent — ADR-0031).</summary>
     internal const string SourceReferencePrefix = "demoerpb:";
 
     private const string CurrencyDefault = "EUR";

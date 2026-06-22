@@ -21,9 +21,10 @@ internal static class PivotDocumentBuilder
         PivotTotalsDto? totals = null,
         decimal? prepaidAmount = null,
         IReadOnlyList<PivotDocumentChargeDto>? documentCharges = null,
-        IReadOnlyList<PivotPaymentDto>? payments = null)
+        IReadOnlyList<PivotPaymentDto>? payments = null,
+        string sourceDocumentKind = "BORDEREAU")
         => new(
-            sourceDocumentKind: "BORDEREAU",
+            sourceDocumentKind: sourceDocumentKind,
             number: number,
             issueDate: new DateTime(2024, 1, 15),
             sourceReference: "src-" + number,

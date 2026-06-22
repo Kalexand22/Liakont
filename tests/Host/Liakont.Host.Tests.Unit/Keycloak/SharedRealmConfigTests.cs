@@ -35,22 +35,32 @@ public sealed class SharedRealmConfigTests
     private static readonly HashSet<string> SuperAdminRoles =
         new(StringComparer.OrdinalIgnoreCase) { "Admin", "SystemAdmin", "stratum-admin" };
 
+    // Config-level assertions : portent sur les TROIS fichiers de realm (dev + E2E + appliance prod).
+    // RDF02 (RL-IDP-3) : le realm appliance (prod, cible de la recette opérateur) a été AJOUTÉ ici — le
+    // durcissement RLF05 (2FA) n'avait touché que dev + E2E, donc INV-0021-7 était prouvé sur un FAUX
+    // artefact (faux-vert, règle review #8). La config réelle (mapper company_id, 2FA, profil immuable,
+    // brokering, politique d'inscription) est désormais prouvée sur le realm RÉELLEMENT importé en prod.
     public static IEnumerable<object[]> RealmFiles()
+    {
+        yield return ["deploy/docker/keycloak/realm-export.json"];
+        yield return ["tests/Liakont.Tests.E2E/Fixtures/keycloak-e2e-realm.json"];
+        yield return [ApplianceRealmPath];
+    }
+
+    // Realms avec utilisateurs SEEDÉS : dev + E2E uniquement. Le realm appliance (prod) est provisionné au
+    // déploiement (RLM) et ne porte AUCUN utilisateur de démonstration ; y seeder de faux tenants pour
+    // satisfaire un test serait un défaut de sécurité (comptes par défaut en prod), pas une preuve. Les
+    // assertions dépendant des utilisateurs seedés tournent donc ici ; la config (2FA, profil, brokering…)
+    // est prouvée sur les TROIS realms via RealmFiles().
+    public static IEnumerable<object[]> SeededRealmFiles()
     {
         yield return ["deploy/docker/keycloak/realm-export.json"];
         yield return ["tests/Liakont.Tests.E2E/Fixtures/keycloak-e2e-realm.json"];
     }
 
-    // Les assertions de brokering portent sur les TROIS fichiers de realm (dev + E2E + appliance).
-    public static IEnumerable<object[]> BrokeringRealmFiles()
-    {
-        foreach (var realm in RealmFiles())
-        {
-            yield return realm;
-        }
-
-        yield return [ApplianceRealmPath];
-    }
+    // Les assertions de brokering portent sur les TROIS fichiers de realm (dev + E2E + appliance), désormais
+    // tous énumérés par RealmFiles() — l'appliance y a été ajouté par RDF02, plus besoin de l'ajouter ici.
+    public static IEnumerable<object[]> BrokeringRealmFiles() => RealmFiles();
 
     [Theory]
     [MemberData(nameof(RealmFiles))]
@@ -151,6 +161,34 @@ public sealed class SharedRealmConfigTests
 
     [Theory]
     [MemberData(nameof(RealmFiles))]
+    public void Unmanaged_Attributes_Are_Disabled(string realmPath)
+    {
+        using var realm = LoadRealm(realmPath);
+        using var userProfileConfig = LoadDeclarativeUserProfile(realm.RootElement);
+
+        // RDF03 (RL-IDP-4, ADR-0002/0021) : les attributs NON déclarés doivent rester DÉSACTIVÉS — un
+        // attribut absent du profil déclaratif ne peut être écrit/lu depuis aucun contexte (registration,
+        // account, admin). Conjugué à company_id (déclaré, edit=[admin] — voir CompanyId_Is_Immutable…),
+        // cela garantit l'immuabilité côté IdP (INV-0021-3) : ni introduction d'un attribut non géré, ni
+        // édition de company_id par un non-admin.
+        //
+        // Keycloak 26 NE FOURNIT PAS de valeur d'enum « disabled » : UPConfig.UnmanagedAttributePolicy =
+        // { ENABLED, ADMIN_VIEW, ADMIN_EDIT } (vérifié contre le source 26.0.0). L'état « désactivé » EST
+        // l'ABSENCE de la propriété (défaut Keycloak). Poser une valeur littérale "DISABLED" ferait échouer
+        // la désérialisation du realm à l'import (InvalidFormatException) — règle « ne jamais inventer un
+        // membre d'enum ». Toute valeur réellement valide (ENABLED/ADMIN_VIEW/ADMIN_EDIT) EXPOSERAIT au
+        // contraire les attributs non gérés. L'état sûr est donc l'absence ; ce test la garde (anti-régression
+        // : il échoue si quelqu'un pose une politique qui expose, ou une valeur invalide qui casse l'import).
+        userProfileConfig.RootElement.TryGetProperty("unmanagedAttributePolicy", out _)
+            .Should().BeFalse(
+                "les attributs non gérés doivent rester désactivés (RDF03/INV-0021-3) : Keycloak 26 n'a pas de "
+                + "valeur d'enum « disabled » (UPConfig.UnmanagedAttributePolicy = ENABLED|ADMIN_VIEW|ADMIN_EDIT), "
+                + "donc l'état SÛR est l'ABSENCE de la propriété — toute valeur posée expose les attributs non "
+                + "gérés ou casse l'import du realm");
+    }
+
+    [Theory]
+    [MemberData(nameof(SeededRealmFiles))]
     public void Every_Tenant_User_Has_A_NonEmpty_CompanyId_And_SuperAdmin_Has_None(string realmPath)
     {
         using var realm = LoadRealm(realmPath);
@@ -177,7 +215,7 @@ public sealed class SharedRealmConfigTests
     }
 
     [Theory]
-    [MemberData(nameof(RealmFiles))]
+    [MemberData(nameof(SeededRealmFiles))]
     public void A_Second_Tenant_User_Carries_A_Distinct_CompanyId(string realmPath)
     {
         using var realm = LoadRealm(realmPath);

@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Liakont.Modules.Documents.Contracts.Queries;
+using Liakont.Modules.Ingestion.Contracts.Queries;
 using Liakont.Modules.Payments.Contracts.DTOs;
 using Liakont.Modules.Payments.Contracts.Queries;
 using Liakont.Modules.Pipeline.Application;
@@ -67,13 +68,19 @@ public sealed partial class PaymentAggregatorTenantJob : ITenantJob
         var fiscalContext = BuildFiscalContext(fiscal);
         var paSupportsPaymentReporting = await ResolvePaymentReportingCapabilityAsync(services, tenantSettings, companyId.Value, tenantId, cancellationToken);
 
+        // RD403 : la SOURCE expose-t-elle des encaissements ? (capacité ExposesPayments déclarée par l'agent,
+        // RD401). false = source qui n'expose pas les paiements → e-reporting non applicable, jamais un néant
+        // transmis à tort (à distinguer de « zéro encaissement » d'une source qui les expose — ADR-0004 D2).
+        var sourceExposesPayments = await services.GetRequiredService<IExtractorCapabilitiesQueries>()
+            .AnyAgentExposesPaymentsAsync(tenantId, cancellationToken);
+
         var payments = await services.GetRequiredService<IPaymentQueries>().ListPaymentsAsync(cancellationToken);
 
         var resolved = new List<ResolvedPayment>();
         var ioExclusions = new List<PaymentExclusion>();
         await ResolvePaymentsAsync(services, payments, resolved, ioExclusions, cancellationToken);
 
-        var result = PaymentAggregationCalculator.Aggregate(resolved, fiscalContext, paSupportsPaymentReporting);
+        var result = PaymentAggregationCalculator.Aggregate(resolved, fiscalContext, paSupportsPaymentReporting, sourceExposesPayments);
 
         await services.GetRequiredService<IPaymentAggregationStore>().ReplaceAllAsync(result.Aggregates, cancellationToken);
 

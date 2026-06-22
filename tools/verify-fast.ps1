@@ -170,6 +170,42 @@ if ($ok) {
     }
 }
 
+# ── Step 2a-quater: socle-provenance guard self-test (always run) ──
+# Guards the marker-exclusion + tamper detection of socle-provenance-check.ps1 (RDL09): a regression
+# that silently excluded a true Stratum.* file, stopped catching an unconsigned edit, or stopped
+# catching a pinned file that gained a marker would be a false green. Runs in a throwaway git repo,
+# pure PowerShell, no dotnet.
+if ($ok) {
+    $ok = Run-Step 'socle-provenance: self-test' {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot 'tools\test-socle-provenance-guard.ps1')
+        if ($LASTEXITCODE -ne 0) {
+            throw "socle-provenance self-test failed (exit $LASTEXITCODE) — see tools/test-socle-provenance-guard.ps1"
+        }
+    }
+}
+
+# ── Step 2a-quinquies: NuGet currency lint + self-test (always run) ──────────
+# Guards the currency of pinned packages across BOTH central catalogs (root + agent): a downgrade
+# below a declared floor would be a silent regression. The self-test proves the lint discriminates
+# (below floor -> 1, broken config -> 2, sound/advisory -> 0); the lint then runs on the real
+# catalogs. Pure PowerShell, no dotnet — cheap and always run. See ADR-0003 (avenant, RDF07).
+if ($ok) {
+    $ok = Run-Step 'currency: lint self-test' {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot 'tools\test-package-currency-lint.ps1')
+        if ($LASTEXITCODE -ne 0) {
+            throw "currency lint self-test failed (exit $LASTEXITCODE) — see tools/test-package-currency-lint.ps1"
+        }
+    }
+}
+if ($ok) {
+    $ok = Run-Step 'currency: pinned packages' {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot 'tools\lint-package-currency.ps1')
+        if ($LASTEXITCODE -ne 0) {
+            throw "pinned package currency regression (exit $LASTEXITCODE) — see ADR-0003 avenant + tools/package-currency-policy.json"
+        }
+    }
+}
+
 # ── Step 2b: socle provenance guard (when the vendored tree exists) ──
 # Any silent modification of a vendored Stratum.* file that is not consigned in
 # docs/architecture/provenance-socle-stratum.md is a P1 (CLAUDE.md rule 11). The check pins

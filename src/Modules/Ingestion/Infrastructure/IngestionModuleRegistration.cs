@@ -36,6 +36,11 @@ public static class IngestionModuleRegistration
         services.AddScoped<IReceivedDocumentUnitOfWorkFactory, PostgresReceivedDocumentUnitOfWorkFactory>();
         services.AddScoped<ISourceTaxRegimeWriter, PostgresSourceTaxRegimeWriter>();
         services.AddScoped<ISourceTaxRegimeQueries, PostgresSourceTaxRegimeQueries>();
+
+        // Capacités déclarées de la source (ADR-0004 D2 / RD401) : persistées par agent/tenant, lues par
+        // les adaptations métier à valeur présente (RD403) et les différés tracés (RD409).
+        services.AddScoped<IExtractorCapabilitiesWriter, PostgresExtractorCapabilitiesWriter>();
+        services.AddScoped<IExtractorCapabilitiesQueries, PostgresExtractorCapabilitiesQueries>();
         services.AddSingleton<IIngestedPdfStore, FileSystemIngestedPdfStore>();
 
         // Port de création du document en état Detected : défaut sûr enregistré via TryAdd — si le module

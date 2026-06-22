@@ -19,12 +19,20 @@
     (Identity, Party/Contracts, Job, Notification, Audit). The adapted Liakont.Host is NOT
     vendored Stratum.* (it is reviewed as Liakont code) and is excluded.
 
-    Scope of the guard: it pins the files present at baseline generation (the consigned
-    vendored set = SOL01 vendoring + the modifications documented in provenance section 4).
-    Files ADDED later under these roots are NOT pinned (they may be legitimate Liakont code,
-    e.g. SOL06 multi-tenant job mechanics) and are ignored. The guard's job is to catch a
-    silent MODIFICATION or DELETION of an existing vendored Stratum file, which is exactly
-    CLAUDE.md rule 11.
+    Scope of the guard: it pins the true vendored Stratum.* files only. Files ADDED by Liakont
+    under these roots (legitimate Liakont code placed in the vendored tree, e.g. SOL06 multi-tenant
+    job mechanics, the job catalog/executions of FIX210/FIX211, the browser-time display, the
+    Keycloak user provisioner) are NOT pinned: editing them is normal Liakont work, not a Stratum
+    drift. They are identified — and excluded from BOTH -Generate and check — by a head marker:
+    the file's FIRST line contains the literal string "Liakont addition" (the convention of
+    provenance section 4.14, e.g. "// Liakont addition (SOL06): ...", "@* Liakont addition ... *@",
+    "-- Liakont addition ..."). The guard's job is to catch a silent MODIFICATION or DELETION of an
+    existing vendored Stratum file, which is exactly CLAUDE.md rule 11.
+
+    Why a head marker rather than an exclusion list: the marker travels with the file (a new
+    Liakont addition is excluded the moment it carries the marker, no second place to update) and
+    is self-contained (the check runs on CI with no access to the upstream Stratum repo). A true
+    Stratum file never carries the marker, so it stays pinned and a real edit is still caught.
 
     Modes:
       (default)  check    : recompute hashes, fail on drift not consigned in provenance.
@@ -63,6 +71,15 @@ $vendoredRoots = @(
 # process per batch, not per file) so 1200+ files hash in well under a second. Arguments are
 # used rather than `--stdin-paths` because PowerShell 5.1 prepends a UTF-8 BOM to a native
 # command's piped stdin, which corrupts the first path.
+# A vendored-root file is a Liakont ADDITION (not a Stratum.* file) when its FIRST line carries the
+# head marker. Match is case-SENSITIVE (-cmatch) and anchored to a leading comment delimiter
+# (// @* -- #), so a stray substring elsewhere on the line, or a different-case occurrence on a real
+# Stratum file, cannot accidentally exclude it from the guard (review RDL09 round 1, P2).
+function Test-IsLiakontAddition([string]$absPath) {
+    $firstLine = Get-Content -LiteralPath $absPath -TotalCount 1 -ErrorAction SilentlyContinue
+    return [bool]($firstLine -and ($firstLine -cmatch '^\s*(//|@\*|--|#)\s*Liakont addition\b'))
+}
+
 function Get-VendoredHashes {
     Push-Location $repoRoot
     try {
@@ -72,6 +89,15 @@ function Get-VendoredHashes {
         # Only hash files that exist on disk (a tracked-but-deleted working-tree file would
         # make git hash-object error; we treat its absence as drift later, against the baseline).
         $existing = @($tracked | Where-Object { Test-Path -LiteralPath (Join-Path $repoRoot $_) })
+
+        # Exclude Liakont additions (head marker — see the scope note above). These are Liakont
+        # code placed under the vendored tree, not Stratum.* files: they must not be pinned (else a
+        # legitimate edit would fail the guard as a "silent drift"). A file is an addition when its
+        # FIRST line contains the literal "Liakont addition". The check is line-1 only and string-
+        # anchored, so a true Stratum file (which never carries the marker) is never excluded.
+        $existing = @($existing | Where-Object {
+            -not (Test-IsLiakontAddition (Join-Path $repoRoot $_))
+        })
 
         $map = @{}
         $batchSize = 200
@@ -97,6 +123,25 @@ function Get-VendoredHashes {
 # ── Generate mode ────────────────────────────────────────────────
 if ($Generate) {
     $map = Get-VendoredHashes
+    # Transparency (review RDL09, P2): if a previous baseline exists, list any path that WAS pinned
+    # and is now excluded by a head marker (a Stratum.* file leaving the guard). Legitimate during
+    # RDL09's cleanup of wrongly-pinned additions; suspicious afterward — surface it so human review
+    # catches a bad drop. Does not block (-Generate is itself a deliberate, reviewable act).
+    if (Test-Path $baselinePath) {
+        $prevPinned = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
+        foreach ($line in (Get-Content $baselinePath)) {
+            if ($line -match '^[0-9a-f]{40}\s+(.+)$') { [void]$prevPinned.Add($matches[1].Trim()) }
+        }
+        $leaving = @($prevPinned | Where-Object {
+            -not $map.ContainsKey($_) -and
+            (Test-Path -LiteralPath (Join-Path $repoRoot $_)) -and
+            (Test-IsLiakontAddition (Join-Path $repoRoot $_))
+        })
+        if ($leaving.Count -gt 0) {
+            Write-Host "ATTENTION : $($leaving.Count) fichier(s) precedemment epingle(s) quittent la garde via un marqueur d'ajout (verifier en revue) :" -ForegroundColor Yellow
+            $leaving | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow }
+        }
+    }
     $lines = $map.Keys | Sort-Object | ForEach-Object { "{0}  {1}" -f $map[$_], $_ }
     $header = @(
         "# Baseline de provenance du socle Stratum vendored (genere par tools/socle-provenance-check.ps1 -Generate)",
@@ -146,13 +191,32 @@ $current = Get-VendoredHashes
 # differs from the baseline (modification). Added files (present now, absent from baseline)
 # are intentionally NOT flagged — see the scope note in the header.
 $drifted = @()
+$tampered = @()
 foreach ($path in $expected.Keys) {
     if (-not $current.ContainsKey($path)) {
-        $drifted += [pscustomobject]@{ Path = $path; Kind = 'supprime' }
+        # Missing from $current: either genuinely deleted, OR present on disk but excluded by a head
+        # marker. The latter means a PINNED Stratum.* file just gained a "Liakont addition" marker —
+        # after RDL09 no pinned file is a Liakont addition, so this is provenance tampering that would
+        # silently drop the file from the guard at the next -Generate. It is NOT consignable (review
+        # RDL09 round 1, P2 — closes the marker+consign+-Generate bypass at check time).
+        $abs = Join-Path $repoRoot $path
+        if ((Test-Path -LiteralPath $abs) -and (Test-IsLiakontAddition $abs)) {
+            $tampered += $path
+        }
+        else {
+            $drifted += [pscustomobject]@{ Path = $path; Kind = 'supprime' }
+        }
     }
     elseif ($current[$path] -ne $expected[$path]) {
         $drifted += [pscustomobject]@{ Path = $path; Kind = 'modifie' }
     }
+}
+
+if ($tampered.Count -gt 0) {
+    Write-Host "FAIL: un fichier Stratum.* EPINGLE a gagne un marqueur d'ajout Liakont (falsification de provenance) :" -ForegroundColor Red
+    $tampered | ForEach-Object { Write-Host "  [falsifie] $_" -ForegroundColor Red }
+    Write-Host "Un fichier epingle ne peut pas devenir un << ajout Liakont >>. Retirer le marqueur du fichier ; si la sortie de garde est reellement voulue, la passer par -Generate (acte delibere, journal provenance §4.37)." -ForegroundColor Red
+    exit 2
 }
 
 if ($drifted.Count -eq 0) {

@@ -47,6 +47,16 @@ public static class ContractFixtures
     /// <summary>Nom de la fixture de heartbeat.</summary>
     public const string HeartbeatFixtureName = "heartbeat";
 
+    /// <summary>
+    /// Version de contrat HYPOTHÉTIQUE servant à matérialiser le seam de cohabitation N/N-1 (RDF08,
+    /// ADR-0001/F12 §6.4) AVANT toute rupture réelle : les golden d'enveloppe de
+    /// <c>tests/fixtures/contrat-v2/</c> la portent. Ce n'est PAS une version de contrat publiée —
+    /// le modèle de payload reste celui de la V1 (aucune rupture métier) ; seul l'axe de version
+    /// négociée diffère. Une vraie rupture future ajoutera des golden de DOCUMENT ici et bumpera les
+    /// empreintes figées (cf. <c>contrat-agent-v1.md</c> §4).
+    /// </summary>
+    public const string CohabitationNextVersion = "2";
+
     private static readonly IReadOnlyList<DocumentFixture> DocumentsBacking = BuildDocuments();
 
     /// <summary>Les documents pivot de référence (données fictives), dans un ordre stable.</summary>
@@ -81,21 +91,170 @@ public static class ContractFixtures
     }
 
     /// <summary>
+    /// Document pivot ENTIÈREMENT peuplé : chaque propriété publique de chaque DTO pivot porte une
+    /// valeur NON par défaut — optionnels et collections inclus, dont <c>PaymentDueDate</c> (BT-9) et
+    /// <c>PivotDocumentChargeDto.ReasonCode</c>, que les 8 golden n'exercent pas (RDL02). Données
+    /// strictement fictives (CLAUDE.md n°7). SOURCE UNIQUE des gardes de complétude par réflexion :
+    /// côté writer (RDL03 y consolidera <c>CanonicalJsonRulesTests</c>) et côté lecteur de PRODUCTION
+    /// (<c>PivotCanonicalJsonReader</c> du Pipeline, RDL02). Ce n'est PAS un golden (aucune empreinte
+    /// figée) : les gardes reposent sur l'identité du round-trip et la présence par réflexion, jamais
+    /// sur un hash gelé.
+    /// </summary>
+    /// <returns>Un document pivot dont chaque champ est renseigné.</returns>
+    public static PivotDocumentDto BuildFullyPopulatedDocument()
+    {
+        var address = new PivotAddressDto(
+            line1: "1 rue de la Paix",
+            line2: "Bât B",
+            postalCode: "75001",
+            city: "Paris",
+            countryCode: "FR");
+
+        var supplier = new PivotPartyDto(
+            name: "Fournisseur Fictif SA",
+            siren: "123456789",
+            siret: "12345678900012",
+            vatNumber: "FR12345678901",
+            address: address,
+            email: "contact@fournisseur-fictif.example",
+            isCompanyHint: true);
+
+        var customer = new PivotPartyDto(
+            name: "Client Fictif SARL",
+            siren: "987654321",
+            siret: "98765432100099",
+            vatNumber: "FR98765432109",
+            address: new PivotAddressDto(
+                line1: "2 avenue de l'Opéra",
+                line2: "Étage 3",
+                postalCode: "69001",
+                city: "Lyon",
+                countryCode: "FR"),
+            email: "facturation@client-fictif.example",
+            isCompanyHint: true);
+
+        var invoicer = new PivotPartyDto(
+            name: "Emetteur Fictif SAS",
+            siren: "111222333",
+            siret: "11122233300011",
+            vatNumber: "FR11122233301",
+            address: new PivotAddressDto(
+                line1: "3 boulevard Haussmann",
+                line2: "Suite 12",
+                postalCode: "75009",
+                city: "Paris",
+                countryCode: "FR"),
+            email: "emission@emetteur-fictif.example",
+            isCompanyHint: true);
+
+        var payee = new PivotPartyDto(
+            name: "Bénéficiaire Fictif SNC",
+            siren: "444555666",
+            siret: "44455566600044",
+            vatNumber: "FR44455566604",
+            address: new PivotAddressDto(
+                line1: "4 place Vendôme",
+                line2: "RDC",
+                postalCode: "75001",
+                city: "Paris",
+                countryCode: "FR"),
+            email: "paiement@beneficiaire-fictif.example",
+            isCompanyHint: true);
+
+        var totals = new PivotTotalsDto(
+            totalNet: 1000.00m,
+            totalTax: 200.00m,
+            totalGross: 1200.00m,
+            sourceTotalGross: 1200.00m);
+
+        var lineTax = new PivotLineTaxDto(
+            taxAmount: 200.00m,
+            rate: 20.00m,
+            categoryCode: VatCategory.S,
+            vatexCode: "VATEX-EU-G");
+
+        var line = new PivotLineDto(
+            description: "Prestation fictive de test",
+            netAmount: 1000.00m,
+            quantity: 2m,
+            unitPriceNet: 500.00m,
+            sourceRegimeCodes: new[] { "TVA_20" },
+            taxes: new[] { lineTax },
+            sourceLineRef: "LIG-001",
+            sourceData: "{\"raw\":\"line\"}",
+            unitCode: "C62");
+
+        var creditNoteRef = new PivotDocumentRefDto(
+            number: "FA-2026-001",
+            issueDate: new DateTime(2026, 1, 15),
+            sourceReference: "SRC-FA-001");
+
+        var payment = new PivotPaymentDto(
+            paymentDate: new DateTime(2026, 2, 1),
+            amount: 1200.00m,
+            method: "virement",
+            relatedDocumentNumber: "FA-2026-001",
+            sourceReference: "PAY-001");
+
+        var documentCharge = new PivotDocumentChargeDto(
+            isCharge: true,
+            amount: 10.00m,
+            reason: "éco-contribution",
+            reasonCode: "ECO",
+            sourceRegimeCodes: new[] { "ECO_CONTRIB" });
+
+        return new PivotDocumentDto(
+            sourceDocumentKind: "FA",
+            number: "FA-2026-TEST",
+            issueDate: new DateTime(2026, 3, 1),
+            sourceReference: "SRC-2026-TEST",
+            supplier: supplier,
+            totals: totals,
+            operationCategory: OperationCategory.PrestationServices,
+            currencyCode: "EUR",
+            customer: customer,
+            lines: new[] { line },
+            creditNoteRefs: new[] { creditNoteRef },
+            payments: new[] { payment },
+            documentCharges: new[] { documentCharge },
+            invoicer: invoicer,
+            payee: payee,
+            isSelfBilled: true,
+            prepaidAmount: 100.00m,
+            sourceData: "{\"raw\":\"doc\"}",
+            paymentDueDate: new DateTime(2026, 3, 31),
+            invoicePeriod: new PivotInvoicePeriodDto(
+                startDate: new DateTime(2026, 1, 1),
+                endDate: new DateTime(2026, 1, 31)));
+    }
+
+    /// <summary>
     /// Compose le JSON d'un lot ILLUSTRATIF (POST /api/agent/v1/documents/batch) portant deux
     /// documents de référence. Les documents embarqués sont sérialisés canoniquement (PIV02) ; le
     /// wrapper <c>{ContractVersion, Documents:[…]}</c> reprend les noms de propriété exacts de
     /// <see cref="PushBatchRequestDto"/>. Référence de format, non hashée (voir résumé de classe).
     /// </summary>
     /// <returns>Le JSON canonique du lot.</returns>
-    public static string ComposeBatchRequestJson()
+    public static string ComposeBatchRequestJson() => ComposeBatchRequestJson(AgentContractVersion.ContractVersion);
+
+    /// <summary>
+    /// Compose le JSON d'un lot ILLUSTRATIF portant la version de contrat <paramref name="contractVersion"/>.
+    /// Les documents embarqués sont les MÊMES quelle que soit la version : l'axe de version négociée
+    /// (enveloppe) est orthogonal à l'empreinte par document (seul le payload par document est hashé).
+    /// Sert à matérialiser le seam N/N-1 (golden v1 = version de l'assembly ; golden v2 =
+    /// <see cref="CohabitationNextVersion"/>).
+    /// </summary>
+    /// <param name="contractVersion">Version de contrat portée par l'enveloppe.</param>
+    /// <returns>Le JSON canonique du lot.</returns>
+    public static string ComposeBatchRequestJson(string contractVersion)
     {
         string first = CanonicalJson.Serialize(GetDocument("facture-standard-b2c"));
         string second = CanonicalJson.Serialize(GetDocument("avoir-simple-lie"));
 
         // Enveloppe minimale (deux documents) : assemblée explicitement car le writer canonique ne
         // sait pas réinjecter un sous-document déjà sérialisé. Format figé : pas d'espaces, ordre
-        // de déclaration du DTO, version de contrat de l'assembly.
-        return "{\"ContractVersion\":\"" + AgentContractVersion.ContractVersion + "\",\"Documents\":["
+        // de déclaration du DTO. La version de contrat est paramétrée (axe de négociation).
+        return "{\"ContractVersion\":\"" + contractVersion + "\",\"Documents\":["
             + first + "," + second + "]}";
     }
 
@@ -105,10 +264,19 @@ public static class ContractFixtures
     /// d'ADR-0007 (<c>yyyy-MM-ddTHH:mm:ssZ</c>). Référence de format, non hashée.
     /// </summary>
     /// <returns>Le JSON canonique du heartbeat.</returns>
-    public static string ComposeHeartbeatJson()
+    public static string ComposeHeartbeatJson() => ComposeHeartbeatJson(AgentContractVersion.ContractVersion);
+
+    /// <summary>
+    /// Compose le JSON ILLUSTRATIF d'un heartbeat portant la version de contrat
+    /// <paramref name="contractVersion"/>. Identique à <see cref="ComposeHeartbeatJson()"/> hormis la
+    /// version (axe de négociation) — sert à matérialiser le seam N/N-1 (golden v2).
+    /// </summary>
+    /// <param name="contractVersion">Version de contrat portée par l'enveloppe.</param>
+    /// <returns>Le JSON canonique du heartbeat.</returns>
+    public static string ComposeHeartbeatJson(string contractVersion)
     {
         var heartbeat = new HeartbeatRequestDto(
-            contractVersion: AgentContractVersion.ContractVersion,
+            contractVersion: contractVersion,
             agentVersion: "2.4.0",
             sentAtUtc: new DateTime(2026, 2, 1, 9, 30, 0, DateTimeKind.Utc),
             lastSuccessfulSyncUtc: new DateTime(2026, 1, 31, 22, 15, 0, DateTimeKind.Utc));

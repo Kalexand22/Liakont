@@ -1,7 +1,14 @@
 # ADR-0020 — Topologie de déploiement de l'IdP (Keycloak par instance, empreinte mesurée)
 
-- **Statut** : Accepté
-- **Date** : 2026-06-11
+- **Statut** : Accepté — **partiellement superseded par [ADR-0021](ADR-0021-realm-keycloak-unique-isolation-par-claim.md)**
+  sur le modèle de multi-location *intra-instance*. La topologie tranchée ici (**un Keycloak par
+  instance**) reste valable ; en revanche le mécanisme « **un realm par tenant** » à l'intérieur d'une
+  instance (cité §1 / §Conséquences) est **remplacé** par ADR-0021 : **un realm unique partagé** avec
+  isolation des tenants par **claim `company_id` (par-utilisateur, immuable) + cross-check applicatif
+  fail-closed**, et non plus par la **frontière cryptographique par-realm**. Lire ce qui suit en gardant
+  ce renvoi à l'esprit (les mentions « multi-realms intra-instance pour les tenants » sont annotées
+  *(superseded ADR-0021)* à l'endroit où elles apparaissent).
+- **Date** : 2026-06-11 (renvoi ADR-0021 ajouté le 2026-06-20 — RDF12)
 - **Items** : OPS01c (ADR topologie IdP), s'appuie sur OPS01a (appliance Docker)
 - **Contexte décisionnel** : décision D10 (2026-06-03), ADR-0002 (spike d'empreinte Keycloak vs
   OpenIddict), `docs/conception/F12-Architecture-Plateforme-Agent.md` §6.2 / §7 (n°1),
@@ -73,7 +80,9 @@ est un garde-fou d'hôte, pas une cure d'amaigrissement gratuite.
 Chaque instance (self-hosted éditeur, dédiée hébergée, mutualisée) embarque **son propre** conteneur
 Keycloak et **sa propre** base `keycloak-db`, conformément à OPS01a. La multi-location **à
 l'intérieur** d'une instance se fait par **un realm par tenant** (mécanique du socle déjà câblée :
-`RealmRegistry`, `MultiRealmJwksKeyResolver`). On **n'adopte PAS** un Keycloak mutualisé entre
+`RealmRegistry`, `MultiRealmJwksKeyResolver`) *(superseded [ADR-0021](ADR-0021-realm-keycloak-unique-isolation-par-claim.md) :
+un realm **unique partagé** + claim `company_id` par-utilisateur + cross-check, le realm-par-tenant
+restant réservé au déploiement **dédié** mono-tenant)*. On **n'adopte PAS** un Keycloak mutualisé entre
 plusieurs instances/éditeurs. Motifs :
 
 - **Isolation par éditeur** : `blueprint.md` — principe « la marque grise = une instance de plateforme
@@ -101,15 +110,24 @@ présent ADR, qui mesure et décide la topologie) — voir « Conséquences ».
 
 Pour les plus petites instances self-hosted où même ≈ 0,5–1 GiB pèse, l'alternative **OpenIddict
 in-process** (quelques dizaines de Mo, ADR-0002) reste **branchable derrière
-`IIdentityProviderAuthenticator`** sans toucher au métier (seul le sélecteur d'`AppBootstrap`
-change). Le choix Keycloak/OpenIddict **n'est pas rouvert** par cet ADR : il est tranché en amont
-(D10 + spike ADR-0002), pris sur mesure par instance. Le présent ADR ne décide que la **topologie**
-du fournisseur Keycloak (par instance), pas l'identité du fournisseur.
+`IIdentityProviderAuthenticator`** sans toucher au métier. ⚠ **Mais elle est NON IMPLÉMENTÉE**
+(0 implémentation OpenIddict ; le registre `SelectIdentityProvider` n'a qu'une entrée, Keycloak —
+voir avenant ADR-0002 du 2026-06-20 / RDF09) : la formulation antérieure « seul le sélecteur
+d'`AppBootstrap` change » est **retirée**, car au-delà de l'authentificateur il faudrait ré-livrer
+le provisioning realm/utilisateur, le 2FA et la résolution par issuer/JWKS, aujourd'hui
+Keycloak-spécifiques et câblés hors du sélecteur. La seule topologie V1 livrée est donc
+**Keycloak par instance** (la plus petite appliance doit provisionner **≈ 1 GiB** pour l'IdP —
+cohérent avec **RDF04**). Le choix Keycloak/OpenIddict **n'est pas rouvert** par cet ADR : il est
+tranché en amont (D10 + spike ADR-0002), pris sur mesure par instance ; le MVP de réversibilité
+reste un go/no-go opérateur (DEC-1). Le présent ADR ne décide que la **topologie** du fournisseur
+Keycloak (par instance), pas l'identité du fournisseur.
 
 ## Conséquences
 
 - **OPS01a confirmé** dans sa topologie : Keycloak + `keycloak-db` **par instance**, realm `liakont`
-  importé au démarrage, multi-realms intra-instance pour les tenants.
+  importé au démarrage, multi-realms intra-instance pour les tenants *(superseded
+  [ADR-0021](ADR-0021-realm-keycloak-unique-isolation-par-claim.md) : realm **unique partagé**
+  intra-instance, isolation par claim `company_id`)*.
 - **Suivi (petite reprise d'OPS01a)** : plafonner la mémoire du conteneur `keycloak` dans
   `deploy/docker/appliance/docker-compose.yml` (≈ 1 GiB). Le présent ADR ne modifie pas le compose
   (changement chirurgical : OPS01c = mesure + décision) ; la reprise est tracée comme suivi.
@@ -131,3 +149,70 @@ du fournisseur Keycloak (par instance), pas l'identité du fournisseur.
 - `blueprint.md` §3.3 (les trois topologies de déploiement), §6 (déploiement)
 - Appliance OPS01a — `deploy/docker/appliance/docker-compose.yml`, base de la mesure
 - Réversibilité OPS06b (dédiée hébergée → self-hosted), granularité par base OPS01b
+
+## Avenant 2026-06-20 — Politique de version et de patch de l'image Keycloak (RDF05)
+
+- **Statut** : Accepté — **Date** : 2026-06-20 — **Item** : RDF05 (redline ADR fondateurs, finding RL-IDP-6)
+
+### Problème constaté
+
+Quatre composes/tests épinglaient l'image Keycloak sur le tag **flottant** `quay.io/keycloak/keycloak:26.0`
+(`deploy/docker/appliance/docker-compose.yml`, `deploy/docker/docker-compose.keycloak.yml`,
+`deployments/bucodi/docker-compose.yml`, `tests/Liakont.Tests.E2E/KeycloakE2EWebFactory.cs`). Or la
+ligne **26.0.x est EOL depuis janvier 2025** (dernier patch `26.0.8`). De plus, `update-instance.ps1`
+(OPS02) ne rafraîchissait **jamais** l'image Keycloak : `docker compose build --pull` ne met à jour
+que les images de base des services `build:` (le Host), pas un service épinglé par `image:`. Aucune
+politique de version ni veille CVE ⇒ un IdP non patché qui **retourne** l'argument « battle-tested
+security » d'ADR-0013 / ADR-0002.
+
+### Décision
+
+1. **Tag de patch précis, jamais flottant.** Tous les composes/tests pinnent un tag
+   `major.minor.patch` (ou un digest `@sha256:…`). État actuel : **`26.0.8`** (le dernier patch de
+   la ligne EOL 26.0.x — `26.0.x` étant EOL, aucun patch ultérieur n'est attendu sur cette ligne,
+   de sorte que `:26.0` reste résolu sur `26.0.8` ; épingler `26.0.8` fige l'image sur ce patch sans
+   changement attendu tant que la ligne reste EOL). La garde de tooling `Test-KeycloakImagePinned`
+   (`Provisioning.psm1`) refuse un tag flottant (`:26`, `:26.0`, `:latest`, absence de tag).
+
+2. **Politique de version.** Keycloak publie ~3-4 minors/an, chaque minor n'étant supporté que sur
+   une **fenêtre courte** (en pratique, le dernier minor publié reçoit les correctifs). **Critère de
+   bump avant EOL** : suivre le **dernier minor supporté** ; planifier le bump **dès qu'un minor plus
+   récent est publié** et **avant** la fin de support du minor courant ; en cas de **CVE Keycloak
+   d'impact élevé**, bumper hors cadence. La veille s'appuie sur les pages officielles
+   (releases et politique de support — voir Références) plutôt que sur un numéro de version figé ici
+   (qui daterait). ⚠ **26.0.x étant EOL**, le bump vers le dernier minor supporté est une **action
+   ops à planifier** (voir point 4).
+
+3. **Bump outillé + revalidation du realm.** `update-instance.ps1 -KeycloakImage <tag précis>`
+   réécrit le tag Keycloak dans le compose de l'instance, force un `docker compose pull` (refresh des
+   services `image:`), recrée le conteneur, puis **revalide le realm** après démarrage
+   (`Test-KeycloakRealmReady` interroge `/realms/<realm>/.well-known/openid-configuration` via le
+   réseau interne). Un realm injoignable **après bump** est un échec : l'instance reste **arrêtée**,
+   la **maintenance maintenue** (jamais lever la maintenance sur un IdP cassé), un rapport de rollback
+   est émis. Le `docker compose pull` est désormais systématique (même sans `-KeycloakImage`) pour que
+   les services `image:` soient rafraîchis à leur tag épinglé.
+
+4. **Exécution du bump off-26.0 = geste ops tracé.** Le présent avenant **épingle** (reproductibilité)
+   et **outille** (bump + revalidation) ; il **n'exécute pas** la montée vers un minor supporté, qui
+   change l'image réellement servie et doit être **revalidée sur infra réelle** (revalidation realm +
+   suite **E2E** Keycloak, hors périmètre d'un item de tooling dont la vérif ne lance pas les
+   Testcontainers). Procédure : `update-instance.ps1 -KeycloakImage quay.io/keycloak/keycloak:<minor.patch supporté>`
+   sur une instance, puis recette E2E, puis propagation aux composes/fixtures.
+
+### Conséquences
+
+- **Aucun changement de comportement attendu** par cet avenant (`:26.0` ⇒ `:26.0.8` : `26.0.8` est
+  le dernier patch d'une ligne EOL, donc `:26.0` y résolvait déjà ; épingler le tag explicite gèle
+  la résolution sans modifier l'image effectivement servie) : build/tests verts inchangés.
+- **OPS02 enrichi** : `update-instance.ps1` gagne `-KeycloakImage` / `-KeycloakRealm`, le `pull`
+  systématique et la revalidation du realm. `Provisioning.psm1` exporte `Test-KeycloakImagePinned`
+  (pur, testable) et `Test-KeycloakRealmReady`.
+- **Dette ops ouverte (suivie)** : bumper Keycloak hors de la ligne EOL 26.0 vers le dernier minor
+  supporté (point 4) — non couvert par RDF05 (pas d'infra réelle / E2E dans un item de tooling).
+
+### Références (avenant)
+
+- Keycloak — Releases & cycle de vie : <https://www.keycloak.org/docs/latest/release_notes/> ,
+  <https://www.keycloak.org/download> (suivi des minors supportés / EOL)
+- ADR-0002 (spike empreinte, argument « battle-tested »), ADR-0013 (modèle de confiance / patch)
+- Outillage : `deploy/provisioning/update-instance.ps1`, `deploy/provisioning/Provisioning.psm1`

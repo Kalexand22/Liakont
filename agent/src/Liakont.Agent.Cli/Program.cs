@@ -10,6 +10,7 @@ using Liakont.Agent.Cli.Hosting;
 using Liakont.Agent.Core;
 using Liakont.Agent.Core.Configuration;
 using Liakont.Agent.Core.Logging;
+using Liakont.Agent.Core.Net;
 using Liakont.Agent.Core.Security;
 using Liakont.Agent.Core.Time;
 
@@ -34,6 +35,11 @@ internal static class Program
 
     private static int Main(string[] args)
     {
+        // TLS 1.2/1.3 forcé AU TOUT DÉBUT, avant toute connexion HTTPS sortante (commande `run` du
+        // chemin de run réel, test-api) — RDF01. ServicePointManager est global au processus et non
+        // partagé avec le service ni l'updater (processus distincts).
+        AgentTls.ForceStrongTls();
+
         TryEnableUtf8Console();
 
         if (!AgentInstance.TryFromCommandLine(args, out AgentInstance instance, out string[] remaining, out string? instanceError))
@@ -78,7 +84,7 @@ internal static class Program
         return new CommandRouter(commands);
     }
 
-    // Cycle de run RÉEL (AGT02, ADR-0023) : compose extraction → push depuis agent.json et l'exécute une
+    // Cycle de run RÉEL (AGT02, ADR-0031) : compose extraction → push depuis agent.json et l'exécute une
     // fois (même composition que le service via AgentRunComposition). La commande `run` porte la
     // sérialisation par verrou partagé avec le service et le rapport ; une config invalide bloque (n°3).
     private static bool RealRunCycle(TextWriter output)

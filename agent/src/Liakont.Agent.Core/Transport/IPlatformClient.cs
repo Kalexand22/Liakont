@@ -17,10 +17,12 @@ public interface IPlatformClient
     /// </summary>
     /// <param name="canonicalDocumentJsons">JSON canonique de chaque document, dans l'ordre d'envoi.</param>
     /// <param name="sourceTaxRegimes">Régimes de TVA source (métadonnée de push, non hashée).</param>
+    /// <param name="extractorCapabilities">Capacités déclarées de la source (métadonnée de push, non hashée, ADR-0004 D2 / RD401) ; <c>null</c> quand l'agent n'en transmet pas.</param>
     /// <returns>Le résultat du push (catégorie + résultats par document).</returns>
     PushBatchOutcome PushDocuments(
         IReadOnlyList<string> canonicalDocumentJsons,
-        IReadOnlyList<SourceTaxRegimeDto> sourceTaxRegimes);
+        IReadOnlyList<SourceTaxRegimeDto> sourceTaxRegimes,
+        ExtractorCapabilitiesDto? extractorCapabilities = null);
 
     /// <summary>Pousse un PDF lié à un document (POST /api/agent/v1/documents/{sourceReference}/pdf).</summary>
     /// <param name="sourceReference">Référence source du document lié.</param>

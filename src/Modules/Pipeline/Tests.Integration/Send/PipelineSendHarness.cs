@@ -200,6 +200,34 @@ public sealed class PipelineSendHarness : IAsyncLifetime
             new { PaDocumentId = paDocumentId, Id = documentId });
     }
 
+    /// <summary>
+    /// Enregistre la référence PA d'un dépôt ASYNCHRONE accepté via le PORT RÉEL (item PIPE01) : le document
+    /// reste <c>Sending</c>, la référence est persistée et un fait d'audit append-only est inscrit. Exerce le
+    /// round-trip réel (contraste avec <see cref="SetPaDocumentIdAsync"/> qui contourne la machine à états).
+    /// </summary>
+    public Task RecordPaSendingReferenceAsync(Guid documentId, string paDocumentId, string? paResponseSnapshot = null) =>
+        WithLifecycle(lifecycle => lifecycle.RecordPaSendingReferenceAsync(documentId, paDocumentId, paResponseSnapshot));
+
+    /// <summary>Référence PA réellement persistée sur le document (ou <c>null</c>).</summary>
+    public async Task<string?> GetPaDocumentIdAsync(Guid documentId)
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync();
+        return await connection.ExecuteScalarAsync<string?>(
+            "SELECT pa_document_id FROM documents.documents WHERE id = @Id",
+            new { Id = documentId });
+    }
+
+    /// <summary>Nombre d'événements d'audit append-only d'un type donné pour un document.</summary>
+    public async Task<int> EventCountAsync(Guid documentId, string eventType)
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync();
+        return await connection.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM documents.document_events WHERE document_id = @Id AND event_type = @EventType",
+            new { Id = documentId, EventType = eventType });
+    }
+
     /// <summary>Exécute le job SEND pour le tenant (scope tenant réel au-dessus du fournisseur câblé).</summary>
     public async Task RunSendAsync(bool dryRun = false)
     {
@@ -387,7 +415,7 @@ public sealed class PipelineSendHarness : IAsyncLifetime
 
     /// <summary>
     /// Seede la table de mapping TVA VALIDÉE du tenant (régime « NORMAL » → catégorie S 20 %), comme le harnais
-    /// CHECK : depuis emitter-filled-by-platform (ADR-0023 amendé), le SEND repose la catégorie TVA au read-time
+    /// CHECK : depuis emitter-filled-by-platform (ADR-0031 amendé), le SEND repose la catégorie TVA au read-time
     /// (symétrique au CHECK) — sans cette table, tout document partirait en HOLD <c>TvaUnresolved</c>.
     /// </summary>
     private async Task SeedValidatedMappingTableAsync()

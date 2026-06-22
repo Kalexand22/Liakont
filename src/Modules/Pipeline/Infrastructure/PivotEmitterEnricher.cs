@@ -10,7 +10,7 @@ using Liakont.Modules.TenantSettings.Contracts.Queries;
 
 /// <summary>
 /// Remplit l'identité de l'émetteur (SIREN, raison sociale, adresse) et la nature d'opération d'un pivot
-/// depuis le profil du tenant (ADR-0023 amendé). Appliqué au READ-TIME — CHECK et SEND, au chargement du
+/// depuis le profil du tenant (ADR-0031 amendé). Appliqué au READ-TIME — CHECK et SEND, au chargement du
 /// pivot stagé — JAMAIS à l'ingestion (RB9) : l'anti-doublon F06 hashe le pivot SOURCE (ce que l'agent a
 /// extrait), donc l'identité émetteur — donnée PLATEFORME, mutable avec le profil — ne doit PAS entrer
 /// dans l'empreinte (sinon un changement de profil entre deux extractions de la même source casserait

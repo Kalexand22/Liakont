@@ -23,13 +23,13 @@ public sealed class PivotDocumentDto
     /// <param name="supplier">
     /// Le vendeur / fournisseur — l'émetteur au sens EN 16931 BG-4 (la SVV / l'entreprise cliente).
     /// <c>null</c> quand l'agent ne le porte pas : l'émetteur est l'identité du TENANT, REMPLIE par la
-    /// plateforme à l'ingestion depuis le profil tenant (ADR-0023 amendé) — l'agent n'extrait que la base
+    /// plateforme à l'ingestion depuis le profil tenant (ADR-0031 amendé) — l'agent n'extrait que la base
     /// source et ne devine jamais le SIREN (CLAUDE.md n°2).
     /// </param>
     /// <param name="totals">Totaux de contrôle (EN 16931 BG-22).</param>
     /// <param name="operationCategory">
     /// Nature de l'opération (mention obligatoire réforme). <c>null</c> côté agent : remplie par la
-    /// plateforme à l'ingestion depuis le paramétrage fiscal du tenant (ADR-0023 amendé).
+    /// plateforme à l'ingestion depuis le paramétrage fiscal du tenant (ADR-0031 amendé).
     /// </param>
     /// <param name="currencyCode">Devise ISO 4217 (EN 16931 BT-5). Défaut « EUR ».</param>
     /// <param name="customer">Le destinataire (EN 16931 BG-7) — nul en B2C sans tiers identifié.</param>
@@ -72,6 +72,12 @@ public sealed class PivotDocumentDto
     /// (non-null et non vide), pour que le hash d'un document sans frais vendeur reste INCHANGÉ (octet par
     /// octet — seul un champ ABSENT, ou vide, est hash-neutre).
     /// </param>
+    /// <param name="invoicePeriod">
+    /// Période de facturation (EN 16931 BG-14 : BT-73/BT-74), slot RÉSERVÉ pour les flux d'abonnement /
+    /// usage (ADR-0004 D4 Famille 3 / §5, RD406). Paramètre ADDITIF en fin de constructeur (ADR-0007) :
+    /// <c>null</c> par défaut, OMIS du JSON canonique tant qu'il est absent → hash INCHANGÉ. Inerte en V1
+    /// (aucun sérialiseur PA ne le projette) ; porté tel quel par la source, jamais inventé (CLAUDE.md n°2).
+    /// </param>
     public PivotDocumentDto(
         string sourceDocumentKind,
         string number,
@@ -93,7 +99,8 @@ public sealed class PivotDocumentDto
         string? sourceData = null,
         DateTime? paymentDueDate = null,
         bool isB2cReportingDeclaration = false,
-        IReadOnlyList<PivotSellerFeeDto>? sellerFees = null)
+        IReadOnlyList<PivotSellerFeeDto>? sellerFees = null,
+        PivotInvoicePeriodDto? invoicePeriod = null)
     {
         SourceDocumentKind = sourceDocumentKind;
         Number = number;
@@ -118,6 +125,7 @@ public sealed class PivotDocumentDto
         // Vide ≡ absent : une liste non-null mais VIDE est normalisée en null pour rester hash-neutre
         // (un frais vendeur vide ne porte aucune information ; seul un champ OMIS l'est — pattern EXT01).
         SellerFees = sellerFees != null && sellerFees.Count > 0 ? sellerFees : null;
+        InvoicePeriod = invoicePeriod;
     }
 
     /// <summary>Type de document de la source, BRUT (ADR-0004 D3-3).</summary>
@@ -134,7 +142,7 @@ public sealed class PivotDocumentDto
 
     /// <summary>
     /// Le vendeur / fournisseur (EN 16931 BG-4). <c>null</c> tant que la plateforme ne l'a pas rempli
-    /// depuis le profil tenant à l'ingestion (ADR-0023 amendé).
+    /// depuis le profil tenant à l'ingestion (ADR-0031 amendé).
     /// </summary>
     public PivotPartyDto? Supplier { get; }
 
@@ -143,7 +151,7 @@ public sealed class PivotDocumentDto
 
     /// <summary>
     /// Nature de l'opération (mention obligatoire réforme). <c>null</c> tant que la plateforme ne l'a
-    /// pas remplie depuis le paramétrage fiscal du tenant à l'ingestion (ADR-0023 amendé).
+    /// pas remplie depuis le paramétrage fiscal du tenant à l'ingestion (ADR-0031 amendé).
     /// </summary>
     public OperationCategory? OperationCategory { get; }
 
@@ -203,4 +211,11 @@ public sealed class PivotDocumentDto
     /// <see cref="Totals"/> ; aucune TVA distincte (CGI art. 297 E).
     /// </summary>
     public IReadOnlyList<PivotSellerFeeDto>? SellerFees { get; }
+
+    /// <summary>
+    /// Période de facturation (EN 16931 BG-14 : BT-73/BT-74) — slot RÉSERVÉ pour les flux d'abonnement /
+    /// usage (ADR-0004 D4 Famille 3 / §5, RD406). <c>null</c> tant que la source ne la porte pas : champ
+    /// optionnel OMIS du JSON canonique → hash INCHANGÉ. Inerte en V1 (aucun sérialiseur PA ne le projette).
+    /// </summary>
+    public PivotInvoicePeriodDto? InvoicePeriod { get; }
 }

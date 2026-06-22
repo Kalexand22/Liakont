@@ -23,7 +23,7 @@ public class DemoErpBRowMapperTests
         doc.SourceDocumentKind.Should().Be("I");
         doc.Number.Should().Be("B-2026-0001");
         doc.SourceReference.Should().Be("demoerpb:B-2026-0001");
-        doc.Supplier.Should().BeNull("l'émetteur n'est plus porté par l'agent — la plateforme le remplit à l'ingestion (ADR-0023 amendé)");
+        doc.Supplier.Should().BeNull("l'émetteur n'est plus porté par l'agent — la plateforme le remplit à l'ingestion (ADR-0031 amendé)");
         doc.OperationCategory.Should().BeNull("la nature d'opération est remplie par la plateforme depuis le paramétrage fiscal du tenant");
         doc.Totals.TotalNet.Should().Be(100.00m);
         doc.Totals.TotalTax.Should().Be(20.00m);

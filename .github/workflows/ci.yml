@@ -51,12 +51,38 @@ jobs:
         shell: pwsh
         run: ./tools/socle-provenance-check.ps1
 
+      # Self-test du lint de plafond mémoire Keycloak appliance (RDF04) : prouve que le lint
+      # ci-dessous discrimine (plafond présent => 0, retiré => 1) et n'est pas pass-by-default.
+      # Logique pure (pas de dotnet/Docker) → garde permanente avant de s'appuyer sur le lint.
+      - name: Self-test du lint plafond mémoire Keycloak appliance
+        shell: pwsh
+        run: ./tools/test-appliance-memcap-lint.ps1
+
+      # Lint anti-régression (ADR-0020 §2) : ÉCHOUE si le service keycloak du compose appliance
+      # perd son plafond mémoire (mem_limit / deploy.resources.limits.memory) ou MaxRAMPercentage.
+      - name: Lint plafond mémoire Keycloak appliance
+        shell: pwsh
+        run: ./tools/lint-appliance-keycloak-memcap.ps1
+
       # Self-test du wrapper ci-test.ps1 : prouve que le retry anti-flake Testcontainers ne peut
       # JAMAIS rendre vert un échec déterministe (logique pure, sans dotnet). Garde permanente avant
       # de s'appuyer sur le wrapper ci-dessous (un test écrit-mais-jamais-exécuté serait un faux-vert).
       - name: Self-test du wrapper de tests CI (retry anti-flake Testcontainers)
         shell: pwsh
         run: ./tools/test-ci-retry.ps1
+
+      # Self-test du lint de currency NuGet (RDF07) : prouve que le lint discrimine (version sous le
+      # plancher => 1, config cassée => 2, sain/alerte => 0) et n'est pas pass-by-default. Logique pure
+      # (pas de dotnet/réseau) → garde permanente avant de s'appuyer sur le lint.
+      - name: Self-test du lint de currency NuGet
+        shell: pwsh
+        run: ./tools/test-package-currency-lint.ps1
+
+      # Currency CI (avenant ADR-0003) : ÉCHOUE si un paquet gouverné des DEUX catalogues centraux
+      # (racine + agent) passe sous son plancher ; ALERTE (::warning::) sur un retard connu (SQLite EOL/CVE).
+      - name: Currency des paquets NuGet épinglés (2 catalogues)
+        shell: pwsh
+        run: ./tools/lint-package-currency.ps1
 
       # Unit + intégration. Les tests d'intégration utilisent Testcontainers, qui pilote le
       # Docker natif du runner ubuntu (pas besoin d'un service: postgres). Staging/Sandbox

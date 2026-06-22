@@ -289,17 +289,23 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Deferred;
         }
 
+        // Anti double-dépôt ASYNCHRONE (item PIPE01, D7) : si le document porte DÉJÀ une référence PA (flux
+        // déposé à un cycle précédent sur une PA asynchrone, persistée par RecordPaSendingReferenceAsync), le
+        // raccrochage est AUTORITAIRE — on RELIT le statut par cette référence et on finalise sur un état
+        // TERMINAL (Issued / RejectedByPa), sinon on MAINTIENT Sending. On ne RE-DÉPOSE JAMAIS un flux déjà
+        // accepté : une PA asynchrone (Chorus Pro) crée un nouveau flux à chaque dépôt → un renvoi = double
+        // dépôt = double déclaration fiscale (CLAUDE.md n°3). Court-circuite avant tout chemin de (re)transmission.
+        if (!string.IsNullOrWhiteSpace(document.PaDocumentId))
+        {
+            return await FinalizeFromAsyncPaReferenceAsync(services, paClient, tenantId, document, staged.Pivot!, staged.Json!, logger, cancellationToken);
+        }
+
         if (IsUnsendableCreditNote(staged.Pivot!, paClient))
         {
             // Avoir vers une PA sans capacité avoirs : laissé en l'état (aucune transition), traité par PIP02 —
             // jamais renvoyé ni reclassé (pas de double comptage entre phases).
             LogCreditNoteCapabilityMissing(logger, document.Id, paClient.Capabilities.PaName);
             return SendOutcome.Skipped;
-        }
-
-        if (await TryFinalizeFromPaStatusAsync(services, paClient, tenantId, document, staged.Pivot!, staged.Json!, beginSending: false, logger, cancellationToken))
-        {
-            return SendOutcome.Succeeded;
         }
 
         // Garde autofacturation 389 (MND07) : un self-billed n'est projeté/émis que vers une PA capable et
@@ -431,6 +437,19 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Succeeded;
         }
 
+        // Anti double-dépôt ASYNCHRONE (item PIPE01) — invariant garanti en CHAQUE point de (re)transmission, pas
+        // seulement dans RecoverSendingAsync : un document portant DÉJÀ une référence PA (flux déposé sur une PA
+        // asynchrone) n'est JAMAIS re-déposé, même depuis le chemin TechnicalError. DÉFENSIF : ce cas est
+        // normalement inatteignable (un dépôt async accepté reste Sending, jamais TechnicalError — le chemin
+        // recovery ne transmet plus), mais on ne PRÉSUME pas l'inatteignabilité d'un invariant fiscal P1 (un
+        // renvoi = nouveau flux Chorus Pro = double déclaration, CLAUDE.md n°3). L'anti-doublon Issued par
+        // référence est déjà couvert ci-dessus (TryFinalizeFromPaStatusAsync) ; ici on MAINTIENT sans re-déposer.
+        if (!string.IsNullOrWhiteSpace(document.PaDocumentId))
+        {
+            LogAsyncReferenceStillPending(logger, document.Id, PaSendState.TechnicalError);
+            return SendOutcome.Deferred;
+        }
+
         await lifecycle.BeginSendingAsync(documentId, cancellationToken);
         var (result, facturX) = await TransmitAsync(services, paClient, account, timeProvider, staged.Pivot!, selfBilled.Projection, cancellationToken);
         return await HandleSendResultAsync(services, tenantId, document, staged.Pivot!, staged.Json!, result, facturX, logger, cancellationToken);
@@ -555,6 +574,55 @@ public sealed partial class SendTenantJob : ITenantJob
     }
 
     /// <summary>
+    /// Raccrochage AUTORITAIRE d'un document déjà déposé sur une PA ASYNCHRONE (item PIPE01, D7) : le document
+    /// porte une référence PA (n° de flux) persistée à l'accusé de réception. On RELIT le statut par cette
+    /// référence (<see cref="IPaClient.GetDocumentStatusAsync"/>) et on finalise sur un état TERMINAL —
+    /// <c>Issued</c> (émission confirmée) ou <c>RejectedByPa</c> (rejet) — sinon on MAINTIENT le document
+    /// <c>Sending</c> (différé, repris au prochain cycle). On ne RE-DÉPOSE JAMAIS le flux (anti double-dépôt,
+    /// CLAUDE.md n°3) : une PA asynchrone (Chorus Pro) crée un nouveau flux à chaque dépôt, donc un renvoi
+    /// serait une double déclaration fiscale. La référence n'étant relue qu'en lecture, un statut indisponible
+    /// (technique/capacité absente) MAINTIENT Sending plutôt que d'inventer une issue.
+    /// </summary>
+    private static async Task<SendOutcome> FinalizeFromAsyncPaReferenceAsync(
+        IServiceProvider services,
+        IPaClient paClient,
+        string tenantId,
+        DocumentDto document,
+        PivotDocumentDto pivot,
+        string canonicalJson,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        var status = await paClient.GetDocumentStatusAsync(document.PaDocumentId!, cancellationToken);
+        switch (status.State)
+        {
+            case PaSendState.Issued:
+                // Émission CONFIRMÉE par la PA : finalisation (archive WORM + purge). Aucune transmission ce
+                // cycle (facturX null) — la PA connaissait déjà le document ; preuve = réponse de statut relue.
+                await FinalizeIssuedAsync(services, tenantId, document, pivot, canonicalJson, SendPaSnapshot.FromStatus(status), status.PaDocumentId, facturX: null, cancellationToken);
+                LogAsyncReferenceConfirmedIssued(logger, document.Id);
+                return SendOutcome.Succeeded;
+
+            case PaSendState.RejectedByPa:
+                // Rejet CONFIRMÉ par la PA : staging CONSERVÉ (contenu requis pour correction/resoumission —
+                // ADR-0014, jamais en WORM). Snapshots de la tentative (payload transmis + réponse de rejet).
+                await services.GetRequiredService<IDocumentLifecycle>().MarkRejectedByPaAsync(
+                    document.Id,
+                    new DocumentRejectionSnapshots { PayloadSnapshot = canonicalJson, PaResponseSnapshot = SendPaSnapshot.FromStatus(status) },
+                    cancellationToken);
+                LogAsyncReferenceConfirmedRejected(logger, document.Id);
+                return SendOutcome.Failed;
+
+            default:
+                // Encore en traitement (Sending/New) OU statut indisponible (TechnicalError/CapabilityNotSupported,
+                // erreur de lecture transitoire) : on MAINTIENT Sending et on ne RE-DÉPOSE JAMAIS (anti double-dépôt).
+                // Repris au prochain cycle — jamais un faux échec ni une issue inventée sur une facture acceptée.
+                LogAsyncReferenceStillPending(logger, document.Id, status.State);
+                return SendOutcome.Deferred;
+        }
+    }
+
+    /// <summary>
     /// Garde anti double-envoi par la PISTE D'AUDIT : si une transmission est DÉJÀ journalisée pour ce document
     /// (clé d'idempotence = numéro de document, FX06/FX07), elle a effectivement eu lieu à un cycle précédent
     /// (crash avant <c>MarkIssued</c>, document resté <c>Sending</c>) — on finalise <c>Issued</c> SANS
@@ -658,11 +726,20 @@ public sealed partial class SendTenantJob : ITenantJob
                 return SendOutcome.Failed;
 
             case PaSendState.Sending:
-                // SuperPDP est ASYNCHRONE (F14 §3.4) : un POST 200 = facture TÉLÉVERSÉE (api:uploaded), pas
-                // encore émise (fr:201 suit en quelques secondes). Le document RESTE Sending (déjà engagé) —
-                // NI succès NI échec. Le raccrochage (RecoverSendingAsync : relecture d'état / anti-doublon par
-                // external_id, F14 §4.1) le finalisera Issued dès l'émission PA. JAMAIS une erreur technique,
+                // PA ASYNCHRONE (SuperPDP F14 §3.4 ; Chorus Pro D7) : un dépôt accepté = facture TÉLÉVERSÉE,
+                // pas encore émise (la confirmation suit, différée). Le document RESTE Sending (déjà engagé) —
+                // NI succès NI échec. Si la PA a renvoyé une RÉFÉRENCE de flux, on la PERSISTE (item PIPE01) :
+                // le raccrochage (RecoverSendingAsync) interrogera la PA par cette référence et NE re-déposera
+                // JAMAIS ce flux — une PA asynchrone comme Chorus Pro crée un NOUVEAU flux à chaque dépôt, donc
+                // un renvoi serait un DOUBLE DÉPÔT (faute fiscale, CLAUDE.md n°3). JAMAIS une erreur technique,
                 // qui afficherait un FAUX échec opérateur sur une facture pourtant acceptée par la PA.
+                if (!string.IsNullOrWhiteSpace(result.PaDocumentId))
+                {
+                    // La réponse brute de l'accusé de dépôt (result.RawResponse) est conservée dans la piste
+                    // d'audit : seule preuve que la PA a accepté le dépôt avant l'émission différée.
+                    await lifecycle.RecordPaSendingReferenceAsync(document.Id, result.PaDocumentId!, result.RawResponse, cancellationToken);
+                }
+
                 LogSendingInProgress(logger, document.Id);
                 return SendOutcome.Deferred;
 
@@ -862,7 +939,7 @@ public sealed partial class SendTenantJob : ITenantJob
             var canonicalJson = await staging.ReadAsync(key, cancellationToken);
             var pivot = PivotCanonicalJsonReader.Read(canonicalJson);
 
-            // Émetteur rempli au READ-TIME depuis le profil tenant (ADR-0023 amendé / RB9) : le blob stagé est le
+            // Émetteur rempli au READ-TIME depuis le profil tenant (ADR-0031 amendé / RB9) : le blob stagé est le
             // pivot SOURCE (hashé à l'ingestion pour l'anti-doublon F06). On l'enrichit ICI pour l'émission, et on
             // RE-SÉRIALISE l'enrichi pour que l'archive WORM porte EXACTEMENT ce qui est émis. Le profil/fiscal sont
             // résolus UNE fois en tête de job (ExecuteAsync) et propagés — aucune relecture tenant par document.
@@ -880,7 +957,7 @@ public sealed partial class SendTenantJob : ITenantJob
             }
 
             // Mapping TVA rempli au READ-TIME (catégorie UNCL5305 + VATEX par ligne) — SYMÉTRIQUE à l'émetteur
-            // (emitter-filled-by-platform / ADR-0023 amendé) : le blob stagé est le pivot SOURCE (régimes bruts,
+            // (emitter-filled-by-platform / ADR-0031 amendé) : le blob stagé est le pivot SOURCE (régimes bruts,
             // catégorie nulle — hashé à l'ingestion pour l'anti-doublon F06). La PA exige la catégorie par ligne
             // (EN 16931 BG-30) : on la repose ICI, depuis la table validée du tenant, via le MÊME moteur qu'au
             // CHECK (CheckTvaMapping) — une seule source de la classification, jamais inventée (F03). Un régime
@@ -1132,6 +1209,18 @@ public sealed partial class SendTenantJob : ITenantJob
     [LoggerMessage(EventId = 7220, Level = LogLevel.Information,
         Message = "SEND : document {DocumentId} téléversé à la Plateforme Agréée (émission asynchrone en cours) — maintenu « en cours d'envoi », finalisé automatiquement dès l'émission confirmée par la PA.")]
     private static partial void LogSendingInProgress(ILogger logger, Guid documentId);
+
+    [LoggerMessage(EventId = 7221, Level = LogLevel.Information,
+        Message = "SEND : document {DocumentId} confirmé Issued par la Plateforme Agréée (dépôt asynchrone, relecture par référence de flux) — finalisé sans renvoi (anti double-dépôt PIPE01).")]
+    private static partial void LogAsyncReferenceConfirmedIssued(ILogger logger, Guid documentId);
+
+    [LoggerMessage(EventId = 7222, Level = LogLevel.Warning,
+        Message = "SEND : document {DocumentId} rejeté par la Plateforme Agréée (dépôt asynchrone, relecture par référence de flux) — RejectedByPa, staging conservé (anti double-dépôt PIPE01).")]
+    private static partial void LogAsyncReferenceConfirmedRejected(ILogger logger, Guid documentId);
+
+    [LoggerMessage(EventId = 7223, Level = LogLevel.Information,
+        Message = "SEND : document {DocumentId} encore en traitement côté Plateforme Agréée (dépôt asynchrone, statut {State}) — maintenu Sending, jamais re-déposé (anti double-dépôt PIPE01).")]
+    private static partial void LogAsyncReferenceStillPending(ILogger logger, Guid documentId, PaSendState state);
 
     [LoggerMessage(EventId = 7209, Level = LogLevel.Warning,
         Message = "SEND : avoir {DocumentId} non envoyé — la Plateforme Agréée « {PaName} » ne déclare pas la capacité avoirs (maintenu ReadyToSend, traité par le pipeline des avoirs).")]

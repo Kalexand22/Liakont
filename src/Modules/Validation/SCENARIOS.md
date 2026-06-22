@@ -164,6 +164,17 @@
 - Forme juridique en sous-chaîne (« EI » dans « BEIGNET », « SA » dans « SABATIER »/« Saint ») → non détectée — INV-VALIDATION-023
 - Acheteur `null` rejeté (`ArgumentNullException`)
 
+#### PartyRoleConsistencyRuleTests
+- Document standard (ni auto-facturé, ni Invoicer, ni Payee) → aucune anomalie — INV-VALIDATION-024
+- Auto-facturé (389) avec Invoicer identifié (SIREN valide) → aucune anomalie — INV-VALIDATION-024
+- Auto-facturé sans Invoicer → `SELF_BILLED_INVOICER_MISSING` bloquant (message citant le n° de document) — INV-VALIDATION-024
+- Auto-facturé, Invoicer sans SIREN → `SELF_BILLED_INVOICER_UNIDENTIFIED` bloquant — INV-VALIDATION-024
+- Auto-facturé, Invoicer à SIREN invalide (Luhn) → `SELF_BILLED_INVOICER_UNIDENTIFIED` bloquant (message citant le SIREN) — INV-VALIDATION-024
+- Invoicer présent mais document non marqué auto-facturé → `INVOICER_WITHOUT_SELF_BILLED` bloquant — INV-VALIDATION-024
+- Payee présent (affacturage BG-10) → `PAYEE_NOT_TRANSMITTED` ALERTE (jamais bloquant) — INV-VALIDATION-024
+- Anomalie auto-facturation + signalement Payee cumulés (deux anomalies) — INV-VALIDATION-024
+- Contexte `null` rejeté (`ArgumentNullException`)
+
 #### BuyerLooksProfessionalRuleTests
 - Pas d'acheteur identifié (Customer = null) → aucune anomalie — INV-VALIDATION-023
 - Acheteur particulier → aucune anomalie — INV-VALIDATION-023

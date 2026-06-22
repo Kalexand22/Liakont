@@ -54,12 +54,36 @@ public sealed class ExtractionCycle
         ExtractorCapabilities capabilities = extractor.Capabilities;
         int documentsEnqueued = 0;
         int documentsSkipped = 0;
+        int documentsQuarantined = 0;
         int linkedPdfs = 0;
 
         foreach (PivotDocumentDto document in extractor.ExtractDocuments(fromInclusiveUtc, toExclusiveUtc))
         {
-            string canonicalJson = CanonicalJson.Serialize(document);
-            string hash = PayloadHasher.ComputeHash(canonicalJson);
+            string canonicalJson;
+            string hash;
+            try
+            {
+                canonicalJson = CanonicalJson.Serialize(document);
+                hash = PayloadHasher.ComputeHash(canonicalJson);
+            }
+            catch (ArgumentOutOfRangeException ex)
+            {
+                // Document NON CONFORME au contrat : valeur d'énumération HORS PLAGE (RDL01, WriteEnum) —
+                // le SEUL cas que la garde de sérialisation lève. Il ne peut pas être sérialisé canoniquement,
+                // donc ne sera JAMAIS transmis (« bloquer plutôt qu'envoyer faux », CLAUDE.md n°3). On le met
+                // en QUARANTAINE — journalisé pour l'opérateur (référence source + action) — SANS avorter le
+                // cycle : les documents valides de la fenêtre sont quand même enfilés et le filigrane avance.
+                // Sinon un seul document fautif bloquerait toute l'extraction du tenant en boucle. Symétrique
+                // du rejet par document côté plateforme (IngestDocumentBatchHandler). Le catch est RESTREINT à
+                // ArgumentOutOfRangeException : tout autre bug d'argument (p. ex. document null) doit faire
+                // ÉCHOUER le cycle de façon visible, jamais quarantainer tous les documents en silence.
+                documentsQuarantined++;
+                _log.Warn(
+                    $"Document « {document.SourceReference} » ignoré : non conforme au contrat (sérialisation "
+                    + $"canonique impossible — {ex.Message}). Le document n'est PAS transmis ; corrigez la donnée "
+                    + "ou l'adaptateur source, puis ré-extrayez la période. Les autres documents sont traités normalement.");
+                continue;
+            }
 
             // Anti re-push (F12 §2.2) : un document déjà acquitté (même hash) n'est pas ré-enfilé.
             if (_queue.IsAlreadyPushed(QueueItemKind.Document, document.SourceReference, hash))
@@ -90,13 +114,18 @@ public sealed class ExtractionCycle
 
         int regimes = StashSourceTaxRegimes(extractor);
 
+        // Capacités déclarées de la source (ADR-0004 D2 / RD401) : jointes au prochain push comme
+        // métadonnée d'enveloppe (non hashée). Déclaratives et stables ; l'agent ne les interprète jamais.
+        StashExtractorCapabilities(capabilities);
+
         _queue.SetExtractionWatermarkUtc(toExclusiveUtc);
 
         _log.Info(
             $"Run d'extraction terminé : {documentsEnqueued} document(s) enfilé(s), {documentsSkipped} ignoré(s), " +
+            $"{documentsQuarantined} en quarantaine (non conforme), " +
             $"{linkedPdfs} PDF lié(s), {poolPdfs} PDF de pool, {regimes} régime(s) TVA source.");
 
-        return new ExtractionResult(documentsEnqueued, documentsSkipped, linkedPdfs, poolPdfs, regimes);
+        return new ExtractionResult(documentsEnqueued, documentsSkipped, linkedPdfs, poolPdfs, regimes, documentsQuarantined);
     }
 
     private int CollectLinkedPdfs(IExtractor extractor, string sourceReference)
@@ -167,5 +196,13 @@ public sealed class ExtractionCycle
         // interprétés par l'agent (CLAUDE.md n°2).
         _queue.SetState(LocalQueue.SourceTaxRegimesKey, JsonConvert.SerializeObject(regimes));
         return regimes.Count;
+    }
+
+    private void StashExtractorCapabilities(ExtractorCapabilities capabilities)
+    {
+        // Métadonnée de push (RD401) : jointe au prochain lot par le drainage. Capacités DÉCLARÉES,
+        // jamais interprétées par l'agent (CLAUDE.md n°6) — les formes énumérées voyagent en valeur brute.
+        ExtractorCapabilitiesDto dto = ExtractorCapabilitiesMapper.ToDto(capabilities);
+        _queue.SetState(LocalQueue.ExtractorCapabilitiesKey, JsonConvert.SerializeObject(dto));
     }
 }

@@ -76,6 +76,14 @@ public sealed class PervasiveExtractor : IExtractor
         // Source PDF (ADP05) : la capacité PDF est PORTÉE PAR LA CONFIG — les PDF vivent sur le système de
         // fichiers (mêmes que l'extraction soit ODBC ou fixtures). Sans config PDF, null-object → capacités false.
         _pdfSource = pdfSource ?? NullEncheresV6PdfSource.Instance;
+
+        // R9 (gate « document finalisé », ADR-0004 D4 Famille 2) : conformité NON présumée pour la source
+        // RÉELLE. EncheresV6Schema.SelectDocumentsSql ne porte aucun prédicat de finalisation et le schéma
+        // Pervasive réel n'est pas vérifiable hors machine cliente (réserve GATE_DEMO_ISATECH). On reste
+        // donc au défaut fail-closed (extractsOnlyFinalizedDocuments laissé à false) : la garde plateforme
+        // différée (RD403) bloque plutôt que de risquer un brouillon. À confirmer au test ODBC réel
+        // (GATE_DEMO_ISATECH) — soit en flippant la déclaration, soit en ajoutant un prédicat de
+        // finalisation au WHERE une fois le statut « comptabilisé » de la source sourcé. SUIVI RD402.
         Capabilities = new ExtractorCapabilities(
             providesSourceDocuments: _pdfSource.ProvidesSourceDocuments,
             providesUnlinkedDocumentPool: _pdfSource.ProvidesUnlinkedDocumentPool,

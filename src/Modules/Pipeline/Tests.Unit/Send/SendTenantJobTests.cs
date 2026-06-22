@@ -522,6 +522,100 @@ public sealed class SendTenantJobTests
     }
 
     [Fact]
+    public async Task Pa_Sending_Response_Persists_Pa_Reference_For_Async_Recovery()
+    {
+        // AC1 (PIPE01, D7) : une PA asynchrone (Chorus Pro/SuperPDP) accepte le dépôt et renvoie une RÉFÉRENCE
+        // de flux (PaSendState.Sending + PaDocumentId). Le pipeline PERSISTE cette référence sur le document
+        // RESTÉ Sending : c'est elle qui permet au raccrochage d'interroger la PA et de ne JAMAIS re-déposer
+        // (anti double-dépôt). Sans persistance, une PA asynchrone serait re-déposée = double déclaration fiscale.
+        var (id, queries, lifecycle, staging) = SeedSingle("ReadyToSend");
+        var number = (await queries.GetByIdAsync(id))!.DocumentNumber;
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var purge = new SendTestDoubles.RecordingStagingPurgeService(true);
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var pa = new SendTestDoubles.SendingPaClient(); // POST 200 → Sending + PaDocumentId "SPDP-{number}".
+
+        var provider = BuildInlineProvider(queries, lifecycle, staging, purge, archive, runLogs, pa);
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        var recorded = lifecycle.RecordedPaReferences.Should().ContainSingle().Subject;
+        recorded.DocumentId.Should().Be(id);
+        recorded.PaDocumentId.Should().Be($"SPDP-{number}", "la référence de flux renvoyée par la PA asynchrone est persistée pour le raccrochage.");
+        recorded.PaResponse.Should().Contain("api:uploaded", "la réponse brute de l'accusé de dépôt est conservée pour la piste d'audit.");
+        lifecycle.Issued.Should().BeEmpty("un dépôt accepté ≠ émis : pas de finalisation sur le seul POST.");
+        lifecycle.Rejected.Should().BeEmpty();
+        lifecycle.TechnicalError.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RecoverSending_Async_Reference_Still_Processing_Is_Never_Redeposited()
+    {
+        // AC3 (PIPE01) : un document déposé sur une PA asynchrone (PaDocumentId persisté), encore EN TRAITEMENT
+        // côté PA (statut Sending) au cycle de raccrochage. Le pipeline RELIT le statut par la référence et
+        // MAINTIENT Sending — il ne RE-DÉPOSE JAMAIS le flux (Chorus Pro créerait un nouveau flux = double dépôt).
+        var id = Guid.NewGuid();
+        const string number = "F-2026-0201";
+        var document = SendTestData.Document(id, "Sending", number: number, payloadHash: "hash-201", paDocumentId: "FLUX-" + number);
+        var queries = new SendTestDoubles.ConfigurableDocumentQueries();
+        queries.AddDocument(document);
+        queries.AddPotentiallySent(SendTestData.Summary(id, "Sending", number));
+
+        var staging = new SendTestDoubles.MapStagingStore();
+        staging.Stage(id, CanonicalJson.Serialize(SendTestData.SingleLinePivot(number)));
+
+        var lifecycle = new SendTestDoubles.RecordingDocumentLifecycle();
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var purge = new SendTestDoubles.RecordingStagingPurgeService(true);
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var pa = new SendTestDoubles.AsyncReferenceStatusPaClient(PaSendState.Sending);
+
+        var provider = BuildInlineProvider(queries, lifecycle, staging, purge, archive, runLogs, pa);
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        pa.StatusCount.Should().Be(1, "la PA est interrogée par référence de flux.");
+        pa.SendCount.Should().Be(0, "un flux déjà accepté n'est JAMAIS re-déposé (anti double-dépôt).");
+        lifecycle.Issued.Should().BeEmpty("statut encore Sending : pas de finalisation.");
+        lifecycle.Rejected.Should().BeEmpty();
+        lifecycle.TechnicalError.Should().BeEmpty("un raccrochage en attente n'est pas une erreur technique.");
+        archive.Requests.Should().BeEmpty();
+        purge.Calls.Should().BeEmpty();
+        runLogs.Saved[^1].DocumentsFailed.Should().Be(0, "raccrochage différé, pas un échec.");
+        runLogs.Saved[^1].DocumentsSucceeded.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task RecoverSending_Async_Reference_Rejected_Marks_RejectedByPa_Without_Redeposit()
+    {
+        // AC2 (PIPE01) : un document déposé sur une PA asynchrone, RELU comme REJETÉ au raccrochage → RejectedByPa
+        // (staging conservé pour correction/resoumission), SANS aucune re-soumission automatique du flux.
+        var id = Guid.NewGuid();
+        const string number = "F-2026-0202";
+        var document = SendTestData.Document(id, "Sending", number: number, payloadHash: "hash-202", paDocumentId: "FLUX-" + number);
+        var queries = new SendTestDoubles.ConfigurableDocumentQueries();
+        queries.AddDocument(document);
+        queries.AddPotentiallySent(SendTestData.Summary(id, "Sending", number));
+
+        var staging = new SendTestDoubles.MapStagingStore();
+        staging.Stage(id, CanonicalJson.Serialize(SendTestData.SingleLinePivot(number)));
+
+        var lifecycle = new SendTestDoubles.RecordingDocumentLifecycle();
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var purge = new SendTestDoubles.RecordingStagingPurgeService(true);
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var pa = new SendTestDoubles.AsyncReferenceStatusPaClient(PaSendState.RejectedByPa);
+
+        var provider = BuildInlineProvider(queries, lifecycle, staging, purge, archive, runLogs, pa);
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        pa.SendCount.Should().Be(0, "un flux déjà déposé n'est jamais re-soumis, même rejeté (la source corrige puis re-soumet).");
+        lifecycle.Rejected.Should().ContainSingle().Which.Should().Be(id);
+        lifecycle.Issued.Should().BeEmpty();
+        purge.Calls.Should().BeEmpty("un rejet conserve le staging (jamais archivé en WORM).");
+        archive.Requests.Should().BeEmpty();
+        runLogs.Saved[^1].DocumentsFailed.Should().Be(1);
+    }
+
+    [Fact]
     public async Task Corrupt_Staging_Is_Not_Sent_And_Causes_No_Transition()
     {
         var id = Guid.NewGuid();
@@ -643,6 +737,33 @@ public sealed class SendTenantJobTests
         });
         return fake;
     }
+
+    /// <summary>
+    /// Provider inline pour un <see cref="IPaClient"/> ARBITRAIRE (au-delà de <see cref="FakePaClient"/>) :
+    /// utilisé par les tests de raccrochage asynchrone (PIPE01) avec <c>AsyncReferenceStatusPaClient</c> et
+    /// <c>SendingPaClient</c>. Tenant à compte actif (<see cref="ActiveAccountSettings"/>).
+    /// </summary>
+    private static SendTestDoubles.FakeServiceProvider BuildInlineProvider(
+        SendTestDoubles.ConfigurableDocumentQueries queries,
+        SendTestDoubles.RecordingDocumentLifecycle lifecycle,
+        SendTestDoubles.MapStagingStore staging,
+        SendTestDoubles.RecordingStagingPurgeService purge,
+        SendTestDoubles.RecordingArchiveService archive,
+        SendTestDoubles.RecordingRunLogStore runLogs,
+        IPaClient paClient) =>
+        new SendTestDoubles.FakeServiceProvider()
+            .Add<TimeProvider>(new SendTestDoubles.FixedTimeProvider(SendTestData.Now))
+            .Add<ILogger<SendTenantJob>>(NullLogger<SendTenantJob>.Instance)
+            .Add<Liakont.Modules.TenantSettings.Contracts.Queries.ITenantSettingsQueries>(ActiveAccountSettings())
+            .Add<IPaClientRegistry>(new SendTestDoubles.StubPaClientRegistry(paClient))
+            .Add<Liakont.Modules.Documents.Contracts.Queries.IDocumentQueries>(queries)
+            .Add<Liakont.Modules.Documents.Contracts.Lifecycle.IDocumentLifecycle>(lifecycle)
+            .Add<Liakont.Modules.Documents.Contracts.Queries.IPaTransmissionJournalQueries>(new SendTestDoubles.StubPaTransmissionJournalQueries())
+            .Add<Liakont.Modules.Staging.Contracts.IPayloadStagingStore>(staging)
+            .Add<Liakont.Modules.Staging.Contracts.IStagingPurgeService>(purge)
+            .Add<Liakont.Modules.Archive.Contracts.IArchiveService>(archive)
+            .Add<Liakont.Modules.TvaMapping.Contracts.Services.ITvaMappingService>(SendTestDoubles.FakeTvaMappingService.Mapping())
+            .Add<Liakont.Modules.Pipeline.Application.IPipelineRunLogStore>(runLogs);
 
     private static SendTestDoubles.FakeServiceProvider BuildProvider(
         SendTestDoubles.ConfigurableTenantSettingsQueries tenantSettings,

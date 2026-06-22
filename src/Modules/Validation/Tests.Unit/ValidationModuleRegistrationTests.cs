@@ -3,6 +3,8 @@ namespace Liakont.Modules.Validation.Tests.Unit;
 using System.Linq;
 using FluentAssertions;
 using Liakont.Modules.Validation.Contracts;
+using Liakont.Modules.Validation.Contracts.Classification;
+using Liakont.Modules.Validation.Domain.Classification;
 using Liakont.Modules.Validation.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -36,5 +38,19 @@ public sealed class ValidationModuleRegistrationTests
 
         services.Count(d => d.ServiceType == typeof(IDocumentRule)).Should().BeGreaterThanOrEqualTo(
             12, "un validateur ne doit jamais passer en silence faute de règles (CLAUDE.md n°3)");
+    }
+
+    [Fact]
+    public void AddValidationModule_Wires_The_Default_SourceDocumentKind_Classifier()
+    {
+        // Garde anti-séam-mort (RD405) : le classificateur consommé par SourceDocumentKindCreditNoteRule
+        // est bien câblé par défaut — la règle peut se résoudre. L'item de suivi le substitue (services.Replace).
+        var services = new ServiceCollection();
+
+        services.AddValidationModule();
+
+        services.Should().ContainSingle(d =>
+            d.ServiceType == typeof(ISourceDocumentKindClassifier) &&
+            d.ImplementationType == typeof(UnconfiguredSourceDocumentKindClassifier));
     }
 }

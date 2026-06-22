@@ -67,4 +67,29 @@ public class RsaManifestSignatureVerifierTests
 
         verifier.Verify(ManifestContent, "pas du base64 !!!").Should().BeFalse();
     }
+
+    [Fact]
+    public void A_key_shorter_than_2048_bits_is_rejected_fail_closed()
+    {
+        // RDF14 (RL-UPD-1) : une clé 1024 bits ne fonde AUCUNE confiance, même si la signature est
+        // mathématiquement valide pour cette clé — elle est traitée comme « pas de clé » (fail-closed).
+        var weakSigner = new TestUpdateSigner(keySizeBits: 1024);
+        string signatureFromWeakKey = weakSigner.SignBase64(ManifestContent);
+        var verifier = new RsaManifestSignatureVerifier(weakSigner.PublicKeyXml);
+
+        verifier.HasKey.Should().BeFalse();
+        verifier.Verify(ManifestContent, signatureFromWeakKey).Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_2048_bit_key_is_accepted_at_the_floor()
+    {
+        // Le plancher est inclusif : exactement 2048 bits est accepté (3072 recommandé, non imposé).
+        var signer = new TestUpdateSigner(keySizeBits: 2048);
+        string signature = signer.SignBase64(ManifestContent);
+        var verifier = new RsaManifestSignatureVerifier(signer.PublicKeyXml);
+
+        verifier.HasKey.Should().BeTrue();
+        verifier.Verify(ManifestContent, signature).Should().BeTrue();
+    }
 }
