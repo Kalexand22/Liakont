@@ -230,7 +230,21 @@ meta:
   #   RDL07 (run partiel). Détail + 12 réfutés : items/RDL.yaml + tasks/redline-adr-005-006-007.md.
   #   ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS merge : RDL01→RDL13 + GATE_ADR_REDLINE en `pending`
   #   (RDL01, RDL02, RDL06, RDL09, RDL10, RDL11, RDL12, RDL13 éligibles — depends_on []).
-  version: 34
+  # version 36 (2026-06-22, geste opérateur interactif) = re-split B2C-09b + dé-couplage agnostique de la
+  #   forme du payload « montant de marge » (cas DGFiP n°33), suite à l'audit du blocage de B2C-09b.
+  #   Constats : (1) la 2e jambe de la formule sourcée `marge = frais acheteur + frais vendeur` (F03 §2.4,
+  #   GATE_B2C_SOURCING done) n'a PAS de carrier pivot (seul SellerFees/B2C-08 existe) ; (2) la forme
+  #   canonique n°33 était cadrée « à confirmer auprès de B2Brouter » = couplage PA concret dans un concern
+  #   produit (violation n°8/16), re-sourcée SUR LE STANDARD (DGFiP n°33 / EN 16931 ; patch doc+commentaire
+  #   landé sur feat/ereporting-b2c). Re-découpage : + B2C-08c (carrier frais acheteur générique, miroir
+  #   B2C-08) ; B2C-09b devient le CALCUL seul (dep += B2C-08c) ; + B2C-09c = TRANSMISSION (dep B2C-09b +
+  #   GATE_B2C_SHAPE_SOURCING) ; + B2C-05b = SOURCING forme canonique n°33 (docs-spec, agent-propose/humain-
+  #   valide comme B2C-05) + GATE_B2C_SHAPE_SOURCING (intra-segment, SANS PR). GATE_EREPORTING_B2C : dep
+  #   B2C09b→B2C09c (couvre transitivement B2C08c + GATE_B2C_SHAPE_SOURCING). B2C-08b reste blocked (retrait
+  #   = décision séparée). NB : le champ version sautait 35 (commentaire RBF01 re-split sans bump du champ).
+  #   ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS merge (slots null) : B2C05b, GATE_B2C_SHAPE_SOURCING,
+  #   B2C08c, B2C09c en `pending` + B2C09b blocked→pending.
+  version: 36
   host: multi_agent_v1
 
 segments:
@@ -715,13 +729,17 @@ items:
   - { id: B2C04, lot: B2C, blueprint: blazor-page-item, priority: 9730, depends_on: [B2C01, B2C02, B2C03] }
   - { id: B2C05, lot: B2C, blueprint: docs-spec-item, priority: 9740, depends_on: [] }
   - { id: GATE_B2C_SOURCING, type: gate, executor: human, priority: 9745, depends_on: [B2C05] }
+  - { id: B2C05b, lot: B2C, blueprint: docs-spec-item, priority: 9746, depends_on: [] }
+  - { id: GATE_B2C_SHAPE_SOURCING, type: gate, executor: human, priority: 9747, depends_on: [B2C05b] }
   - { id: B2C06, lot: B2C, priority: 9750, depends_on: [] }
   - { id: B2C07, lot: B2C, priority: 9760, depends_on: [B2C06, GATE_B2C_SOURCING] }
   - { id: B2C08, lot: B2C, priority: 9770, depends_on: [B2C07] }
+  - { id: B2C08c, lot: B2C, priority: 9772, depends_on: [B2C08] }
   - { id: B2C08b, lot: B2C, blueprint: blazor-page-item, priority: 9775, depends_on: [GATE_B2C_SOURCING] }
   - { id: B2C09a, lot: B2C, priority: 9780, depends_on: [] }
-  - { id: B2C09b, lot: B2C, priority: 9790, depends_on: [B2C05, B2C08, B2C09a, B2C03] }
-  - { id: GATE_EREPORTING_B2C, type: gate, executor: human, priority: 9799, depends_on: [B2C04, B2C09a, B2C09b] }
+  - { id: B2C09b, lot: B2C, priority: 9790, depends_on: [B2C05, B2C08, B2C08c, B2C09a, B2C03] }
+  - { id: B2C09c, lot: B2C, priority: 9795, depends_on: [B2C09b, B2C09a, GATE_B2C_SHAPE_SOURCING] }
+  - { id: GATE_EREPORTING_B2C, type: gate, executor: human, priority: 9799, depends_on: [B2C04, B2C09a, B2C09c] }
 
   # Lot CP — Adaptateur Chorus Pro (plug-in PA B2G, plan tasks/plan-chorus-pro.md) — détail : items/CP.yaml
   # Bande REBANDÉE 101xx au merge du 2026-06-19 (main avait pris 98xx pour le lot RDL/adr-redline).
