@@ -12,4 +12,12 @@ public enum PaAuthMode
 
     /// <summary>OAuth 2.0 client credentials : <c>client_id</c> + <c>client_secret</c> chiffrés par tenant (Super PDP).</summary>
     OAuth2ClientCredentials,
+
+    /// <summary>
+    /// OAuth 2.0 client credentials PISTE <b>+</b> compte technique additionnel (Chorus Pro) : la console
+    /// présente le <c>client_id</c> / <c>client_secret</c> PISTE ET le compte technique Chorus Pro
+    /// (login / mot de passe distincts, en-tête <c>cpro-account</c>) — F18 §2. Tous chiffrés par tenant
+    /// (CLAUDE.md n°10). Générique, jamais un <c>if (pa is …)</c> (CLAUDE.md n°8/16).
+    /// </summary>
+    OAuth2WithTechnicalAccount,
 }

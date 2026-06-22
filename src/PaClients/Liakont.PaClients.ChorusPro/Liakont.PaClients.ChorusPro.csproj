@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- DI abstractions pour l'extension AddChorusProPaClient + Microsoft.Extensions.Http pour
+         IHttpClientFactory / AddHttpClient (client HTTP nommé par compte, TLS 1.2/1.3 — F18 §7,
+         consommé par le transport HTTP livré à partir de CP03). Aucun package NuGet nouveau, aucun
+         ADR : versions gérées centralement (Directory.Packages.props, repo-standards §4). -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Un plug-in PA ne référence QUE Transmission.Contracts (+ Common) — jamais un autre plug-in,
+         jamais un module métier, jamais l'Infrastructure du module (blueprint.md §2 règle 4 ;
+         module-rules §6 ; CLAUDE.md n°6/16). Frontière verrouillée par ChorusProBoundaryTests.
+         PivotDocumentDto arrive transitivement via Transmission.Contracts (qui référence
+         Liakont.Agent.Contracts) — aucune ProjectReference directe interdite n'est déclarée. -->
+    <ProjectReference Include="../../Modules/Transmission/Contracts/Liakont.Modules.Transmission.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Les types « fil » Chorus Pro (DTOs de payload, client OAuth/PISTE) seront internal — AUCUN type
+         propriétaire Chorus Pro n'est exposé hors de l'assembly (acceptance CP02, vérifié par
+         ChorusProBoundaryTests). Les tests les exercent via InternalsVisibleTo. -->
+    <InternalsVisibleTo Include="Liakont.PaClients.ChorusPro.Tests.Unit" />
+  </ItemGroup>
+</Project>

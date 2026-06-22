@@ -43,6 +43,9 @@ public sealed class AddPaAccountHandler : IRequestHandler<AddPaAccountCommand, G
         var encryptedClientSecret = string.IsNullOrWhiteSpace(request.ClientSecret)
             ? null
             : _secretProtector.Protect(request.ClientSecret, PaAccountSecretPurposes.ClientSecret);
+        var encryptedTechnicalPassword = string.IsNullOrWhiteSpace(request.TechnicalPassword)
+            ? null
+            : _secretProtector.Protect(request.TechnicalPassword, PaAccountSecretPurposes.TechnicalPassword);
 
         var account = PaAccount.Create(
             companyId,
@@ -51,7 +54,8 @@ public sealed class AddPaAccountHandler : IRequestHandler<AddPaAccountCommand, G
             request.AccountIdentifiers ?? string.Empty,
             encryptedApiKey,
             encryptedClientId,
-            encryptedClientSecret);
+            encryptedClientSecret,
+            encryptedTechnicalPassword);
 
         await using (var uow = await _uowFactory.BeginAsync(cancellationToken))
         {
@@ -72,6 +76,7 @@ public sealed class AddPaAccountHandler : IRequestHandler<AddPaAccountCommand, G
                 HasApiKey = encryptedApiKey is not null,
                 HasClientId = encryptedClientId is not null,
                 HasClientSecret = encryptedClientSecret is not null,
+                HasTechnicalPassword = encryptedTechnicalPassword is not null,
             },
             cancellationToken);
 

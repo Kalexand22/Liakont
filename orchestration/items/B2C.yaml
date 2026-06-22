@@ -263,23 +263,6 @@ items:
       - "Tests d'intégration (run-tests) EXÉCUTÉS et verts : neutralité de hash + 2e jambe disponible au calcul"
       - "verify-fast passes ; codex-review clean or only accepted P2s"
 
-  B2C08b:
-    title: "(= « B2C-08bis » du plan) Persister/éditer en console le paramètre « méthode de marge » — CONDITIONNEL à B2C-05"
-    description: |
-      (Plan B2C-08bis.) Dépend de GATE_B2C_SOURCING. À NE RÉALISER QUE SI B2C-05 établit l'existence de
-      méthodes de calcul de marge. Si B2C-05 n'en établit AUCUNE, cet item est RETIRÉ (geste opérateur) —
-      ne rien inventer (n°2).
-      Champ FiscalSettings.MargeMethod? (liste fermée nommée d'après le texte sourcé, rejet de toute valeur
-      inconnue) + SetFiscalSettingsCommand/handler + migration ; `null` → suspension. Exposition console
-      (FiscalFormModel / FiscalSettingsInput / FiscalViewModel / FiscalView.razor) — aucune logique métier
-      en page. Doc F12-A §3.2.
-    acceptance:
-      - "CONDITIONNEL : réalisé seulement si B2C-05 (validé GATE_B2C_SOURCING) établit des méthodes ; sinon retiré"
-      - "Champ FiscalSettings.MargeMethod? (liste fermée, valeur inconnue rejetée) + command/handler + migration ; `null` → suspendre"
-      - "Exposition console + test bUnit (P1 review n°19) ; aucune logique métier en page (handlers MediatR) ; doc F12-A §3.2"
-      - "Tests (run-tests si migration/persistence) EXÉCUTÉS et verts"
-      - "verify-fast passes ; codex-review clean or only accepted P2s"
-
   B2C09a:
     title: "Capacité PA « montant de marge » (cas n°33) + gate typé — FORME du payload GELÉE tant que non sourcée"
     description: |

@@ -17,4 +17,7 @@ public static class PaAccountSecretPurposes
 
     /// <summary>Purpose du « client_secret » OAuth2 (auth OAuth2ClientCredentials).</summary>
     public const string ClientSecret = "Liakont.TenantSettings.PaAccount.ClientSecret.v1";
+
+    /// <summary>Purpose du mot de passe du compte TECHNIQUE additionnel (auth OAuth2WithTechnicalAccount, ex. Chorus Pro).</summary>
+    public const string TechnicalPassword = "Liakont.TenantSettings.PaAccount.TechnicalPassword.v1";
 }

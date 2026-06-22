@@ -31,3 +31,10 @@ Agréée, planification — est :
 - Le seed d'un client concret (`deployments/cmp/`) est produit par le lot CMP, pas par le socle.
 
 Le squelette (SOL02) ne crée que ce README ; les seeds concrets arrivent avec leurs lots.
+
+## Notes d'exploitation (raccordement PA)
+
+- [`chorus-pro-raccordement-qualif.md`](chorus-pro-raccordement-qualif.md) — procédure de
+  raccordement d'un tenant à **Chorus Pro via PISTE** en qualification (compte PISTE + app
+  SANDBOX + compte technique → `cpro-account`) et report des valeurs **non sensibles** dans
+  `accountIdentifiers` (les secrets se saisissent en console, jamais en seed — CLAUDE.md n°10).

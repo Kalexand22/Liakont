@@ -24,4 +24,7 @@ public record AddPaAccountCommand : ICommand<Guid>
 
     /// <summary>« client_secret » OAuth2 EN CLAIR (auth OAuth2ClientCredentials). Chiffré par le handler ; null/vide = non saisi.</summary>
     public string? ClientSecret { get; init; }
+
+    /// <summary>Mot de passe du compte TECHNIQUE EN CLAIR (auth OAuth2WithTechnicalAccount, ex. Chorus Pro). Chiffré par le handler ; null/vide = non saisi.</summary>
+    public string? TechnicalPassword { get; init; }
 }
