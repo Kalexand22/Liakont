@@ -129,4 +129,47 @@ public sealed class PaCapabilitiesTests
         gap.OperatorMessage.Should().Contain("ne prend pas encore en charge");
         gap.OperatorMessage.Should().Contain("facture générée");
     }
+
+    [Fact]
+    public async Task SendB2cTransaction_WithoutB2cReporting_ReturnsTypedGap_NoException()
+    {
+        // Implémentation PAR DÉFAUT de IPaClient : une PA sans la capacité B2C dégrade en résultat typé.
+        IPaClient client = new StubPaClient(new PaCapabilities { PaName = "FakePa", SupportsB2cReporting = false });
+
+        var result = await client.SendB2cTransactionAsync(MarginTransaction());
+
+        result.State.Should().Be(PaSendState.CapabilityNotSupported);
+        result.CapabilityNotSupported!.Capability.Should().Be(PaCapability.B2cReporting);
+    }
+
+    [Fact]
+    public async Task SendB2cTransaction_Margin_GatedOnDedicatedMarginCapability_NotOnB2cReporting()
+    {
+        // Régression review (P1) : le montant de marge (TMA1) se garde sur SupportsMarginAmountReporting,
+        // JAMAIS sur le seul SupportsB2cReporting — sinon on transmettrait une forme de marge non confirmée.
+        IPaClient client = new StubPaClient(new PaCapabilities
+        {
+            PaName = "SuperPdp",
+            SupportsB2cReporting = true,
+            SupportsMarginAmountReporting = false,
+        });
+
+        var result = await client.SendB2cTransactionAsync(MarginTransaction());
+
+        result.State.Should().Be(PaSendState.CapabilityNotSupported);
+        result.CapabilityNotSupported!.Capability.Should().Be(
+            PaCapability.MarginAmountReporting,
+            "la marge se garde sur la capacité DÉDIÉE, pas sur la capacité B2C générique");
+    }
+
+    private static B2cReportingTransaction MarginTransaction() => new()
+    {
+        Category = EReportingTransactionCategory.Tma1,
+        Role = EReportingDeclarantRole.Seller,
+        CurrencyCode = "EUR",
+        Date = new DateOnly(2026, 6, 22),
+        TaxExclusiveAmount = 100.00m,
+        TaxTotal = 20.00m,
+        Subtotals = [new B2cReportingTransactionSubtotal { TaxPercent = 20.0m, TaxableAmount = 100.00m, TaxTotal = 20.00m }],
+    };
 }
