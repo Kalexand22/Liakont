@@ -20,6 +20,7 @@
 3. `5352d651` — **B3** : calculateur PUR d'agrégation N→1 (jour×devise×taux, ramené HT half-up réconciliant le TTC).
 4. `d8f640d5` — **B3b** : résolveur PUR de marge par document (somme acheteur+vendeur, fail-closed 297E/non-mappé/taux-mixtes) + libellé contrat HT→TTC.
 5. `ef3c0a4f` — **B5** : transmission B2C SuperPDP RÉELLE (payload builder + POST `/b2c_transactions` + parse id serveur, pas de retry interne) + flip `SupportsMarginAmountReporting=true` (sandbox 585 + ancré F03).
+6. `8f019e80` — handoff (cet état). `24ae8e3a` — **review adversariale appliquée** : 1 P1 (corps par défaut `throw`→résultat typé, sinon une transaction B2C non-marge via B2Brouter aurait crashé) + 7 P2 (auth 401/403→re-tentable, 200-sans-id→succès terminal jamais re-tenté, garde de réconciliation du builder, arrondi half-up explicite, doc `MarginCalculator` SUPERSÉDÉ + capacités). **Le code livré est review-clean.**
 
 **DONE & vérifié** : toute la chaîne FISCALE PURE (codes, résolveur, agrégation) + le contrat de transport + l'envoi réel SuperPDP (unit-testé + **fil prouvé sandbox**, probe id 585/586) + l'ancrage F03 (5/5 sourcé, validé Karl) + le `vat_regime` lisible (Burger Queen = monthly) + l'idempotence sourcée (AUCUN dédoublonnage serveur).
 
