@@ -1,35 +1,40 @@
-# CP04 — SendDocumentAsync (dépôt du Factur-X scellé, deposerFluxFacture)
+# B2C09b — CALCUL de la marge par lot (decimal half-up, aucune TVA distincte 297 E) — sans transmission
 
-Segment : chorus-pro / branche feat/pa-chorus-pro-CP04 (slot-1).
-Spec : F18 §3 + tasks/plan-chorus-pro.md CP3 + §2bis D8/D9. Plug-in = transport PUR (aucun montant).
+Segment : ereporting-b2c (feat/ereporting-b2c) · Sub-branch : feat/ereporting-b2c-B2C09b
 
-## Décisions de conception (sourcées)
-- **Garde artefact AVANT tout HTTP** (patron GeneriqueClient) : `PaSendContext.PreBuiltArtifact` vide
-  → Bloqué `CPRO_ARTEFACT_REQUIS` (TechnicalError, message FR), jamais régénéré (CLAUDE.md n°6).
-  Pas de garde de capacité dans le plug-in : la génération de l'artefact est gatée EN AMONT par
-  `SupportsFacturXTransmission` (plateforme/CP08) — patron SuperPdp/Generique. Capacité encore false
-  jusqu'à CP08 → sans artefact, dépôt toujours bloqué (fail-closed, sûr).
-- **idUtilisateurCourant OMIS** : cardinalité + endpoint de résolution non confirmés (F18 §3.2 « À
-  VERROUILLER »). CLAUDE.md n°2 (ne pas inventer un endpoint/champ) → branche documentée « SINON
-  l'omettre ». Résolution `consulterCompteUtilisateur` différée au raccordement (CP suivant si confirmé).
-- **Payload** (F18 §3.1, camelCase EXACT via [JsonPropertyName]) : fichierFlux=base64(artefact),
-  nomFichier, syntaxeFlux=IN_DP_E2_CII_FACTURX (sourcé), avecSignature=false (D9).
-- **Base path REST** = relatif sous `BaseUrl` (config, environnement) ; la ressource versionnée
-  (`factures/v1/deposer`) = constante contrat dans Defaults, marquée « à verrouiller au Swagger PISTE »
-  (F18 §3.3). Le « NE PAS HARDCODER » de §3.3 vise la BASE API (host+/cpro/, déjà sur config.BaseUrl).
-- **Mapping réponse** (ChorusProResponseMapper, F18 §3.4/§5) : 2xx + numeroFluxDepot présent → **Sending**
-  (PaDocumentId=numeroFluxDepot, JAMAIS Issued au dépôt, A1/D5) ; 2xx sans numeroFluxDepot → Rejected
-  (rejet métier silencieux) ; 4xx métier → Rejected (PaError intacts) ; 5xx/401/403 → Technical ;
-  timeout/réseau → Technical SANS re-POST (A3/D8). RawResponse conservée (corps réponse = sans credential).
+## Objectif
+Calculer le montant de marge PAR LOT (no_ba) à partir des frais acheteur (B2C-08c) et frais
+vendeur (B2C-08) déjà portés en pivot, en `decimal` half-up via `PivotRounding.RoundAmount`, et
+produire le montant calculé pour B2C-09c (TRANSMISSION, hors scope ici).
 
-## Tâches
-- [ ] ChorusProDefaults : + DepositPath, SyntaxeFluxFacturX, DepositWithSignature=false, FileNameFor
-- [ ] Wire/ChorusProDepositRequest.cs (internal record, [JsonPropertyName] camelCase)
-- [ ] ChorusProPayloadBuilder.cs (static : artefact+numéro → JSON)
-- [ ] ChorusProResponseMapper.cs (MapDeposit + IsRetryableStatus, parse numeroFluxDepot fail-safe)
-- [ ] ChorusProClient.SendDocumentAsync : garde artefact → POST authentifié → mapper ; timeout/réseau → Technical
-- [ ] Tests : ChorusProClientTests (remplacer test squelette obsolète) + ChorusProSendTests
-- [ ] verify-fast (2 solutions) + run-tests + codex-review
+## Sources fiscales (validées GATE_B2C_SOURCING `done`)
+- F03 §2.4 : `marge = Σ frais acheteur + Σ frais vendeur`, PAR LOT, méthode PAR OPÉRATION unique
+  (pas d'enum méthode — globalisation non ancrée pour l'OVV). 3e terme « impôts/droits/taxes » HORS marge.
+- F03 §2.3 / §2.4 (art. 297 E) : le montant de marge est une BASE — aucune TVA distincte.
+
+## Plan (cœur PUR dans Pipeline/Domain — pattern PaymentAggregationCalculator)
+- [ ] `Domain/Margin/LotMargin.cs` — record par lot : LotReference, BuyerFeesTotal, SellerFeesTotal, MarginAmount (decimal half-up)
+- [ ] `Domain/Margin/MarginCalculationResult.cs` — record : Lots (ordre déterministe), TotalMargin
+- [ ] `Domain/Margin/MarginVatNotSeparableException.cs` — exception bloquante 297 E (message FR + numéro de document)
+- [ ] `Domain/Margin/MarginCalculator.cs` — static pur :
+      - GARDE 297 E EN PREMIER : `Totals.TotalTax != 0` OU une ligne porte une TVA distincte
+        (`Taxes` avec `TaxAmount > 0`) → throw `MarginVatNotSeparableException` (jamais calculer faux)
+      - regroupe SellerFees + BuyerFees par LotReference (ordinal, ordre de 1re apparition = déterministe)
+      - somme en `decimal`, `PivotRounding.RoundAmount` sur chaque total + la marge par lot
+      - TotalMargin = RoundAmount(Σ marges des lots)
+      - document sans aucun frais → résultat vide (Lots = [], TotalMargin = 0)
+
+## Tests (Tests.Unit/Margin/ — exécutés par run-tests)
+- [ ] marge = Σ acheteur + Σ vendeur par lot, ≥ 2 lots (bases distinctes), ordre déterministe
+- [ ] test d'arrondi half-up obligatoire (n°1 ; ex. 0.005 → 0.01)
+- [ ] CRITÈRE BLOQUANT 297 E : `TotalTax > 0` → throw ; ligne avec `TaxAmount > 0` → throw
+- [ ] cas sain : adjudication E/0% (TaxAmount=0) + frais → calcul OK (pas de throw)
+- [ ] frais vendeur seul / frais acheteur seul / aucun frais (résultat vide)
+
+## Vérif
+- [ ] verify-fast (2 solutions : plateforme .NET 10 + agent net48)
+- [ ] run-tests verts (calcul decimal + absence de TVA distincte, ≥ 2 bases)
+- [ ] codex-review clean
 
 ## Review
 (à compléter)
