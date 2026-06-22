@@ -9,9 +9,16 @@ using Liakont.Modules.TenantSettings.Domain.Entities;
 /// public <c>PaAccountDto</c> (qui n'expose que des booléens <c>Has*</c>), elle reste interne au module
 /// TenantSettings et au Host — elle n'est JAMAIS consommée par Pipeline (frontière B1 du plan SuperPDP).
 /// </summary>
+/// <remarks>
+/// <see cref="EncryptedTechnicalPassword"/> est le mot de passe du compte technique additionnel (auth
+/// OAuth2WithTechnicalAccount, ex. Chorus Pro — F18 §2), CHIFFRÉ sous
+/// <see cref="PaAccountSecretPurposes.TechnicalPassword"/>. Le login/email technique (NON secret) voyage
+/// dans <see cref="AccountIdentifiers"/> (résolu par le résolveur Host pour bâtir l'<c>idUtilisateurCourant</c>).
+/// </remarks>
 public sealed record PaAccountSecrets(
     PaEnvironment Environment,
     string AccountIdentifiers,
     string? EncryptedApiKey,
     string? EncryptedClientId,
-    string? EncryptedClientSecret);
+    string? EncryptedClientSecret,
+    string? EncryptedTechnicalPassword = null);

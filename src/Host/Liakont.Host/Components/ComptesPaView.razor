@@ -44,11 +44,15 @@
                             }
                         </div>
                         <span class="liakont-comptes-pa__account-meta">Identifiants : @(string.IsNullOrWhiteSpace(account.AccountIdentifiers) ? "—" : account.AccountIdentifiers)</span>
-                        @if (AuthModeFor(account.PluginType) == PaAuthMode.OAuth2ClientCredentials)
+                        @{ var accountAuthMode = AuthModeFor(account.PluginType); }
+                        @if (accountAuthMode is PaAuthMode.OAuth2ClientCredentials or PaAuthMode.OAuth2WithTechnicalAccount)
                         {
                             <span class="liakont-comptes-pa__account-meta" data-testid="comptes-pa-secret">
                                 Identifiants OAuth2 : client_id @(account.HasClientId ? "configuré (masqué)" : "non configuré"),
-                                client_secret @(account.HasClientSecret ? "configuré (masqué)" : "non configuré")
+                                client_secret @(account.HasClientSecret ? "configuré (masqué)" : "non configuré")@if (accountAuthMode == PaAuthMode.OAuth2WithTechnicalAccount)
+                                {
+                                    <text>, mot de passe technique @(account.HasTechnicalPassword ? "configuré (masqué)" : "non configuré")</text>
+                                }
                             </span>
                         }
                         else
@@ -182,9 +186,9 @@
                         </select>
                     </FormField>
 
-                    <FormField Label="@(IsOAuthSelected ? "Identifiant de compte" : "Identifiants de compte (facultatif)")"
-                               FieldId="comptes-pa-identifiers" Required="@IsOAuthSelected"
-                               HelpText="Identifiants opaques attendus par le plug-in (ex. identifiant de compte). Jamais un secret.">
+                    <FormField Label="@(RequiresAccountIdentifier ? "Identifiant de compte" : "Identifiants de compte (facultatif)")"
+                               FieldId="comptes-pa-identifiers" Required="@RequiresAccountIdentifier"
+                               HelpText="Identifiants opaques attendus par le plug-in (ex. identifiant de compte ; login/email technique pour Chorus Pro). Jamais un secret.">
                         <input id="comptes-pa-identifiers"
                                class="form-control"
                                type="text"
@@ -195,8 +199,9 @@
                     </FormField>
 
                     @* Secret(s) pilotés par le MODE D'AUTH du type sélectionné (registre), jamais par le nom du PA
-                       (CLAUDE.md n°8/16) : clé API unique, ou client_id + client_secret OAuth2. Toujours masqués. *@
-                    @if (IsOAuthSelected)
+                       (CLAUDE.md n°8/16) : clé API unique ; client_id + client_secret OAuth2 ; ou, en plus, un mot
+                       de passe de compte technique (OAuth2WithTechnicalAccount, ex. Chorus Pro). Toujours masqués. *@
+                    @if (ShowsOAuthClientFields)
                     {
                         <FormField Label="client_id (OAuth2)" FieldId="comptes-pa-clientid"
                                    HelpText="@(EditorIsCreate ? "Identifiant client OAuth2. Chiffré en base, jamais réaffiché." : "Laissez vide pour conserver le client_id actuel. Une nouvelle valeur le remplace (rotation).")">
@@ -221,6 +226,24 @@
                                    disabled="@EditorBusy"
                                    data-testid="comptes-pa-clientsecret" />
                         </FormField>
+
+                        @* 3ᵉ secret : mot de passe du compte technique additionnel (cpro-account), uniquement en
+                           OAuth2WithTechnicalAccount. Le login/email technique (non secret) est saisi dans
+                           « Identifiant de compte » ci-dessus. *@
+                        @if (IsTechnicalAccountSelected)
+                        {
+                            <FormField Label="Mot de passe technique" FieldId="comptes-pa-technicalpassword"
+                                       HelpText="@(EditorIsCreate ? "Mot de passe du compte technique (login/email saisi dans « Identifiant de compte »). Chiffré en base, jamais réaffiché." : "Laissez vide pour conserver le mot de passe technique actuel. Une nouvelle valeur le remplace (rotation).")">
+                                <input id="comptes-pa-technicalpassword"
+                                       class="form-control"
+                                       type="password"
+                                       autocomplete="new-password"
+                                       value="@EditorModel.TechnicalPassword"
+                                       @oninput="OnTechnicalPasswordInput"
+                                       disabled="@EditorBusy"
+                                       data-testid="comptes-pa-technicalpassword" />
+                            </FormField>
+                        }
                     }
                     else
                     {
@@ -377,15 +400,25 @@
         && !EditorBusy
         && !string.IsNullOrWhiteSpace(EditorModel.PluginType)
         && !string.IsNullOrWhiteSpace(EditorModel.Environment)
-        // OAuth2 : l'identifiant de compte est requis (D4) ; les secrets restent facultatifs (saisie progressive,
-        // l'envoi est bloqué tant qu'ils manquent — block-not-send-wrong). Piloté par le mode d'auth, pas le nom du PA.
-        && (!IsOAuthSelected || !string.IsNullOrWhiteSpace(EditorModel.AccountIdentifiers));
+        // OAuth2 (simple OU avec compte technique) : l'identifiant de compte est requis (D4) — il porte aussi le
+        // login/email technique pour Chorus Pro. Les secrets restent facultatifs (saisie progressive, l'envoi est
+        // bloqué tant qu'ils manquent — block-not-send-wrong). Piloté par le mode d'auth, jamais le nom du PA.
+        && (!RequiresAccountIdentifier || !string.IsNullOrWhiteSpace(EditorModel.AccountIdentifiers));
 
     /// <summary>Mode d'auth du type en cours d'édition (depuis le registre, défaut ApiKey) — pilote les champs de secret.</summary>
     private PaAuthMode AuthModeForSelectedType => AuthModeFor(EditorModel?.PluginType);
 
-    /// <summary><c>true</c> si le type sélectionné s'authentifie en OAuth2 (client_id + client_secret).</summary>
+    /// <summary><c>true</c> si le type sélectionné s'authentifie en OAuth2 simple (client_id + client_secret).</summary>
     private bool IsOAuthSelected => AuthModeForSelectedType == PaAuthMode.OAuth2ClientCredentials;
+
+    /// <summary><c>true</c> si le type sélectionné s'authentifie en OAuth2 AVEC compte technique additionnel (Chorus Pro : client_id/secret + mot de passe technique).</summary>
+    private bool IsTechnicalAccountSelected => AuthModeForSelectedType == PaAuthMode.OAuth2WithTechnicalAccount;
+
+    /// <summary><c>true</c> si le type présente les champs OAuth2 client_id/client_secret (OAuth2 simple OU avec compte technique).</summary>
+    private bool ShowsOAuthClientFields => IsOAuthSelected || IsTechnicalAccountSelected;
+
+    /// <summary><c>true</c> si l'identifiant de compte (non secret) est requis : tous les modes OAuth2 (porte aussi le login technique).</summary>
+    private bool RequiresAccountIdentifier => IsOAuthSelected || IsTechnicalAccountSelected;
 
     private void OnPluginTypeChange(ChangeEventArgs e)
     {
@@ -432,6 +465,14 @@
         if (EditorModel is not null)
         {
             EditorModel.ClientSecret = e.Value as string;
+        }
+    }
+
+    private void OnTechnicalPasswordInput(ChangeEventArgs e)
+    {
+        if (EditorModel is not null)
+        {
+            EditorModel.TechnicalPassword = e.Value as string;
         }
     }
 
