@@ -165,6 +165,44 @@ et du montant relèvera de l'aval gelé (B2C-09b/09c), après la gate.
 **Débloque** (une fois la gate `done`) la branche transmission B2C-09c : capacité `SupportsMarginAmountReporting`
 déjà posée en B2C-09a + méthode `IPaClient` **agnostique** à ajouter (jamais conditionnée à ce qu'une PA sait faire).
 
+> **Amendement (2026-06-22, décision Karl, interactif) — `GATE_B2C_SHAPE_SOURCING` LEVÉE.** Les deux décisions
+> déférées ci-dessus sont tranchées et ancrées ici. Aucun taux ni forme n'est **inventé** : chaque élément
+> renvoie soit à une donnée source (opérateur), soit au moteur F03 déjà validé, soit au §270 (n°2).
+>
+> 1. **Nature de la donnée source = TTC.** Karl (opérateur enchères) confirme que l'honoraire émis par la
+>    source (EncheresV6 `type_ligne 2`, frais acheteur **et** vendeur) est porté **TTC**, pas HT. → le
+>    commentaire « Montant HT » de `PivotBuyerFeeDto.NetAmount` / `PivotSellerFeeDto.NetAmount` est **corrigé
+>    en TTC** (correction de **libellé** uniquement — le nom de propriété et la valeur sérialisée sont
+>    inchangés, donc **hash-neutre** ; pas de golden contrat-v2). `MarginCalculator` cesse de traiter ce
+>    montant comme une base HT finale.
+> 2. **Marge = SOMME des honoraires (frais acheteur + frais vendeur) — AUCUNE séparation acheteur/vendeur.**
+>    Sourcé §270 (« la marge correspond en fait à la **commission totale** ») / F03 §2.4 : les deux honoraires
+>    **se somment** en **une seule base**, ils ne forment pas deux marges distinctes. **Taux = le taux mappé de
+>    la ligne d'honoraire** (moteur F03, `TvaMapper` sur `SourceRegimeCode`) — pas un taux inventé : celui que
+>    la **table validée du déploiement** (§3-§4) assigne. **En pratique les honoraires d'une vente sont au même
+>    taux (S/20 %, §2.3) → UNE base, UN taux.** Le **seul** découpage `tax_subtotals` est **par taux, au niveau
+>    de l'AGRÉGAT du JOUR** (flux 10.3 = jour×devise×taux, §2.5, sourcé), entre **ventes distinctes** — **jamais**
+>    une séparation acheteur/vendeur. **Fail-closed** (n°2/n°3) : honoraire à code TVA non mappé → **bloqué** ;
+>    honoraires d'**une même vente** à taux **différents** (découpage de la marge **non sourcé**) → **bloqué**, jamais deviné.
+> 3. **Conversion TTC→HT (par taux, decimal half-up, `PivotRounding`)** : `marge_HT = marge_TTC / (1 + taux)` ;
+>    `TVA_marge = marge_TTC − marge_HT`. Forme sur le standard (G1.57/§2.5) : `TT-87 (TaxableAmount)` = `marge_HT`
+>    par taux ; `TT-88 (TaxTotal)` = `TVA_marge` ; `TT-86 (TaxPercent)` = taux ; `TT-81` = **TMA1**. **Cohérent
+>    297 E** : aucune TVA distincte au grain document ; elle n'apparaît qu'au niveau de l'agrégat TMA1 (TT-88).
+> 4. **Méthode = par document/part** (la seule ancrée pour l'OVV, §270) ; **globalisation non retenue** →
+>    **aucun** paramètre de méthode (cohérent §2.4 ; pas d'enum `{Globalisation, CoupParCoup}`).
+> 5. **`role_code` (fil SuperPDP, requis) = `SE`** (vente) — **SOURCÉ**. La donnée DGFiP est **TT-15 « Code
+>    rôle » du déclarant** (`/ReportDocument/Issuer/RoleCode`, règle **G7.52**, Annexe 6 — Format sémantique
+>    e-reporting V1.10, repo `docs/references/dgfip-v3.2/2- Annexes_v3.2/`), verbatim : « **BY** si le déclarant
+>    est **Acheteur** ; **SE** si le déclarant est **Vendeur** ». L'OVV reporte ses **ventes** aux particuliers
+>    → déclarant = **Vendeur** → **`SE`**. ⚠️ **BA/BV n'est PAS BY/SE** : BY/SE qualifie le rôle **du déclarant**
+>    (acheteur vs vendeur), pas la jambe — les parts BA+BV sont composantes de la **même** vente-marge → **un
+>    seul** report `SE`, **jamais** scindé. *(Un report d'ACHATS de l'OVV à des non-assujettis, s'il était requis,
+>    serait un report `BY` distinct — hors marge, hors de ce périmètre.)*
+>
+> **Conséquence orchestration :** la branche B2C-09c (calcul + transmission de la marge) devient **codable**.
+> L'item `B2C09c` et le gate `GATE_B2C_SHAPE_SOURCING` côté `orchestration/state.yaml` sont à réconcilier
+> (geste opérateur, hors de cette session interactive — on n'édite pas `state.yaml` pendant des sessions actives).
+
 **Sources primaires citées :**
 - **DGFiP, Annexe 7 — Règles de gestion V1.9** (`docs/references/dgfip-v3.2/2- Annexes_v3.2/`) : règle
   **G1.57** (régime de la marge → TT-82/TT-87 = marge ramenée HT sous TMA1) et règle **G1.68** (liste des
@@ -180,6 +218,46 @@ déjà posée en B2C-09a + méthode `IPaClient` **agnostique** à ajouter (jamai
 > ℹ️ **Sur le libellé « cas n°33 ».** « cas DGFiP n°33 » est le **label projet** de ce cas (e-reporting B2C
 > de la marge), repris de §2.4 / `tasks/plan-ereporting-b2c-10-3.md`. L'**ancrage faisant foi** de la forme
 > canonique est **G1.57 + G1.68 + transaction.xsd** ci-dessus, indépendamment de la numérotation interne.
+
+### 2.6 Codelist complète TT-81 — catégories de transaction e-reporting (Flux 10.3) — ✅ SOURCÉ (primaire dans le repo)
+
+> Statut : ✅ **sourcé sur texte primaire présent dans le repo** (pas une glose d'éditeur/blog). Là où §2.5
+> ne détaillait que **TMA1** (cas marge n°33), la présente section fige la **liste fermée complète** des 4
+> catégories de transaction — nécessaire dès qu'un e-reporting B2C (10.3) doit porter une catégorie autre
+> que la marge (biens ou services taxables, opérations non soumises à la TVA en France).
+
+La donnée **TT-81 « Catégorie des transactions »** (`/TransactionsReport/Transactions/CategoryCode`, bloc
+agrégé TG-31 — cf. §2.5) est codifiée par la **règle G1.68**. Liste **verbatim** (G1.68) :
+
+| Code | Libellé normatif (G1.68, verbatim) |
+|---|---|
+| **TLB1** | Livraisons de **biens** soumises à la taxe sur la valeur ajoutée |
+| **TPS1** | Prestations de **services** soumises à la taxe sur la valeur ajoutée |
+| **TNT1** | Livraisons de biens et prestations de services **non soumises à la TVA en France** dont les ventes à distance intracommunautaires mentionnées au 1° du I de l'art. 258 A et à l'art. 259 B du CGI |
+| **TMA1** | Opérations donnant lieu à l'application des régimes prévus au e) du 1 de l'art. 266 et aux art. 268 et **297 A** du CGI (régime de TVA sur la marge) — cf. §2.4/§2.5 |
+
+**Liste FERMÉE.** La codelist TT-81 se limite à ces **4** valeurs ; tout autre code (p. ex. la coquille
+« TLS1 » vue chez certains éditeurs) est **invalide**. Conséquence produit (règles n°2/n°3) : la catégorie
+de transaction est **validée contre cette liste fermée, fail-closed** — une transaction dont la catégorie
+ne peut être dérivée de manière sourcée est **bloquée** (Blocking), jamais transmise avec une catégorie
+devinée. Les libellés **ne doivent jamais** être recodés en glose approximative : ne pas écrire TNT1 =
+« exonéré » ni « hors champ » (le sens normatif est « non soumises **en France** », opérations non situées
+en France / intracommunautaires), ne pas écrire TMA1 = « mixte » (c'est la **marge**) — seul le libellé
+G1.68 fait foi.
+
+> ⚠️ **Dérivation catégorie ← donnée source : NON figée ici (se source comme le mapping TVA, §3-§4).**
+> Quelle catégorie s'applique à une transaction (biens vs services ; soumis FR vs non ; marge) se dérive
+> **de la même façon que le mapping TVA** : par une **table validée régime par régime** (§4.1), jamais par
+> une heuristique. G1.57 lie déjà **TMA1 ↔ régime de la marge** (§2.5). Les correspondances pour
+> **TLB1/TPS1/TNT1** (nature biens/services, territorialité) restent un **paramétrage tenant** sourcé,
+> fail-closed — aucun enum de dérivation n'est pré-câblé tant qu'une `F*.md` ne l'ancre pas.
+
+**Source primaire (dans le repo) :** DGFiP, **Annexe 7 — Règles de gestion V1.9**, feuille « Règles de
+gestion », règle **G1.68 « Catégorie de transactions »** (ligne 43) —
+`docs/references/dgfip-v3.2/2- Annexes_v3.2/20260430_Annexe 7 - Règles de gestion - V1.9.xlsx`. Confirmée
+indépendamment sur les Annexes A AFNOR XP Z12-012 V1.3 / Z12-014 V1.2 (FNFE-MPE) et la spec externe B2B
+DGFiP v3.2 (impots.gouv.fr). ⚠️ Codelist mise à jour par la DGFiP les **15 mai / 15 novembre** — tracer la
+version (ici **V1.9**, fichiers datés 2026-04-30) au figeage d'un mapping de prod.
 
 ## 3. La subtilité métier (cœur du risque — cf. Analyse-Donnees §5)
 
