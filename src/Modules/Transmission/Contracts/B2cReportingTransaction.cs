@@ -3,8 +3,9 @@ namespace Liakont.Modules.Transmission.Contracts;
 /// <summary>
 /// Une transaction e-reporting B2C agrégée (flux 10.3), représentation <b>AGNOSTIQUE</b> de Liakont — le
 /// plug-in PA la projette vers son format de fil (CLAUDE.md n°6/8 ; jamais un schéma PA concret ici).
-/// Correspond au bloc DGFiP <c>Transactions</c> (TG-31) agrégé par <b>jour × devise × catégorie</b>
-/// (F03 §2.5) ; les <see cref="Subtotals"/> portent le détail par taux (TG-32). Les montants sont des bases
+/// Correspond au bloc DGFiP <c>Transactions</c> (TG-31) au grain <b>jour × devise</b> (catégorie et rôle
+/// fixés par l'appelant — TMA1 / SE en enchères, F03 §2.5) ; les <see cref="Subtotals"/> portent le détail
+/// par taux (TG-32). Numéros TT sourcés Annexe 6 (Format sémantique e-reporting). Les montants sont des bases
 /// agrégées : pour la marge (TMA1), aucune TVA distincte n'existe au grain document (art. 297 E) — elle
 /// n'apparaît qu'ici.
 /// <para>Montants en <see cref="decimal"/> exclusivement, arrondi commercial half-up (CLAUDE.md n°1).</para>

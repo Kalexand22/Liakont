@@ -3,6 +3,7 @@ namespace Liakont.PaClients.SuperPdp;
 using System;
 using System.Globalization;
 using System.Linq;
+using Liakont.Agent.Contracts;
 using Liakont.Modules.Transmission.Contracts;
 using Liakont.PaClients.SuperPdp.Wire;
 
@@ -21,6 +22,24 @@ internal static class SuperPdpB2cPayloadBuilder
     public static SuperPdpB2cTransactionRequest Build(B2cReportingTransaction transaction)
     {
         ArgumentNullException.ThrowIfNull(transaction);
+
+        // Garde fail-closed à la frontière n°6 : jamais POSTer une déclaration fiscale incohérente (CLAUDE.md n°3).
+        // Le producteur (B2cTransactionAggregationCalculator) garantit déjà la cohérence ; ceci borde tout autre caller.
+        if (transaction.Subtotals.Count == 0)
+        {
+            throw new ArgumentException(
+                "Transaction e-reporting B2C sans aucun sous-total de taux (agrégat incohérent).",
+                nameof(transaction));
+        }
+
+        var sumTaxable = transaction.Subtotals.Sum(s => s.TaxableAmount);
+        var sumTax = transaction.Subtotals.Sum(s => s.TaxTotal);
+        if (sumTaxable != transaction.TaxExclusiveAmount || sumTax != transaction.TaxTotal)
+        {
+            throw new ArgumentException(
+                $"Agrégat e-reporting B2C incohérent : Σ sous-totaux (HT {sumTaxable} / TVA {sumTax}) ≠ totaux (HT {transaction.TaxExclusiveAmount} / TVA {transaction.TaxTotal}).",
+                nameof(transaction));
+        }
 
         return new SuperPdpB2cTransactionRequest
         {
@@ -47,5 +66,8 @@ internal static class SuperPdpB2cPayloadBuilder
         };
     }
 
-    private static string Amount(decimal value) => value.ToString("0.00", CultureInfo.InvariantCulture);
+    // Arrondi commercial half-up explicite (PivotRounding, CLAUDE.md n°1) AVANT formatage : ne jamais laisser
+    // ToString("0.00") appliquer l'arrondi banquier (ToEven) sur une valeur non pré-arrondie à une frontière publique.
+    private static string Amount(decimal value) =>
+        PivotRounding.RoundAmount(value).ToString("0.00", CultureInfo.InvariantCulture);
 }

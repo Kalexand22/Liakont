@@ -57,11 +57,11 @@ public sealed record PaCapabilities
     /// Report du « montant de la marge » en e-reporting B2C (cas DGFiP n°33, régime de la marge
     /// art. 297 A/E — F03 §2.3/§2.4). Capacité DISTINCTE de <see cref="SupportsB2cReporting"/> : la
     /// déclaration 10.3 « Essentiel » et le report du montant de marge sont déclarables indépendamment
-    /// (B2C09a). PLOMBERIE seule : la FORME du payload (champ / code VATEX du cas n°33) reste GELÉE tant
-    /// qu'elle n'est pas sourcée SUR LE STANDARD (spécifications DGFiP n°33 / EN 16931, F03 §2.2), jamais
-    /// auprès d'une PA concrète (produit agnostique PA, CLAUDE.md n°8/16) — le calcul et la transmission
-    /// sont portés par B2C09b. Une PA qui ne déclare pas cette capacité dégrade en résultat TYPÉ
-    /// (<see cref="RequireMarginAmountReporting"/>), jamais un <c>if (pa is …)</c> (CLAUDE.md n°8/16).
+    /// (B2C09a). La FORME du payload est désormais ANCRÉE (F03 §2.5/§2.6 : catégorie <c>TMA1</c>, marge
+    /// ramenée HT en TT-82/87/88, rôle <c>SE</c> — règles G1.57 / G1.68 / TT-15) : gate levée, et SuperPDP
+    /// l'a confirmée en sandbox (POST b2c_transactions, id 585). Reste AGNOSTIQUE PA (CLAUDE.md n°8/16) :
+    /// le calcul et la transmission (B2C09c) sont pilotés par cette capacité, jamais par un <c>if (pa is …)</c>.
+    /// Une PA qui ne déclare pas cette capacité dégrade en résultat TYPÉ (<see cref="RequireMarginAmountReporting"/>).
     /// </summary>
     public bool SupportsMarginAmountReporting { get; init; }
 

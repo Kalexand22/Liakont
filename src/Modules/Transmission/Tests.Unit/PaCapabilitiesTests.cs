@@ -162,6 +162,26 @@ public sealed class PaCapabilitiesTests
             "la marge se garde sur la capacité DÉDIÉE, pas sur la capacité B2C générique");
     }
 
+    [Fact]
+    public async Task SendB2cTransaction_NonMargin_DeclaredButNotOverridden_ReturnsTypedGap_NeverThrows()
+    {
+        // Régression review (P1) : un plug-in qui déclare SupportsB2cReporting=true mais NE surcharge PAS le
+        // verbe (ex. B2Brouter) ne doit JAMAIS lever sur une transaction NON-marge — résultat TYPÉ (PAA01).
+        IPaClient client = new StubPaClient(new PaCapabilities
+        {
+            PaName = "B2Brouter",
+            SupportsB2cReporting = true,
+            SupportsMarginAmountReporting = false,
+        });
+
+        var nonMargin = MarginTransaction() with { Category = EReportingTransactionCategory.Tlb1 };
+
+        var result = await client.SendB2cTransactionAsync(nonMargin);
+
+        result.State.Should().Be(PaSendState.CapabilityNotSupported, "résultat typé, jamais une exception");
+        result.CapabilityNotSupported!.Capability.Should().Be(PaCapability.B2cReporting);
+    }
+
     private static B2cReportingTransaction MarginTransaction() => new()
     {
         Category = EReportingTransactionCategory.Tma1,

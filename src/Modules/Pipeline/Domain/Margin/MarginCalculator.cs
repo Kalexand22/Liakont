@@ -10,6 +10,15 @@ using Liakont.Agent.Contracts.Pivot;
 /// validée (GATE_B2C_SOURCING, F03 §2.4 sur CGI art. 297 A I-2° + BOI-TVA-SECT-90-50 §270) :
 /// <c>marge = Σ frais acheteur + Σ frais vendeur</c>, au grain LOT (no_ba), méthode PAR OPÉRATION unique
 /// (aucun enum de méthode — la globalisation n'est pas ancrée pour l'OVV agissant en son nom propre).
+/// <para>
+/// ⚠️ <b>SUPERSÉDÉ — ne pas câbler tel quel.</b> Depuis l'ancrage F03 §2.5, le frais source
+/// (<see cref="PivotBuyerFeeDto.NetAmount"/>) est porté en <b>TTC</b> (enchères) : la somme produite ici
+/// (<see cref="MarginCalculationResult.TotalMargin"/> / <see cref="LotMargin.MarginAmount"/>) est donc un
+/// montant <b>TTC</b>, PAS une base HT reportable. La voie de production effective de l'e-reporting B2C est
+/// <c>B2cMarginResolver</c> → <c>B2cTransactionAggregationCalculator</c> (ramène le TTC en HT,
+/// <c>HT = arrondi(TTC / (1 + taux))</c>). Ce type n'a AUCUN consommateur de production : NE PAS consommer
+/// <c>TotalMargin</c>/<c>MarginAmount</c> comme base HT (sur-déclarerait la base de TVA sur la marge — n°1/n°2).
+/// </para>
 /// </summary>
 /// <remarks>
 /// <para>AUCUNE règle fiscale inventée (CLAUDE.md n°2) : seuls les frais déjà portés en pivot (B2C-08 /

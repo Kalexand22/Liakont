@@ -34,7 +34,61 @@ public sealed class SuperPdpClientB2cTests
         handler.LastRequestBody.Should().Contain("\"role_code\":\"SE\"");
         handler.LastRequestBody.Should().Contain("\"tax_exclusive_amount\":\"137.00\"", "montants en chaîne (string decimal)");
         handler.LastRequestBody.Should().Contain("\"date\":\"2026-06-22\"");
+        handler.LastRequestBody.Should().Contain("\"tax_percent\":\"20.0\"", "le taux est porté dans le sous-total");
         handler.LastRequestBody.Should().NotContain("\"id\"", "le champ id readOnly n'est jamais émis");
+    }
+
+    [Fact]
+    public async Task Margin_4xx_IsRejected_NoRetry()
+    {
+        var handler = StubHttpMessageHandler.Returns(HttpStatusCode.BadRequest, SuperPdpTestData.ErrorJson(400, "donnée invalide"));
+        var client = SuperPdpTestData.CreateClient(handler);
+
+        var result = await client.SendB2cTransactionAsync(MarginTransaction());
+
+        result.State.Should().Be(PaSendState.RejectedByPa);
+        handler.CallCount.Should().Be(1, "un rejet 4xx n'est pas re-tenté");
+    }
+
+    [Fact]
+    public async Task Margin_AuthError_IsTechnical_Retryable_NotTerminalReject()
+    {
+        // Régression review (P2) : 401/403 = incident d'identifiants re-tentable (rien créé), jamais un rejet
+        // fiscal terminal — aligné sur le chemin facture.
+        var handler = StubHttpMessageHandler.Returns(HttpStatusCode.Unauthorized, SuperPdpTestData.ErrorJson(401, "token expiré"));
+        var client = SuperPdpTestData.CreateClient(handler);
+
+        var result = await client.SendB2cTransactionAsync(MarginTransaction());
+
+        result.State.Should().Be(PaSendState.TechnicalError);
+    }
+
+    [Fact]
+    public async Task Margin_200WithoutId_IsTerminalSuccess_NeverRetried_NeverDuplicate()
+    {
+        // Régression review (P2) : un 200 sans id lisible = transaction CRÉÉE → succès TERMINAL (jamais
+        // re-tenté = jamais de doublon, l'API n'ayant aucune clé d'idempotence).
+        var handler = StubHttpMessageHandler.Returns(HttpStatusCode.OK, """{"data":[]}""");
+        var client = SuperPdpTestData.CreateClient(handler);
+
+        var result = await client.SendB2cTransactionAsync(MarginTransaction());
+
+        result.State.Should().Be(PaSendState.Issued, "un 200 est un succès terminal, jamais re-tenté");
+        result.PaDocumentId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task IncoherentAggregate_IsRejected_BeforeAnyNetworkCall()
+    {
+        // Garde fail-closed du builder (review P2, n°3) : Σ sous-totaux ≠ totaux → refus typé AVANT tout appel.
+        var handler = StubHttpMessageHandler.Returns(HttpStatusCode.OK, CreatedJson);
+        var client = SuperPdpTestData.CreateClient(handler);
+        var incoherent = MarginTransaction() with { TaxExclusiveAmount = 999.99m };
+
+        var result = await client.SendB2cTransactionAsync(incoherent);
+
+        result.State.Should().Be(PaSendState.RejectedByPa);
+        handler.CallCount.Should().Be(0, "agrégat incohérent → aucun appel réseau");
     }
 
     [Fact]

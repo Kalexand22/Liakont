@@ -97,10 +97,11 @@ public interface IPaClient
                 PaCapabilityNotSupportedResult.Create(Capabilities.PaName, PaCapability.MarginAmountReporting)));
         }
 
-        // Capacité déclarée mais envoi non surchargé : garde-fou de configuration (jamais atteint en prod —
-        // un plug-in qui déclare la capacité DOIT surcharger cette méthode).
-        throw new NotSupportedException(
-            $"Le plug-in « {Capabilities.PaName} » déclare la capacité de report B2C mais ne surcharge pas SendB2cTransactionAsync.");
+        // Capacité B2C déclarée mais transport AGRÉGÉ non surchargé (ex. une PA qui fait la déclaration 10.3
+        // par document via SendDocumentAsync mais PAS le verbe agrégé) : résultat TYPÉ NotSupported, JAMAIS une
+        // exception ni un blocage (PAA01, CLAUDE.md n°8). Un plug-in qui SAIT transmettre l'agrégat surcharge.
+        return Task.FromResult(PaSendResult.NotSupported(
+            PaCapabilityNotSupportedResult.Create(Capabilities.PaName, PaCapability.B2cReporting)));
     }
 
     /// <summary>Relit l'état d'un document déjà transmis (état, tax_report_ids, errors — F05 §3).</summary>

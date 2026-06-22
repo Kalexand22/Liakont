@@ -227,13 +227,26 @@ internal sealed class SuperPdpClient : IPaClient
                 PaCapabilityNotSupportedResult.Create(Capabilities.PaName, PaCapability.MarginAmountReporting));
         }
 
-        var json = JsonSerializer.Serialize(SuperPdpB2cPayloadBuilder.Build(transaction), SuperPdpJson.Options);
+        // Construction + réconciliation du payload AVANT tout appel : un agrégat incohérent (sous-totaux vides
+        // ou Σ sous-totaux ≠ totaux) est REFUSÉ ici (frontière n°6), jamais transmis (CLAUDE.md n°3).
+        SuperPdpB2cTransactionRequest payload;
+        try
+        {
+            payload = SuperPdpB2cPayloadBuilder.Build(transaction);
+        }
+        catch (ArgumentException ex)
+        {
+            return PaSendResult.Rejected([new PaError("SPDP_B2C_INCOHERENT", ex.Message)]);
+        }
+
+        var json = JsonSerializer.Serialize(payload, SuperPdpJson.Options);
 
         // POST /v1.beta/b2c_transactions : Super PDP stocke la transaction (id serveur) puis l'agrège + l'envoie
         // au PPF selon le vat_regime de la company. L'API N'EXPOSE AUCUNE clé d'idempotence (pas d'external_id —
-        // ✅ constaté sandbox 2026-06-22 : 2 POST identiques = 2 lignes) : ce plug-in NE RETENTE JAMAIS en
-        // interne (un re-POST créerait un doublon). L'idempotence (clé déterministe + état d'émission) est portée
-        // par l'appelant ; sur transitoire, l'appelant DOIT vérifier (GET) avant de ré-émettre (CLAUDE.md n°3).
+        // ✅ constaté sandbox 2026-06-22 : 2 POST identiques = 2 lignes) : ce plug-in NE RETENTE JAMAIS en interne.
+        // L'anti-doublon est porté UNIQUEMENT par l'état d'émission de la plateforme (clé déterministe appelant +
+        // DocumentEvent) — une relecture serveur est IMPOSSIBLE (aucune clé corrélable). L'appelant ne ré-émet un
+        // transitoire que si SON journal prouve qu'aucune transmission n'a abouti (CLAUDE.md n°3).
         try
         {
             using var response = await SendWithAuthAsync(
@@ -246,18 +259,29 @@ internal sealed class SuperPdpClient : IPaClient
 
             if (response.IsSuccessStatusCode)
             {
+                // Un 200 = transaction CRÉÉE côté serveur → succès TERMINAL, JAMAIS re-tenté (sinon doublon, l'API
+                // n'ayant aucune clé d'idempotence — CLAUDE.md n°3). L'id serveur, s'il est lisible, sert la
+                // corrélation ; illisible (cas défensif, jamais observé), l'émission reste un succès SANS id.
                 var id = TryReadFirstB2cTransactionId(body);
                 return id is null
-                    ? PaSendResult.Technical(
-                        [new PaError("SPDP_B2C_NO_ID", "Réponse Super PDP B2C sans identifiant de transaction (vérifier avant de ré-émettre).")],
-                        body)
+                    ? new PaSendResult { State = PaSendState.Issued, PaDocumentId = null, RawResponse = body }
                     : PaSendResult.Issued(id, rawResponse: body);
             }
 
-            // 5xx / réseau → transitoire (re-tentable APRÈS vérification, jamais à l'aveugle) ; 4xx → rejet métier.
+            // Auth (401/403) : incident d'IDENTIFIANTS re-tentable (rien n'a été créé) — aligné sur le chemin
+            // facture (un rejet figerait à tort une transmission valide qu'une correction de credentials règle).
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                return PaSendResult.Technical(
+                    [new PaError("SPDP_B2C_AUTH", $"Authentification Super PDP refusée (HTTP {(int)response.StatusCode}) à l'envoi B2C — corriger les identifiants (re-tentable).")],
+                    body);
+            }
+
+            // 5xx / réseau → transitoire (re-tentable seulement si l'état d'émission prouve l'absence d'envoi) ;
+            // tout autre 4xx → rejet métier terminal.
             return SuperPdpResponseMapper.IsRetryableStatus(response.StatusCode)
                 ? PaSendResult.Technical(
-                    [new PaError("SPDP_B2C_HTTP", $"Super PDP a renvoyé {(int)response.StatusCode} à l'envoi B2C (vérifier avant de ré-émettre).")],
+                    [new PaError("SPDP_B2C_HTTP", $"Super PDP a renvoyé {(int)response.StatusCode} à l'envoi B2C (re-tentable après vérification de l'état d'émission).")],
                     body)
                 : PaSendResult.Rejected(
                     [new PaError("SPDP_B2C_REJECTED", $"Super PDP a refusé la transaction B2C (HTTP {(int)response.StatusCode}).")],
