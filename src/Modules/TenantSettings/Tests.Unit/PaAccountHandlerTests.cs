@@ -173,6 +173,116 @@ public sealed class PaAccountHandlerTests
     }
 
     [Fact]
+    public async Task Add_Encrypts_Technical_Password_Under_Its_Dedicated_Purpose_And_Journals_The_Flag()
+    {
+        var protector = new RecordingSecretProtector();
+        var uow = new FakePaAccountUnitOfWork();
+        var journal = new RecordingJournal();
+        var handler = new AddPaAccountHandler(new FakeUowFactory(uow), new FakeCompanyFilter(CompanyId), protector, journal.Journal);
+
+        await handler.Handle(
+            new AddPaAccountCommand
+            {
+                PluginType = "ChorusPro",
+                Environment = "Staging",
+                AccountIdentifiers = "tech-login@tenant.fr",
+                ClientId = "piste-client-id",
+                ClientSecret = "piste-client-secret",
+                TechnicalPassword = "the-technical-password",
+            },
+            CancellationToken.None);
+
+        protector.Protected.Should().Contain((PaAccountSecretPurposes.TechnicalPassword, "the-technical-password"));
+
+        var inserted = uow.Inserted.Should().ContainSingle().Subject;
+        inserted.EncryptedTechnicalPassword.Should().Be("ENC[" + PaAccountSecretPurposes.TechnicalPassword + "]:the-technical-password");
+
+        var metadata = journal.Entries.Should().ContainSingle().Subject.Metadata;
+        MetaBool(metadata, "HasTechnicalPassword").Should().BeTrue();
+
+        // Le mot de passe technique en clair ne fuit JAMAIS dans la métadonnée du journal (CLAUDE.md n°10).
+        var serialized = string.Join(
+            "|",
+            metadata!.GetType().GetProperties().Select(p => p.GetValue(metadata)?.ToString()));
+        serialized.Should().NotContain("the-technical-password");
+    }
+
+    [Fact]
+    public async Task Add_Without_Technical_Password_Leaves_It_Null_And_Does_Not_Encrypt()
+    {
+        var protector = new RecordingSecretProtector();
+        var uow = new FakePaAccountUnitOfWork();
+        var journal = new RecordingJournal();
+        var handler = new AddPaAccountHandler(new FakeUowFactory(uow), new FakeCompanyFilter(CompanyId), protector, journal.Journal);
+
+        await handler.Handle(
+            new AddPaAccountCommand
+            {
+                PluginType = "ChorusPro",
+                Environment = "Staging",
+                AccountIdentifiers = "tech-login@tenant.fr",
+                TechnicalPassword = "   ",
+            },
+            CancellationToken.None);
+
+        var inserted = uow.Inserted.Should().ContainSingle().Subject;
+        inserted.EncryptedTechnicalPassword.Should().BeNull("vide = mot de passe technique non saisi (jamais chiffré)");
+        protector.Protected.Should().NotContain(p => p.Purpose == PaAccountSecretPurposes.TechnicalPassword);
+    }
+
+    [Fact]
+    public async Task Update_Rotates_Technical_Password_When_Provided_And_Leaves_It_When_Blank()
+    {
+        var existing = PaAccount.Create(
+            CompanyId, "ChorusPro", PaEnvironment.Staging, "tech-login@tenant.fr", null, "old-cid", "old-csecret", "old-tech-pwd");
+        var protector = new RecordingSecretProtector();
+        var uow = new FakePaAccountUnitOfWork(existing);
+        var journal = new RecordingJournal();
+        var handler = new UpdatePaAccountHandler(new FakeUowFactory(uow), new FakeCompanyFilter(CompanyId), protector, journal.Journal);
+
+        await handler.Handle(
+            new UpdatePaAccountCommand
+            {
+                PaAccountId = existing.Id,
+                Environment = "Staging",
+                AccountIdentifiers = "tech-login@tenant.fr",
+                TechnicalPassword = "new-technical-password",
+            },
+            CancellationToken.None);
+
+        protector.Protected.Should().Contain((PaAccountSecretPurposes.TechnicalPassword, "new-technical-password"));
+        var updated = uow.Updated.Should().ContainSingle().Subject;
+        updated.EncryptedTechnicalPassword.Should().Be("ENC[" + PaAccountSecretPurposes.TechnicalPassword + "]:new-technical-password");
+        MetaBool(journal.Entries.Should().ContainSingle().Subject.Metadata, "TechnicalPasswordRotated").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Update_With_Blank_Technical_Password_Leaves_It_Unchanged()
+    {
+        var existing = PaAccount.Create(
+            CompanyId, "ChorusPro", PaEnvironment.Staging, "tech-login@tenant.fr", null, "old-cid", "old-csecret", "old-tech-pwd");
+        var protector = new RecordingSecretProtector();
+        var uow = new FakePaAccountUnitOfWork(existing);
+        var journal = new RecordingJournal();
+        var handler = new UpdatePaAccountHandler(new FakeUowFactory(uow), new FakeCompanyFilter(CompanyId), protector, journal.Journal);
+
+        await handler.Handle(
+            new UpdatePaAccountCommand
+            {
+                PaAccountId = existing.Id,
+                Environment = "Staging",
+                AccountIdentifiers = "tech-login@tenant.fr",
+                TechnicalPassword = "  ",
+            },
+            CancellationToken.None);
+
+        uow.Updated.Should().ContainSingle().Subject.EncryptedTechnicalPassword
+            .Should().Be("old-tech-pwd", "vide = mot de passe technique inchangé (rotation seulement si non vide)");
+        protector.Protected.Should().NotContain(p => p.Purpose == PaAccountSecretPurposes.TechnicalPassword);
+        MetaBool(journal.Entries.Should().ContainSingle().Subject.Metadata, "TechnicalPasswordRotated").Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Update_Missing_Account_Throws_NotFound()
     {
         var handler = new UpdatePaAccountHandler(

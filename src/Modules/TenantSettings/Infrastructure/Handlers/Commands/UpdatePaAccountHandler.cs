@@ -36,6 +36,7 @@ public sealed class UpdatePaAccountHandler : IRequestHandler<UpdatePaAccountComm
         var rotateKey = !string.IsNullOrWhiteSpace(request.ApiKey);
         var rotateClientId = !string.IsNullOrWhiteSpace(request.ClientId);
         var rotateClientSecret = !string.IsNullOrWhiteSpace(request.ClientSecret);
+        var rotateTechnicalPassword = !string.IsNullOrWhiteSpace(request.TechnicalPassword);
 
         await using (var uow = await _uowFactory.BeginAsync(cancellationToken))
         {
@@ -58,6 +59,11 @@ public sealed class UpdatePaAccountHandler : IRequestHandler<UpdatePaAccountComm
                 account.SetEncryptedClientSecret(_secretProtector.Protect(request.ClientSecret!, PaAccountSecretPurposes.ClientSecret));
             }
 
+            if (rotateTechnicalPassword)
+            {
+                account.SetEncryptedTechnicalPassword(_secretProtector.Protect(request.TechnicalPassword!, PaAccountSecretPurposes.TechnicalPassword));
+            }
+
             await uow.UpdatePaAccountAsync(account, cancellationToken);
             await uow.CommitAsync(cancellationToken);
         }
@@ -74,6 +80,7 @@ public sealed class UpdatePaAccountHandler : IRequestHandler<UpdatePaAccountComm
                 ApiKeyRotated = rotateKey,
                 ClientIdRotated = rotateClientId,
                 ClientSecretRotated = rotateClientSecret,
+                TechnicalPasswordRotated = rotateTechnicalPassword,
             },
             cancellationToken);
     }

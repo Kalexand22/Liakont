@@ -244,7 +244,14 @@ meta:
   #   = décision séparée). NB : le champ version sautait 35 (commentaire RBF01 re-split sans bump du champ).
   #   ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS merge (slots null) : B2C05b, GATE_B2C_SHAPE_SOURCING,
   #   B2C08c, B2C09c en `pending` + B2C09b blocked→pending.
-  version: 36
+  # version 37 (2026-06-22, geste opérateur interactif) = RETRAIT de B2C-08b. Le sourcing B2C-05 (F03 §2.4,
+  #   validé GATE_B2C_SOURCING) n'établit AUCUNE méthode de calcul de marge pour l'OVV (texte applicable
+  #   BOI-TVA-SECT-90-50 §270 : marge par opération, pas de globalisation) → un paramètre « méthode de marge »
+  #   serait une règle fiscale inventée (n°2). La condition d'activation de B2C-08b (« seulement si B2C-05
+  #   établit des méthodes ») n'est pas remplie → item retiré de manifest+items+state. Réveil seulement si une
+  #   F*.md ultérieure ancre la globalisation pour l'OVV. state.yaml déjà à jour (B2C08b retiré ;
+  #   B2C05b blocked→pending car le merge origin/main du segment est résolu).
+  version: 37
   host: multi_agent_v1
 
 segments:
@@ -735,7 +742,6 @@ items:
   - { id: B2C07, lot: B2C, priority: 9760, depends_on: [B2C06, GATE_B2C_SOURCING] }
   - { id: B2C08, lot: B2C, priority: 9770, depends_on: [B2C07] }
   - { id: B2C08c, lot: B2C, priority: 9772, depends_on: [B2C08] }
-  - { id: B2C08b, lot: B2C, blueprint: blazor-page-item, priority: 9775, depends_on: [GATE_B2C_SOURCING] }
   - { id: B2C09a, lot: B2C, priority: 9780, depends_on: [] }
   - { id: B2C09b, lot: B2C, priority: 9790, depends_on: [B2C05, B2C08, B2C08c, B2C09a, B2C03] }
   - { id: B2C09c, lot: B2C, priority: 9795, depends_on: [B2C09b, B2C09a, GATE_B2C_SHAPE_SOURCING] }

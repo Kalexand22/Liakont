@@ -11,9 +11,14 @@ Un **vrai** déploiement vit dans [`deployments/<client>/`](../../../deployments
 - `tenant-profile.json` — profil (SIREN **fictif** `123456782`), paramétrage fiscal, planification
   et seuils. Les paramètres fiscaux sont volontairement `null` (= décision de l'expert-comptable
   en attente = suspension ; jamais de valeur devinée — F12-A §3.1).
-- `pa-accounts.json` — un compte de la PA fictive `Fake`. La clé API est un **placeholder**
-  (`${...}`) : l'import **n'écrit jamais** de secret en clair ; la clé réelle se saisit ensuite
-  depuis la console (chiffrée en base — F12-A §8.2, CLAUDE.md n°10).
+- `pa-accounts.json` — deux comptes **fictifs** : la PA `Fake` (clé API **placeholder** `${...}`)
+  et un compte **`ChorusPro`** en environnement `Staging` (qualif). L'import **n'écrit jamais** de
+  secret en clair — les secrets se saisissent ensuite depuis la console, chiffrés en base (F12-A
+  §8.2, CLAUDE.md n°10). Pour `ChorusPro`, le champ `accountIdentifiers` ne porte que des valeurs
+  **non sensibles** (`accountId`, `technicalLogin`, `connectionEmail`, `baseUrl`, `tokenEndpoint`
+  *.piste.gouv.fr) ; les secrets OAuth2 PISTE (`client_id`/`client_secret`) et le mot de passe du
+  compte technique restent vides jusqu'à leur saisie en console. Procédure de raccordement qualif :
+  [`deployments/chorus-pro-raccordement-qualif.md`](../../../deployments/chorus-pro-raccordement-qualif.md).
 - `mapping-tva.json` — table de mapping TVA **fictive**, **NON VALIDÉE** (marqueur `validatedBy`,
   `validatedDate: null`) et **générique** : elle couvre exactement les régimes des documents de démo
   (`tools/dev-seed-demo-docs.ps1` : 20 / 10 / 5.5 / 0) en part `Autre`, donc **0 règle morte** au
