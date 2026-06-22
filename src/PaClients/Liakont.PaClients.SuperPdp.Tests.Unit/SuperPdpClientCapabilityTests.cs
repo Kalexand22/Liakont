@@ -34,7 +34,7 @@ public sealed class SuperPdpClientCapabilityTests
         caps.SupportsDocumentRetrieval.Should().BeFalse("endpoint de téléchargement non confirmé (O4)");
         caps.SupportsReportRectification.Should().BeFalse("flux RE non documenté (O9)");
         caps.SupportsSelfBilling.Should().BeFalse("émission 389 non confirmée en sandbox — déclaration honnête (MND07 / F15 §1.8)");
-        caps.SupportsMarginAmountReporting.Should().BeFalse("montant de marge (cas n°33) non confirmé en sandbox — déclaration honnête (B2C09a)");
+        caps.SupportsMarginAmountReporting.Should().BeTrue("montant de marge TMA1 ✅ POST confirmé sandbox 2026-06-22 (id 585) + forme ancrée F03 §2.5 (B2C09c)");
         caps.MaxDocumentsPerRequest.Should().BeNull();
     }
 

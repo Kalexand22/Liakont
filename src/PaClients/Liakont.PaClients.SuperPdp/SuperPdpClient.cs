@@ -1,5 +1,6 @@
 namespace Liakont.PaClients.SuperPdp;
 
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -205,6 +206,76 @@ internal sealed class SuperPdpClient : IPaClient
     }
 
     /// <inheritdoc />
+    public async Task<PaSendResult> SendB2cTransactionAsync(
+        B2cReportingTransaction transaction,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Pilotage par capacité (PAA01) : la déclaration B2C est requise ; le montant de marge (TMA1) exige la
+        // capacité DÉDIÉE SupportsMarginAmountReporting (la forme du payload reste gelée tant que non confirmée).
+        if (!Capabilities.SupportsB2cReporting)
+        {
+            return PaSendResult.NotSupported(
+                PaCapabilityNotSupportedResult.Create(Capabilities.PaName, PaCapability.B2cReporting));
+        }
+
+        if (transaction.Category == EReportingTransactionCategory.Tma1 && !Capabilities.SupportsMarginAmountReporting)
+        {
+            return PaSendResult.NotSupported(
+                PaCapabilityNotSupportedResult.Create(Capabilities.PaName, PaCapability.MarginAmountReporting));
+        }
+
+        var json = JsonSerializer.Serialize(SuperPdpB2cPayloadBuilder.Build(transaction), SuperPdpJson.Options);
+
+        // POST /v1.beta/b2c_transactions : Super PDP stocke la transaction (id serveur) puis l'agrège + l'envoie
+        // au PPF selon le vat_regime de la company. L'API N'EXPOSE AUCUNE clé d'idempotence (pas d'external_id —
+        // ✅ constaté sandbox 2026-06-22 : 2 POST identiques = 2 lignes) : ce plug-in NE RETENTE JAMAIS en
+        // interne (un re-POST créerait un doublon). L'idempotence (clé déterministe + état d'émission) est portée
+        // par l'appelant ; sur transitoire, l'appelant DOIT vérifier (GET) avant de ré-émettre (CLAUDE.md n°3).
+        try
+        {
+            using var response = await SendWithAuthAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, B2cTransactionsUrl())
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                },
+                cancellationToken).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var id = TryReadFirstB2cTransactionId(body);
+                return id is null
+                    ? PaSendResult.Technical(
+                        [new PaError("SPDP_B2C_NO_ID", "Réponse Super PDP B2C sans identifiant de transaction (vérifier avant de ré-émettre).")],
+                        body)
+                    : PaSendResult.Issued(id, rawResponse: body);
+            }
+
+            // 5xx / réseau → transitoire (re-tentable APRÈS vérification, jamais à l'aveugle) ; 4xx → rejet métier.
+            return SuperPdpResponseMapper.IsRetryableStatus(response.StatusCode)
+                ? PaSendResult.Technical(
+                    [new PaError("SPDP_B2C_HTTP", $"Super PDP a renvoyé {(int)response.StatusCode} à l'envoi B2C (vérifier avant de ré-émettre).")],
+                    body)
+                : PaSendResult.Rejected(
+                    [new PaError("SPDP_B2C_REJECTED", $"Super PDP a refusé la transaction B2C (HTTP {(int)response.StatusCode}).")],
+                    rawResponse: body);
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return PaSendResult.Technical(
+                [new PaError("SPDP_TIMEOUT", "Délai d'attente dépassé à l'envoi B2C Super PDP (vérifier avant de ré-émettre).")]);
+        }
+        catch (HttpRequestException ex)
+        {
+            return PaSendResult.Technical(
+                [new PaError("SPDP_NETWORK", $"Erreur réseau Super PDP à l'envoi B2C (vérifier avant de ré-émettre) : {ex.Message}")]);
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<PaDocumentStatus> GetDocumentStatusAsync(
         string paDocumentId,
         CancellationToken cancellationToken = default)
@@ -399,6 +470,12 @@ internal sealed class SuperPdpClient : IPaClient
     private static string CompaniesMeUrl() =>
         $"{SuperPdpDefaults.ApiVersionPrefix}/{SuperPdpDefaults.CompaniesMePath}";
 
+    // URL d'envoi des transactions e-reporting B2C : /v1.beta/b2c_transactions (F14 §3.3). Pas d'identifiant
+    // de compte dans l'URL : l'entreprise est portée par le jeton OAuth. Pas de ?external_id (l'API n'expose
+    // aucune clé d'idempotence — l'anti-doublon est porté par l'appelant).
+    private static string B2cTransactionsUrl() =>
+        $"{SuperPdpDefaults.ApiVersionPrefix}/{SuperPdpDefaults.B2cTransactionsPath}";
+
     // Extrait le SIREN (champ « number ») de la réponse GET /v1.beta/companies/me (✅ forme confirmée
     // sandbox — SuperPdpSandboxTests). Renvoie null si le corps est illisible ou le champ absent : un corps
     // inattendu vaut « non publié » (fail-closed), jamais une exception de parsing propagée.
@@ -411,6 +488,40 @@ internal sealed class SuperPdpClient : IPaClient
                 && number.ValueKind == JsonValueKind.String
                 ? number.GetString()
                 : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    // Extrait l'identifiant serveur de la 1re transaction créée de la réponse POST /v1.beta/b2c_transactions
+    // (forme <c>{ data: [ { id, … } ] }</c>, ✅ sandbox 2026-06-22, id 585). Renvoie null si le corps est
+    // illisible ou l'id absent : un corps inattendu ne fabrique jamais un faux identifiant (fail-closed).
+    private static string? TryReadFirstB2cTransactionId(string body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            if (!document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+            {
+                return null;
+            }
+
+            foreach (var item in data.EnumerateArray())
+            {
+                if (item.TryGetProperty("id", out var id))
+                {
+                    return id.ValueKind switch
+                    {
+                        JsonValueKind.Number => id.GetInt64().ToString(CultureInfo.InvariantCulture),
+                        JsonValueKind.String => id.GetString(),
+                        _ => null,
+                    };
+                }
+            }
+
+            return null;
         }
         catch (JsonException)
         {
