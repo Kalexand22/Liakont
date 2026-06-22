@@ -35,7 +35,13 @@ L'enjeu : une erreur de mapping = un motif d'exonération erroné transmis à la
 | VATEX-FR-CNWVAT | avoirs sans TVA | — |
 | VATEX-FR-298SEXDECIESA | agences de voyages (art. 298 sexdecies A) | E |
 
-> ⚠️ Point déjà identifié au projet : **il n'existe pas de code VATEX-FR dédié spécifiquement aux biens d'occasion/art/antiquités** — on utilise les **VATEX-EU-F/I/J**. La **forme canonique** du « montant de la marge » du cas DGFiP n°33 (champ EN 16931 + catégorie/VATEX au niveau pivot) reste **à sourcer sur le standard** — spécifications externes DGFiP (cas n°33) + listes de codes EN 16931 / EXTENDED-CTC-FR — et, si le standard est ambigu, **tranchée en gate humaine** (cf. §6 décision #1). Le produit étant **agnostique PA** (CLAUDE.md n°8/16), un retour de PA (p. ex. ticket support B2Brouter) ne vaut que comme **preuve d'appui**, jamais comme source ni comme gate — aucune fonctionnalité produit ne dépend de ce qu'**une** PA sait faire (item de sourcing dédié, type B2C-05).
+> ⚠️ Point déjà identifié au projet : **il n'existe pas de code VATEX-FR dédié spécifiquement aux biens d'occasion/art/antiquités** — on utilise les **VATEX-EU-F/I/J**. La **forme canonique** du « montant de la marge » du cas DGFiP n°33 est **sourcée sur le standard en §2.5**
+(PROPOSÉE par B2C-05b, soumise à `GATE_B2C_SHAPE_SOURCING`) : pour l'**e-reporting B2C (flux 10.3)** elle
+passe par la **catégorie de transaction TMA1** (marge ramenée HT, TT-82/TT-87), **sans VATEX** — les codes
+**VATEX-EU-F/I/J** ci-dessus relèvent de la représentation **par facture détaillée** (e-invoicing/Factur-X),
+pas du bloc de transaction agrégé. Le produit étant **agnostique PA** (CLAUDE.md n°8/16), un retour de PA
+(p. ex. ticket support B2Brouter) ne vaut que comme **preuve d'appui**, jamais comme source ni comme gate —
+aucune fonctionnalité produit ne dépend de ce qu'**une** PA sait faire (item de sourcing dédié, type B2C-05/05b).
 
 ### 2.3 Régime de la marge (art. 297 A CGI) — ✅ confirmé DR4
 - Sous régime de marge, **la TVA ne figure JAMAIS distinctement** sur le bordereau (art. 297 E). Mention « Régime particulier – Biens d'occasion ».
@@ -79,6 +85,101 @@ Or pour l'OVV agissant en son nom propre, le texte *spécifique aux enchères* (
 - BOI-TVA-SECT-90-50 **§270** (ventes aux enchères publiques — base d'imposition) — version 2025-05-14.
 - BOI-TVA-SECT-90-20-20 **§110** (coup par coup), **§240-260** (globalisation, facultative) — version 2025-05-14.
 - CGI art. 297 E (pas de TVA distincte sous le régime de la marge).
+
+### 2.5 Forme canonique du « montant de marge » en e-reporting B2C (flux 10.3, cas DGFiP n°33) — 🟧 PROPOSÉ (B2C-05b, soumis à GATE_B2C_SHAPE_SOURCING)
+
+> ⚠️ **Statut : PROPOSITION d'ancrage de la FORME canonique, soumise à validation humaine**
+> (checkpoint intra-segment `GATE_B2C_SHAPE_SOURCING`). Là où §2.4 source la *composition* de la marge
+> (de quoi elle est faite : frais acheteur + frais vendeur), la présente section source la *forme* :
+> **quel champ du standard porte le montant de marge, sous quelle catégorie, avec quel (éventuel) code
+> d'exonération**. Tant que cette gate n'est pas `done`, **aucun code de transmission/calcul de la marge
+> n'est écrit** et la forme du payload reste **gelée** (CLAUDE.md n°2/n°3). Cette section *établit la
+> source primaire* ; elle ne fige **aucun** enum. Le produit étant **agnostique PA** (CLAUDE.md n°8/16),
+> aucun élément ci-dessous ne provient d'un retour de PA : un ticket support ne vaut que comme preuve
+> d'appui, jamais comme source ni comme gate.
+
+**Le porteur canonique sur le standard — SOURCÉ.** Le flux 10.3 (e-reporting de *transactions* B2C) se
+transmet via le **bloc de données de transaction agrégé** (`transaction.xsd` → `Transactions` **TG-31**
+/ `TaxSubtotal` **TG-32**), *non* via le bloc `Invoice` détaillé (TG-8/TG-23) : le Dossier général v3.2
+précise que « chaque occurrence du bloc de données de transaction (10.3) correspond à un jour d'activité,
+une devise [et un taux] ». L'**Annexe 7 — Règles de gestion V1.9, règle G1.57** ancre la forme du montant
+de marge dans ce bloc, verbatim :
+
+> « Si la catégorie de transaction indiquée est **TMA1** (Opérations soumises à un régime [...] de TVA sur
+> la marge [...]), le **montant HT (TT-82)** est le montant total de la **marge ramenée HT**, et la **base
+> d'imposition (TT-87)** indiquée est le montant de la **marge ramenée HT** correspondant au **taux de TVA
+> (TT-86)**. »
+
+La catégorie **TMA1** est définie par la même Annexe 7, **règle G1.68** : « Opérations donnant lieu à
+l'application des régimes prévus au e) du 1 de l'article 266 et aux articles 268 et 297 A du CGI (régime
+de TVA sur la marge) » — ce qui couvre exactement l'OVV/commissaire-priseur de §2.4 (297 A I-2°).
+
+**Forme canonique proposée (cohérente XSD + G1.57/G1.68) :**
+
+| Élément | Réf. (transaction.xsd) | Contenu pour la marge n°33 | Source |
+|---|---|---|---|
+| Catégorie de transaction | `Transactions/CategoryCode` **TT-81** (TG-31) | **`TMA1`** | G1.68 |
+| Montant total HT | `Transactions/TaxExclusiveAmount` **TT-82** (TG-31) | montant total de la **marge ramenée HT** | G1.57 |
+| Taux | `TaxSubtotal/TaxPercent` **TT-86** (TG-32) | taux de TVA applicable | G1.57 |
+| Base d'imposition | `TaxSubtotal/TaxableAmount` **TT-87** (TG-32) | **marge ramenée HT** pour ce taux | G1.57 |
+| Montant TVA | `TaxSubtotal/TaxTotal` **TT-88** (TG-32) | TVA sur la marge | XSD (TG-32) |
+
+**Conséquence n°1 — PAS de catégorie UNCL5305 {E} ni de VATEX dans ce bloc.** Le bloc agrégé `TaxSubtotal`
+(TG-32) ne porte **ni code de catégorie de TVA (UNCL5305) ni code d'exonération (VATEX)** : ses seuls champs
+sont taux / base / montant de TVA (TT-86/87/88). La marge est portée par la **catégorie de transaction
+TMA1** (TT-81), pas par un motif d'exonération. **Cela distingue le cas de §2.2/§2.3** : les codes
+**VATEX-EU-F/I/J** (biens d'occasion / œuvres d'art / objets de collection) relèvent de la représentation
+**par facture détaillée** (TG-23 `TaxCategory`/TT-56 + TT-59) — c.-à-d. l'**e-invoicing** (Factur-X, flux 1,
+phase 2) ou le modèle 2-lignes validé en staging —, **et non** du bloc de transaction agrégé du flux 10.3
+B2C. Les deux représentations coexistent pour deux flux distincts ; il ne faut pas transposer le VATEX du
+détail facture vers l'agrégat de transaction.
+
+**Conséquence n°2 — la marge est une base imposable agrégée, jamais une ligne à TVA distincte.** Conforme
+art. 297 E (§2.3) : aucune TVA ne figure « distinctement » au niveau du bien ; la TVA n'apparaît qu'au
+niveau de l'agrégat TMA1 (TT-88), calculée sur la marge ramenée HT. Le « montant de marge » reste une
+**base** (critère bloquant de B2C-09b : jamais une ligne portant une ventilation de TVA distincte au grain bien).
+
+**Conséquence n°3 — grain.** Le bloc 10.3 est **agrégé par jour × devise × taux** côté plateforme (cohérent
+`mapping-pivot-en16931.md` §1/§10 : le pivot porte la donnée par document, la PLATEFORME agrège). B2C-05b
+ne fige donc **aucun nouveau champ pivot** ; le portage de l'indicateur « opération au régime de la marge »
+et du montant relèvera de l'aval gelé (B2C-09b/09c), après la gate.
+
+**Décisions DÉFÉRÉES à GATE_B2C_SHAPE_SOURCING (humain) — le standard ne tranche pas seul (n°2) :**
+
+1. **« Marge ramenée HT » — conversion et taux.** G1.57 exige une marge **ramenée HT** « correspondant au
+   taux de TVA (TT-86) », mais ne fixe **pas** le taux ni la formule de conversion TTC→HT. La marge de §2.4
+   (commission totale = frais acheteur + frais vendeur) est, en pratique des enchères, exprimée **commission
+   TTC** (la ligne « frais acheteur » est S/20 % en §2.3). Le passage à la base HT (`marge_HT = marge_TTC /
+   (1 + taux)`, TVA = `marge_TTC − marge_HT`) et **le taux applicable** (standard 20 % pour le mobilier
+   courant ? cas réduits ?) doivent être **confirmés par l'humain** (table de mapping validée par
+   l'expert-comptable du tenant, §4.1) — un implémenteur ne doit pas figer le taux ni la formule sans cette
+   validation (sinon base sur/sous-estimée).
+2. **Méthode de détermination de la marge.** G1.57 (N.B. : « règle de gestion métier, non contrôlable
+   applicativement ») admet, via le Dossier général v3.2 (« Tolérances »), une **méthode de calcul
+   simplifiée** (marge fondée sur un **taux de marge moyen**) renvoyée à la **norme de facturation
+   électronique AFNOR** (XP Z12-012/-013/-014, **payantes, non incluses dans le repo** — cf.
+   `docs/references/dgfip-v3.2/LECTURE-LIAKONT.md`). Le choix méthode réelle (par lot, §2.4) vs simplifiée
+   (taux moyen) et l'éventuel sourcing de la norme AFNOR sont **déférés à l'humain** ; à défaut d'ancrage
+   AFNOR, **détermination réelle par opération** (cohérent §2.4), sans paramètre de méthode inventé.
+
+**Débloque** (une fois la gate `done`) la branche transmission B2C-09c : capacité `SupportsMarginAmountReporting`
+déjà posée en B2C-09a + méthode `IPaClient` **agnostique** à ajouter (jamais conditionnée à ce qu'une PA sait faire).
+
+**Sources primaires citées :**
+- **DGFiP, Annexe 7 — Règles de gestion V1.9** (`docs/references/dgfip-v3.2/2- Annexes_v3.2/`) : règle
+  **G1.57** (régime de la marge → TT-82/TT-87 = marge ramenée HT sous TMA1) et règle **G1.68** (liste des
+  catégories de transaction ; **TMA1** = art. 266-1-e, 268, 297 A CGI).
+- **DGFiP, XSD e-reporting v3.2** (`docs/references/dgfip-v3.2/3- XSD_v3.2/1 - E-reporting/transaction.xsd`) :
+  bloc `Transactions` **TG-31** (TT-81/82/83) et `TaxSubtotal` **TG-32** (TT-86/87/88).
+- **DGFiP, Dossier de spécifications externes FE — Dossier général v3.2** : nature agrégée (jour × devise ×
+  taux) du bloc de données de transaction (10.3) ; tolérance « méthode de calcul simplifiée de la TVA sur la
+  marge en B2C » renvoyée à la norme AFNOR.
+- CGI **art. 297 A** (régime de la marge, §2.4) et **art. 297 E** (pas de TVA distincte, §2.3).
+- Cohérence pivot ↔ EN 16931 : `docs/architecture/mapping-pivot-en16931.md` §1/§9/§10.
+
+> ℹ️ **Sur le libellé « cas n°33 ».** « cas DGFiP n°33 » est le **label projet** de ce cas (e-reporting B2C
+> de la marge), repris de §2.4 / `tasks/plan-ereporting-b2c-10-3.md`. L'**ancrage faisant foi** de la forme
+> canonique est **G1.57 + G1.68 + transaction.xsd** ci-dessus, indépendamment de la numérotation interne.
 
 ## 3. La subtilité métier (cœur du risque — cf. Analyse-Donnees §5)
 
