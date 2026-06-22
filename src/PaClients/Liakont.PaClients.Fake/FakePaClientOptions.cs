@@ -26,7 +26,7 @@ public sealed record FakePaClientOptions
         SupportsB2cReporting = true,
         SupportsDomesticPaymentReporting = true,
         SupportsInternationalPaymentReporting = false,
-        SupportsB2bInvoicing = false,
+        SupportsB2bInvoicing = true,    // facturation B2B = Lot 1 (PA factice généreuse — « toutes capacités V1 »)
         SupportsCreditNotes = true,
         SupportsTaxReportRetrieval = true,
         SupportsDocumentRetrieval = true,

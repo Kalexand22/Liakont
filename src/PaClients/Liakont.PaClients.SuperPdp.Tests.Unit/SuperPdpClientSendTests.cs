@@ -123,7 +123,7 @@ public sealed class SuperPdpClientSendTests
 
         // RD407 (BT-130) : la ligne SuperPDP est un agrégat synthétique émis en quantité 1 → son unité reste
         // l'unité neutre C62, même quand le pivot porte une unité. Projeter « 1 KGM » au prix du total serait
-        // incohérent (CLAUDE.md n°3) : l'émission fidèle de BT-130 côté SuperPDP est un différé B2B (phase 2).
+        // incohérent (CLAUDE.md n°3) : l'émission fidèle de BT-130 côté SuperPDP est un raffinement différé (RD407).
         // FacturX, qui émet la quantité réelle, projette l'unité — cf. CrossIndustryInvoiceSerializerTests.
         var invoice = ConvertBody(handler);
         invoice.GetProperty("lines")[0].GetProperty("invoiced_quantity_code").GetString()

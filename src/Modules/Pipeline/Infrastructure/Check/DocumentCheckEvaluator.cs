@@ -161,7 +161,7 @@ internal static class DocumentCheckEvaluator
             // (jamais dégradée en facture standard 380, « bloquer plutôt qu'émettre faux » — CLAUDE.md n°3).
             // Piloté par la CAPACITÉ déclarée du plug-in, jamais un if (pa is …). Le filet d'envoi (SendTenantJob)
             // garantit en dernier ressort qu'aucun 389 ne part vers une PA incapable, même sur un changement de PA.
-            var incapablePaName = await ResolveSelfBillingIncapablePaAsync(services, tenantSettings, companyId, cancellationToken);
+            var incapablePaName = await ResolveCapabilityIncapablePaAsync(services, tenantSettings, companyId, static c => c.SupportsSelfBilling, cancellationToken);
             if (incapablePaName is not null)
             {
                 return CheckDecision.Blocked(WithDocumentNumber(documentNumber, SelfBilledCapabilityReason(incapablePaName)));
@@ -173,6 +173,25 @@ internal static class DocumentCheckEvaluator
             {
                 return CheckDecision.Blocked(
                     WithDocumentNumber(documentNumber, SelfBilledAcceptanceReason(verdict.AcceptanceState)));
+            }
+        }
+
+        // GARDE DE TRANSMISSION (document-driven — décision Karl 2026-06-22 « jamais une capacité d'une PA
+        // n'impacte le FLUX » : le flux CLASSE, les capacités ne font que GATER la transmission au bord). Un
+        // document à DESTINATAIRE IDENTIFIÉ — acheteur avec SIREN, B2B ou B2G (entité adressable, F07-F08 §A.4) —
+        // n'est émissible que si la PA active a un CANAL : routage PDP B2B (SupportsB2bInvoicing) OU transport du
+        // Factur-X produit par la plateforme (SupportsFacturXTransmission — ex. Generique, Chorus Pro B2G). Sinon
+        // il serait dégradé en e-reporting B2C anonyme par une PA B2C-only (ex. B2Brouter) → bloquer plutôt
+        // qu'émettre faux (CLAUDE.md n°3). Piloté par les CAPACITÉS déclarées, jamais un if (pa is …) (CLAUDE.md
+        // n°8). Le self-billed (389) a SA propre garde ci-dessus. Filet d'envoi : SendTenantJob couvre en dernier
+        // ressort un changement de PA après ReadyToSend (même patron que le 389).
+        if (!pivot.IsSelfBilled && !string.IsNullOrWhiteSpace(pivot.Customer?.Siren))
+        {
+            var incapablePaName = await ResolveCapabilityIncapablePaAsync(
+                services, tenantSettings, companyId, static c => c.SupportsB2bInvoicing || c.SupportsFacturXTransmission, cancellationToken);
+            if (incapablePaName is not null)
+            {
+                return CheckDecision.Blocked(WithDocumentNumber(documentNumber, B2bInvoicingCapabilityReason(incapablePaName)));
             }
         }
 
@@ -227,17 +246,20 @@ internal static class DocumentCheckEvaluator
     }
 
     /// <summary>
-    /// Nom de la PA active qui NE déclare PAS la capacité d'émission 389 (MND07), ou <c>null</c> si la capacité
-    /// est confirmée présente, si aucune PA active n'est résolue, ou si la capacité ne peut être confirmée ici
-    /// (résolution déférée — le filet d'envoi reste fail-closed). Le comportement est piloté par la capacité
-    /// déclarée du plug-in, JAMAIS par un <c>if (pa is …)</c> (CLAUDE.md n°8/16). La résolution est défensive
-    /// (services optionnels) : on bloque UNIQUEMENT sur une incapacité CONFIRMÉE — jamais un faux blocage par
-    /// indisponibilité technique (le <see cref="Send.SendTenantJob"/> garde l'émission en dernier ressort).
+    /// Nom de la PA active qui NE déclare PAS la capacité requise (<paramref name="declaresCapability"/>), ou
+    /// <c>null</c> si la capacité est confirmée présente, si aucune PA active n'est résolue, ou si la capacité ne
+    /// peut être confirmée ici (résolution déférée — le filet d'envoi reste fail-closed). Le comportement est
+    /// piloté par la capacité déclarée du plug-in, JAMAIS par un <c>if (pa is …)</c> (CLAUDE.md n°8/16). La
+    /// résolution est défensive (services optionnels) : on bloque UNIQUEMENT sur une incapacité CONFIRMÉE —
+    /// jamais un faux blocage par indisponibilité technique (le <see cref="Send.SendTenantJob"/> garde
+    /// l'émission en dernier ressort). Partagée par la garde 389 (<c>SupportsSelfBilling</c>) et la garde
+    /// de transmission B2B (<c>SupportsB2bInvoicing</c>) — même logique, seul le prédicat de capacité diffère.
     /// </summary>
-    private static async Task<string?> ResolveSelfBillingIncapablePaAsync(
+    private static async Task<string?> ResolveCapabilityIncapablePaAsync(
         IServiceProvider services,
         ITenantSettingsQueries tenantSettings,
         Guid companyId,
+        Func<PaCapabilities, bool> declaresCapability,
         CancellationToken cancellationToken)
     {
         var accounts = await tenantSettings.GetPaAccounts(companyId, cancellationToken);
@@ -259,7 +281,7 @@ internal static class DocumentCheckEvaluator
         try
         {
             var client = registry.Resolve(new PaAccountDescriptor(active.PluginType, tenantId));
-            return client.Capabilities.SupportsSelfBilling ? null : client.Capabilities.PaName;
+            return declaresCapability(client.Capabilities) ? null : client.Capabilities.PaName;
         }
         catch (Exception)
         {
@@ -280,6 +302,20 @@ internal static class DocumentCheckEvaluator
         "déclare pas la capacité d'émission des auto-factures (389). L'émission est suspendue — le document " +
         "n'est jamais transmis dégradé en facture standard (« bloquer plutôt qu'émettre faux »). Action " +
         "opérateur : activez une Plateforme Agréée prenant en charge l'autofacturation 389 pour ce tenant.";
+
+    /// <summary>
+    /// Motif de blocage d'un document à destinataire identifié (acheteur avec SIREN — B2B ou B2G) dont la PA
+    /// active n'offre AUCUN canal de transmission : ni routage PDP B2B (<c>SupportsB2bInvoicing</c>) ni transport
+    /// du Factur-X (<c>SupportsFacturXTransmission</c>). N'invente aucune règle fiscale (CLAUDE.md n°2) : la
+    /// classification vient du DOCUMENT (destinataire adressable, F07-F08 §A.4) et le pilotage par capacités
+    /// déclarées est la règle produit (CLAUDE.md n°8). Action corrective opérateur (n°12).
+    /// </summary>
+    private static string B2bInvoicingCapabilityReason(string paName) =>
+        $"facture à destinataire identifié (acheteur avec SIREN) : la Plateforme Agréée active « {paName} » " +
+        "n'offre aucun canal pour la transmettre — ni facturation électronique B2B (PDP), ni transport du " +
+        "Factur-X. L'émission est suspendue — le document n'est jamais transmis dégradé en e-reporting B2C " +
+        "anonyme (« bloquer plutôt qu'émettre faux »). Action opérateur : activez une Plateforme Agréée qui " +
+        "transmet la facture (facturation B2B PDP ou transport Factur-X) pour ce tenant.";
 
     /// <summary>
     /// Vrai si le tenant a au moins un compte Plateforme Agréée ACTIF en environnement « Production ». Le

@@ -21,7 +21,13 @@ public sealed record PaCapabilities
     /// <summary>E-reporting de paiement international — flux 10.2.</summary>
     public bool SupportsInternationalPaymentReporting { get; init; }
 
-    /// <summary>Facturation électronique B2B — flux 1/2 (phase 2).</summary>
+    /// <summary>
+    /// Facturation électronique B2B (flux 1/2) : la PA délivre la facture structurée EN 16931 au
+    /// destinataire en tant que PDP. La PRODUCTION de la facture relève du produit (Lot 1 — la plateforme
+    /// génère le Factur-X EN 16931, lignes BG-25 incluses) ; cette capacité reflète seulement si CETTE PA
+    /// sait la router en B2B. Le transport/routage Flux 1/2 (annuaire, PPF, cycle de vie) relève du PDP,
+    /// jamais du produit.
+    /// </summary>
     public bool SupportsB2bInvoicing { get; init; }
 
     /// <summary>Émission d'avoirs.</summary>

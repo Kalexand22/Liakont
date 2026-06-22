@@ -32,7 +32,12 @@ internal static class B2BrouterCapabilities
         // Capacités réellement absentes de B2Brouter (état 2026-06, PAB03 §5) :
         SupportsDomesticPaymentReporting = false,      // Flux 10.4 « planned for a future release » (F09).
         SupportsInternationalPaymentReporting = false, // Flux 10.2 — idem.
-        SupportsB2bInvoicing = false,                  // phase 2.
+
+        // B2B e-invoicing = flux de Lot 1 (la plateforme produit le Factur-X EN 16931) : false ICI signifie
+        // « routage B2B non câblé dans CE plug-in » (le builder ne sérialise que le B2C 10.3), JAMAIS un choix
+        // de périmètre produit. Le B2B transite en Factur-X (PA à SupportsFacturXTransmission) ou via une
+        // PA-PDP qui construit son propre CII (ex. SuperPdp). À basculer true le jour où le plug-in câble le B2B.
+        SupportsB2bInvoicing = false,
 
         MaxDocumentsPerRequest = null,
     };

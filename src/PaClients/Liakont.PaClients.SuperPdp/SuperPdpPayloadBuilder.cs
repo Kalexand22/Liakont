@@ -161,8 +161,8 @@ internal static class SuperPdpPayloadBuilder
             // sa seule unité cohérente est l'unité neutre « one » (C62). On NE projette PAS l'UnitCode du
             // pivot (RD407) ici : « 1 KGM » au prix du total ligne serait fiscalement incohérent (CLAUDE.md
             // n°3). L'émission fidèle de BT-130 côté SuperPDP suppose d'émettre l'unité AVEC la quantité
-            // réelle — donc de revoir la normalisation quantité=1 — différé B2B (phase 2). FacturX, lui,
-            // émet la quantité réelle (BT-129) et projette donc l'UnitCode fidèlement.
+            // réelle — donc de revoir la normalisation quantité=1 — raffinement différé (RD407). FacturX,
+            // lui, émet la quantité réelle (BT-129) et projette donc l'UnitCode fidèlement.
             InvoicedQuantityCode = SuperPdpDefaults.DefaultQuantityUnitCode,
             NetAmount = line.NetAmount,
             PriceDetails = new SuperPdpEnLinePriceDetails { ItemNetPrice = line.NetAmount },

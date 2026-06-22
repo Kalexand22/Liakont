@@ -30,7 +30,7 @@ public sealed class B2BrouterClientCapabilityTests
         // Capacités réellement absentes de B2Brouter (état 2026-06) :
         caps.SupportsDomesticPaymentReporting.Should().BeFalse("flux 10.4 absent de B2Brouter (F09)");
         caps.SupportsInternationalPaymentReporting.Should().BeFalse("flux 10.2 absent de B2Brouter (F09)");
-        caps.SupportsB2bInvoicing.Should().BeFalse("phase 2");
+        caps.SupportsB2bInvoicing.Should().BeFalse("routage B2B non câblé dans ce plug-in (payload B2C-only) — pas un choix de périmètre produit");
         caps.SupportsSelfBilling.Should().BeFalse("émission 389 non confirmée en staging — déclaration honnête (MND07 / F15 §1.8)");
     }
 
