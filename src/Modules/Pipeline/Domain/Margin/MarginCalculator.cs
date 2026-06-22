@@ -31,6 +31,7 @@ public static class MarginCalculator
     /// Sortie déterministe : les lots sont ordonnés par leur 1re apparition dans les frais.
     /// </summary>
     /// <exception cref="MarginVatNotSeparableException">Le document fait apparaître une TVA distincte (art. 297 E).</exception>
+    /// <exception cref="MarginLotReferenceMissingException">Un frais ne porte pas de référence de lot (no_ba null ou vide).</exception>
     public static MarginCalculationResult Calculate(PivotDocumentDto document)
     {
         System.ArgumentNullException.ThrowIfNull(document);
@@ -46,11 +47,21 @@ public static class MarginCalculator
 
         foreach (var fee in document.SellerFees ?? Enumerable.Empty<PivotSellerFeeDto>())
         {
+            if (string.IsNullOrWhiteSpace(fee.LotReference))
+            {
+                throw MarginLotReferenceMissingException.ForDocument(document.Number);
+            }
+
             Accumulate(orderedLots, sellerByLot, buyerByLot, fee.LotReference, sellerDelta: fee.NetAmount);
         }
 
         foreach (var fee in document.BuyerFees ?? Enumerable.Empty<PivotBuyerFeeDto>())
         {
+            if (string.IsNullOrWhiteSpace(fee.LotReference))
+            {
+                throw MarginLotReferenceMissingException.ForDocument(document.Number);
+            }
+
             Accumulate(orderedLots, sellerByLot, buyerByLot, fee.LotReference, buyerDelta: fee.NetAmount);
         }
 

@@ -184,6 +184,30 @@ public sealed class MarginCalculatorTests
         act.Should().Throw<ArgumentNullException>();
     }
 
+    [Fact]
+    public void Seller_fee_with_null_lot_reference_throws_lot_reference_missing()
+    {
+        // Un frais vendeur sans no_ba doit lever une exception typée avec message opérateur FR.
+        var document = Declaration(sellerFees: new[] { Seller(null!, 80.00m) });
+
+        var act = () => MarginCalculator.Calculate(document);
+
+        act.Should().Throw<MarginLotReferenceMissingException>()
+            .WithMessage("*no_ba*");
+    }
+
+    [Fact]
+    public void Buyer_fee_with_null_lot_reference_throws_lot_reference_missing()
+    {
+        // Un frais acheteur sans no_ba doit lever une exception typée avec message opérateur FR.
+        var document = Declaration(buyerFees: new[] { Buyer(null!, 50.00m) });
+
+        var act = () => MarginCalculator.Calculate(document);
+
+        act.Should().Throw<MarginLotReferenceMissingException>()
+            .WithMessage("*no_ba*");
+    }
+
     private static PivotDocumentDto Declaration(
         decimal totalTax = 0m,
         IReadOnlyList<PivotLineDto>? lines = null,
