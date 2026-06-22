@@ -12,6 +12,27 @@
 
 ---
 
+## ÉTAT D'AVANCEMENT — run autonome 2026-06-22 (Karl absent)
+
+**5 commits livrés sur `feat/ereporting-b2c` (chacun verify-fast vert + tests) :**
+1. `e6727560` — **A2** : codes TT-81/TT-15 fermés (fail-closed) + DTO de transport agnostique + sources gelées (F03 §2.5/§2.6, OpenAPI vendorée, plan v2).
+2. `bd1d1df2` — **A4** : verbe `IPaClient.SendB2cTransactionAsync` (méthode par défaut, NotSupported gardé par capacité ; marge sur capacité DÉDIÉE) + surcharge Fake.
+3. `5352d651` — **B3** : calculateur PUR d'agrégation N→1 (jour×devise×taux, ramené HT half-up réconciliant le TTC).
+4. `d8f640d5` — **B3b** : résolveur PUR de marge par document (somme acheteur+vendeur, fail-closed 297E/non-mappé/taux-mixtes) + libellé contrat HT→TTC.
+5. `ef3c0a4f` — **B5** : transmission B2C SuperPDP RÉELLE (payload builder + POST `/b2c_transactions` + parse id serveur, pas de retry interne) + flip `SupportsMarginAmountReporting=true` (sandbox 585 + ancré F03).
+
+**DONE & vérifié** : toute la chaîne FISCALE PURE (codes, résolveur, agrégation) + le contrat de transport + l'envoi réel SuperPDP (unit-testé + **fil prouvé sandbox**, probe id 585/586) + l'ancrage F03 (5/5 sourcé, validé Karl) + le `vat_regime` lisible (Burger Queen = monthly) + l'idempotence sourcée (AUCUN dédoublonnage serveur).
+
+**RESTE À FAIRE (intégration — points d'ancrage de la carte agent) :**
+- **B4 — le JOB orchestrateur** (`ITenantJob`, miroir `PaymentAggregatorTenantJob`) : (a) découverte des docs B2C-marge de la période = `IDocumentQueries.GetDocumentsAsync(From/To)` PUIS lecture du pivot stagé (`IPayloadStagingStore`) pour le flag `IsB2cReportingDeclaration` (pas de colonne SQL — ré-lecture OU projeter une colonne) ; (b) par doc : 297E + résoudre les taux via `ITvaMappingService.MapAsync(companyId, [TvaLineMappingRequest{SourceRegimeCode, Part.Frais}])` → `B2cMarginResolver.Resolve` → `B2cMarginContribution` ; (c) `B2cTransactionAggregationCalculator.Aggregate` ; (d) map agrégat → `B2cReportingTransaction` (catégorie=Tma1, role=Seller) + **`ReportingAggregateId` déterministe** ; (e) **état d'émission persistant** (anti-doublon — clé déterministe, ne re-POST jamais) ; (f) `IPaClient.SendB2cTransactionAsync`. **Store neuf `IB2cTransactionAggregationStore` + migration (V006-like, `numeric(18,2)`)** ; DI via `AddTenantJobs` (`AppBootstrap.cs:169`). NE PAS réutiliser la base encaissement (`pipeline.payment_aggregations`).
+- **B6 — traçabilité** : `ReportingPieceLink` re-clé sur l'agrégat MAIS **garder `GetByDocumentAsync(companyId, documentId)` fonctionnel** (consommateur `FiscalControlExportService.BuildReportingLinkFileAsync:467`) — geler le lien APRÈS confirmation d'envoi, id déterministe ; test d'intégration de réversibilité ; réécrire les tests B2C04.
+- **A6** — provisioning `company.vat_regime` via `PATCH /companies` (param tenant ; null→suspendre).
+- **Tests d'intégration** (Testcontainers, `run-tests.ps1`) du job + **e2e envoi réel sandbox** (gardé sur env vars).
+
+> ⚠️ **Landmine connue** : `MarginCalculator` (B2C09b, per-lot) somme `NetAmount` comme une base HT — or `NetAmount` est désormais **TTC** (libellé corrigé). Il n'a **aucun consommateur prod** (tests seulement) ; le NOUVEAU chemin (B3/B3b/B4) est autoritaire. À retravailler ou retirer quand le job le remplace (NE PAS le câbler tel quel).
+
+---
+
 ## 0. Ce qui est VERROUILLÉ (sourcé) vs GELÉ (gate) vs CORRIGÉ (review)
 
 ### 0.1 Verrouillé — sourcé, codable
@@ -123,9 +144,17 @@
 
 ---
 
-## 3. Prérequis externes (probe sandbox — bloquant de B4/B5)
-- **Grain** attendu d'un `b2c_transaction` (unitaire vs bucket pré-agrégé). | **Idempotence** (confirmer absence
-  d'`external_id` et le comportement de rejeu). | Lecture statut `ppf_ereporting`.
+## 3. Prérequis externes — **RÉSOLUS par probe sandbox (2026-06-22)**
+- **Grain** : un `b2c_transaction` = **une ligne poussée** (id serveur assigné, ex. 585). **SuperPDP agrège
+  côté serveur** en `ppf_ereporting` **selon `company.vat_regime`** (sandbox « Burger Queen » = `monthly`) —
+  `GET /ereportings` reste vide juste après le POST ; l'agrégat tombe à l'échéance. → on pousse **nos agrégats
+  au grain `(tenant, jour, devise, catégorie, role)`**, chaque `b2c_transaction` portant ses **`tax_subtotals[]`
+  par taux** ; SuperPDP re-agrège par période. (Note : `role_code` accepté en entrée, non ré-émis dans la réponse.)
+- **Idempotence : AUCUN dédoublonnage serveur** — confirmé : **2 POST identiques → 2 lignes (id 585 ET 586)**,
+  pas d'`external_id`. → **anti-doublon OBLIGATOIRE côté produit** : clé déterministe `(tenant×jour×devise×
+  catégorie×role)` + **état d'émission persistant** (id serveur stocké) ; ne JAMAIS re-POST un agrégat déjà
+  émis. Le `ReportingAggregateId` déterministe (B-F) sert aussi de clé d'idempotence.
+- ⚠️ Transactions de test **585/586** créées en sandbox (pas de `DELETE` exposé sur `b2c_transactions`) — jetables.
 
 ## 4. Décisions qui appartiennent à Karl (avant Lot B)
 1. **HT ou TTC** dans EncheresV6 (`type_ligne 2`) ? → détermine s'il y a conversion (sinon double déflation).
