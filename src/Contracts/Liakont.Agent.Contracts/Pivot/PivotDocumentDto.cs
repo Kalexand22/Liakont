@@ -72,6 +72,15 @@ public sealed class PivotDocumentDto
     /// (non-null et non vide), pour que le hash d'un document sans frais vendeur reste INCHANGÉ (octet par
     /// octet — seul un champ ABSENT, ou vide, est hash-neutre).
     /// </param>
+    /// <param name="buyerFees">
+    /// Frais ACHETEUR au grain lot, 2e jambe de la marge e-reporting B2C (B2C-08c) — symétrique strict de
+    /// <paramref name="sellerFees"/> : DONNÉE DE CALCUL de la marge (<c>marge = Σ frais acheteur + Σ frais
+    /// vendeur</c>, F03 §2.4), JAMAIS des lignes facturées, sans aucune TVA distincte (CGI art. 297 E), et
+    /// n'impacte pas <paramref name="totals"/>. Alimente le calcul de B2C-09b, pas le document transmis.
+    /// Paramètre ADDITIF en fin de constructeur (pattern EXT01, ADR-0007) : <c>null</c> par défaut ; une liste
+    /// VIDE est traitée comme ABSENTE (normalisée en <c>null</c>). Émis dans le JSON canonique SEULEMENT quand
+    /// il est porté (non-null et non vide), pour que le hash d'un document sans frais acheteur reste INCHANGÉ.
+    /// </param>
     /// <param name="invoicePeriod">
     /// Période de facturation (EN 16931 BG-14 : BT-73/BT-74), slot RÉSERVÉ pour les flux d'abonnement /
     /// usage (ADR-0004 D4 Famille 3 / §5, RD406). Paramètre ADDITIF en fin de constructeur (ADR-0007) :
@@ -100,6 +109,7 @@ public sealed class PivotDocumentDto
         DateTime? paymentDueDate = null,
         bool isB2cReportingDeclaration = false,
         IReadOnlyList<PivotSellerFeeDto>? sellerFees = null,
+        IReadOnlyList<PivotBuyerFeeDto>? buyerFees = null,
         PivotInvoicePeriodDto? invoicePeriod = null)
     {
         SourceDocumentKind = sourceDocumentKind;
@@ -125,6 +135,8 @@ public sealed class PivotDocumentDto
         // Vide ≡ absent : une liste non-null mais VIDE est normalisée en null pour rester hash-neutre
         // (un frais vendeur vide ne porte aucune information ; seul un champ OMIS l'est — pattern EXT01).
         SellerFees = sellerFees != null && sellerFees.Count > 0 ? sellerFees : null;
+        // Symétrique du frais vendeur (B2C-08c) : vide ≡ absent → normalisé en null pour rester hash-neutre.
+        BuyerFees = buyerFees != null && buyerFees.Count > 0 ? buyerFees : null;
         InvoicePeriod = invoicePeriod;
     }
 
@@ -211,6 +223,16 @@ public sealed class PivotDocumentDto
     /// <see cref="Totals"/> ; aucune TVA distincte (CGI art. 297 E).
     /// </summary>
     public IReadOnlyList<PivotSellerFeeDto>? SellerFees { get; }
+
+    /// <summary>
+    /// Frais ACHETEUR au grain lot — 2e jambe de la marge e-reporting B2C (B2C-08c), symétrique strict de
+    /// <see cref="SellerFees"/>, alimente B2C-09b (<c>marge = Σ frais acheteur + Σ frais vendeur</c>).
+    /// <c>null</c> pour tout document qui ne porte pas de frais acheteur (une liste vide est normalisée en
+    /// <c>null</c> au constructeur) : émis dans le JSON canonique SEULEMENT quand il est porté (champ additif
+    /// hash-neutre — pattern EXT01). N'est JAMAIS une ligne taxable et n'impacte ni <see cref="Lines"/> ni
+    /// <see cref="Totals"/> ; aucune TVA distincte (CGI art. 297 E).
+    /// </summary>
+    public IReadOnlyList<PivotBuyerFeeDto>? BuyerFees { get; }
 
     /// <summary>
     /// Période de facturation (EN 16931 BG-14 : BT-73/BT-74) — slot RÉSERVÉ pour les flux d'abonnement /

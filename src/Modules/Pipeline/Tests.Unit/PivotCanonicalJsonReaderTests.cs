@@ -140,6 +140,52 @@ public sealed class PivotCanonicalJsonReaderTests
     }
 
     [Fact]
+    public void Buyer_Fees_Survive_The_Round_Trip_For_The_Pa_Send()
+    {
+        // B2C-08c — bout en bout : le frais acheteur (2e jambe de la marge) écrit dans le staging doit être
+        // RELU par le pipeline (ce lecteur) pour alimenter le calcul de marge (B2C-09b). Sans cette lecture,
+        // le champ serait écrit puis PERDU à la relecture → la marge serait calculée sur la seule jambe vendeur.
+        var pivot = new PivotDocumentDto(
+            sourceDocumentKind: "DECLARATION",
+            number: "B2C-10.3-FA",
+            issueDate: new DateTime(2026, 1, 15),
+            sourceReference: "SRC-B2C-FA",
+            supplier: new PivotPartyDto("SVV Démo", siren: "123456789"),
+            totals: new PivotTotalsDto(100m, 20m, 120m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            customer: new PivotPartyDto("Client Démo", siren: "987654321"),
+            lines: new[] { new PivotLineDto("Adjudication", 100m, taxes: new[] { new PivotLineTaxDto(20m, 20m, VatCategory.S) }) },
+            buyerFees: new[] { new PivotBuyerFeeDto(lotReference: "no_ba=5000", netAmount: 50.00m, sourceRegimeCode: "MARGE") });
+        var json = CanonicalJson.Serialize(pivot);
+
+        var rebuilt = PivotCanonicalJsonReader.Read(json);
+
+        rebuilt.BuyerFees.Should().NotBeNull();
+        rebuilt.BuyerFees!.Should().ContainSingle().Which.NetAmount.Should().Be(50.00m, "le frais acheteur doit traverser le staging intact");
+        CanonicalJson.Serialize(rebuilt).Should().Be(json, "round-trip stable octet par octet avec le frais acheteur (ADR-0007)");
+    }
+
+    [Fact]
+    public void Document_Without_Buyer_Fees_Reads_Them_As_Null()
+    {
+        // Miroir hash-neutre : un document SANS frais acheteur (clé BuyerFees absente du JSON) est relu avec
+        // BuyerFees null — l'absence de clé n'est jamais une erreur (collection additive nullable, EXT01).
+        var pivot = new PivotDocumentDto(
+            sourceDocumentKind: "FACTURE",
+            number: "F-SANS-FA",
+            issueDate: new DateTime(2026, 1, 15),
+            sourceReference: "SRC-SANS-FA",
+            supplier: new PivotPartyDto("SVV Démo", siren: "123456789"),
+            totals: new PivotTotalsDto(100m, 20m, 120m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            lines: new[] { new PivotLineDto("Prestation", 100m, taxes: new[] { new PivotLineTaxDto(20m, 20m, VatCategory.S) }) });
+        var json = CanonicalJson.Serialize(pivot);
+
+        json.Should().NotContain("BuyerFees", "un document sans frais acheteur n'émet pas la clé");
+        PivotCanonicalJsonReader.Read(json).BuyerFees.Should().BeNull();
+    }
+
+    [Fact]
     public void Unit_Code_Survives_The_Round_Trip_For_The_Pa_Send()
     {
         // RD407 — bout en bout : l'unité de mesure (BT-130) écrite par l'agent dans le staging doit être

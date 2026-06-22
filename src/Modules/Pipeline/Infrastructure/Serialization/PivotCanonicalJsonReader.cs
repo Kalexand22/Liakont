@@ -58,6 +58,7 @@ public static class PivotCanonicalJsonReader
         paymentDueDate: DateOrNull(element, "PaymentDueDate"),
         isB2cReportingDeclaration: BoolOrFalse(element, "IsB2cReportingDeclaration"),
         sellerFees: ReadListOrNull(element, "SellerFees", ReadSellerFee),
+        buyerFees: ReadListOrNull(element, "BuyerFees", ReadBuyerFee),
         invoicePeriod: TryObject(element, "InvoicePeriod", out JsonElement invoicePeriod) ? ReadInvoicePeriod(invoicePeriod) : null);
 
     // EN 16931 BG-14 (RD406, slot abonnement) : objet additif optionnel, miroir exact de
@@ -126,6 +127,15 @@ public static class PivotCanonicalJsonReader
         sourceRegimeCodes: StrList(element, "SourceRegimeCodes"));
 
     private static PivotSellerFeeDto ReadSellerFee(JsonElement element) => new(
+        lotReference: Str(element, "LotReference"),
+        netAmount: Dec(element, "NetAmount"),
+        sourceRegimeCode: StrOrNull(element, "SourceRegimeCode"),
+        sourceLineRef: StrOrNull(element, "SourceLineRef"),
+        description: StrOrNull(element, "Description"));
+
+    // Frais acheteur (B2C-08c) : miroir exact de ReadSellerFee — collection additive optionnelle lue par
+    // ReadListOrNull (absente du JSON → null, comme l'omet le writer).
+    private static PivotBuyerFeeDto ReadBuyerFee(JsonElement element) => new(
         lotReference: Str(element, "LotReference"),
         netAmount: Dec(element, "NetAmount"),
         sourceRegimeCode: StrOrNull(element, "SourceRegimeCode"),

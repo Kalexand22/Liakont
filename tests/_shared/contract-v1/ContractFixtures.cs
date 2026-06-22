@@ -223,6 +223,25 @@ public static class ContractFixtures
             prepaidAmount: 100.00m,
             sourceData: "{\"raw\":\"doc\"}",
             paymentDueDate: new DateTime(2026, 3, 31),
+            isB2cReportingDeclaration: true,
+            sellerFees: new[]
+            {
+                new PivotSellerFeeDto(
+                    lotReference: "no_ba=5000",
+                    netAmount: 80.00m,
+                    sourceRegimeCode: "MARGE",
+                    sourceLineRef: "ligne#bv",
+                    description: "Frais vendeur fictif"),
+            },
+            buyerFees: new[]
+            {
+                new PivotBuyerFeeDto(
+                    lotReference: "no_ba=5000",
+                    netAmount: 50.00m,
+                    sourceRegimeCode: "MARGE",
+                    sourceLineRef: "ligne#fa",
+                    description: "Frais acheteur fictif"),
+            },
             invoicePeriod: new PivotInvoicePeriodDto(
                 startDate: new DateTime(2026, 1, 1),
                 endDate: new DateTime(2026, 1, 31)));

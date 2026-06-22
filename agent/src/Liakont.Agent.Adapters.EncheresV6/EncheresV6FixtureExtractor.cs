@@ -234,6 +234,41 @@ public sealed class EncheresV6FixtureExtractor : IExtractor
         return fees;
     }
 
+    /// <summary>
+    /// Extrait les FRAIS ACHETEUR (type 2) d'une période depuis les fixtures (F01-F02 §4.3, B2C-08c) — 2e
+    /// jambe de la marge, miroir strict de <see cref="ExtractSellerFees"/>. Mêmes sémantique et mapping
+    /// (parité) que le <see cref="PervasiveExtractor"/> : lignes <c>type_ligne = "2"</c> rattachées à leur
+    /// bordereau par <c>no_ba</c>, converties par <see cref="EncheresV6RowMapper.MapBuyerFee"/>. EXTRACTION
+    /// PURE : aucune logique fiscale (R3). Le type 2 est aussi une ligne de document (facturée à l'acheteur) ;
+    /// il est relu ici comme donnée de calcul de marge, sans le dupliquer dans la facture.
+    /// </summary>
+    /// <param name="fromInclusiveUtc">Borne basse de la période (UTC, incluse).</param>
+    /// <param name="toExclusiveUtc">Borne haute de la période (UTC, exclue).</param>
+    /// <returns>Les frais acheteur de la période, rattachés à leur bordereau (par <c>no_ba</c>).</returns>
+    public IReadOnlyList<EncheresV6BuyerFee> ExtractBuyerFees(DateTime fromInclusiveUtc, DateTime toExclusiveUtc)
+    {
+        // SIMPLIFICATION MODE FIXTURES : filtrage sur la date_vente du bordereau (date métier) — même axe
+        // que ExtractDocuments. Le frais acheteur (type 2) est une ligne du même bordereau (rattachement no_ba).
+        var fees = new List<EncheresV6BuyerFee>();
+        foreach (EncheresV6Bordereau bordereau in _bordereaux)
+        {
+            if (!IsInPeriod(bordereau.DateVente, fromInclusiveUtc, toExclusiveUtc))
+            {
+                continue;
+            }
+
+            foreach (EncheresV6Ligne ligne in bordereau.Lignes)
+            {
+                if (EncheresV6RowMapper.IsBuyerFeeLine(ligne.TypeLigne))
+                {
+                    fees.Add(EncheresV6RowMapper.MapBuyerFee(bordereau, ligne));
+                }
+            }
+        }
+
+        return fees;
+    }
+
     /// <inheritdoc />
     public IReadOnlyList<SourceTaxRegimeDto> ListSourceTaxRegimes()
     {

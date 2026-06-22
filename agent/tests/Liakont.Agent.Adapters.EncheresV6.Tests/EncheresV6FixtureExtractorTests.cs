@@ -24,6 +24,7 @@ public class EncheresV6FixtureExtractorTests
     private static readonly DateTime PeriodFrom = new DateTime(2026, 1, 1);
     private static readonly DateTime PeriodTo = new DateTime(2026, 3, 1);
     private static readonly string[] DocumentAndPaymentLineRefs = { "ligne#1", "ligne#2", "ligne#3" };
+    private static readonly string[] PaymentAndSellerFeeLineRefs = { "ligne#3", "ligne#bv" };
 
     private static string FixturesDirectory => Path.Combine(AppContext.BaseDirectory, "fixtures", "encheresv6");
 
@@ -190,6 +191,49 @@ public class EncheresV6FixtureExtractorTests
         fees.Select(f => f.SourceLineRef).Should().NotContain(
             DocumentAndPaymentLineRefs,
             "les références des lignes de document et de règlement ne figurent jamais dans les frais vendeur");
+    }
+
+    [Fact]
+    public void ExtractBuyerFees_reads_fictional_type2_lines_attached_to_their_bordereau()
+    {
+        // B2C-08c : lecture du frais acheteur (type 2, 2e jambe de la marge) — rattaché au bordereau par no_ba.
+        // La fixture démo porte un frais acheteur par bordereau (8.329999… → 8.33 half-up / 80.00 / 250.00).
+        List<EncheresV6BuyerFee> fees = SalesExtractor().ExtractBuyerFees(PeriodFrom, PeriodTo).ToList();
+
+        fees.Should().HaveCount(3, "un frais acheteur (type 2) par bordereau de la fixture démo");
+        fees.Select(f => f.NoBa).Should().BeEquivalentTo("4500", "4042", "4501");
+        fees.Should().OnlyContain(f => f.SourceRegimeCode == "5");
+        fees.Should().OnlyContain(f => f.SourceLineRef == "ligne#2");
+        fees.Single(f => f.NoBa == "4500").NetAmount.Should().Be(8.33m, "le flottant legacy 8.329999… est arrondi au centime half-up (CLAUDE.md n°1)");
+        fees.Single(f => f.NoBa == "4042").NetAmount.Should().Be(80.00m);
+        fees.Single(f => f.NoBa == "4501").NetAmount.Should().Be(250.00m);
+    }
+
+    [Fact]
+    public void ExtractBuyerFees_filters_by_period()
+    {
+        // Bordereaux : 4500 (2026-01-12), 4042 (2026-01-14), 4501 (2026-01-16). Une fenêtre courte ne
+        // retourne que les frais acheteur des bordereaux dont la date_vente est dans la période.
+        List<EncheresV6BuyerFee> fees = SalesExtractor()
+            .ExtractBuyerFees(new DateTime(2026, 1, 1), new DateTime(2026, 1, 15))
+            .ToList();
+
+        fees.Select(f => f.NoBa).Should().BeEquivalentTo("4500", "4042");
+    }
+
+    [Fact]
+    public void ExtractBuyerFees_excludes_adjudication_payment_and_seller_fee_lines()
+    {
+        // Seules les lignes type 2 sont des frais acheteur : adjudication (4), règlement (3) et frais
+        // vendeur (5) ne ressortent jamais ici. La fixture porte 3 bordereaux, chacun avec exactement UNE
+        // ligne type 2 (no_ligne="ligne#2").
+        List<EncheresV6BuyerFee> fees = SalesExtractor().ExtractBuyerFees(PeriodFrom, PeriodTo).ToList();
+
+        fees.Should().HaveCount(3, "une ligne type 2 par bordereau — les lignes type 3/4/5 sont exclues");
+        fees.Should().OnlyContain(f => f.SourceLineRef == "ligne#2", "seule la référence de la ligne frais acheteur (type 2) ressort");
+        fees.Select(f => f.SourceLineRef).Should().NotContain(
+            PaymentAndSellerFeeLineRefs,
+            "les références des lignes de règlement (type 3) et de frais vendeur (type 5) ne figurent jamais dans les frais acheteur");
     }
 
     [Fact]

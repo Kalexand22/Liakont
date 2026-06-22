@@ -255,6 +255,24 @@ internal static class EncheresV6Schema
         + " AND e." + ColDateVente + " >= ? AND e." + ColDateVente + " < ?"
         + " ORDER BY e." + ColNoBa + ", l." + ColNoLigne;
 
+    /// <summary>
+    /// Requête des FRAIS ACHETEUR (type 2) d'une période — 2e jambe de la marge e-reporting B2C (B2C-08c),
+    /// miroir strict de <see cref="SelectSellerFeesSql"/> (seul le <c>type_ligne</c> diffère). Le frais
+    /// acheteur (type 2) est AUSSI une ligne de document (facturée à l'acheteur, présente dans
+    /// <see cref="SelectDocumentsSql"/>) : il est relu ici comme DONNÉE DE CALCUL de marge au grain lot
+    /// (rattachement par <c>no_ba</c> via l'INNER JOIN, sans jointure inventée). LECTURE SEULE STRICTE
+    /// (<c>SELECT</c> uniquement, CLAUDE.md n°5). L'adaptateur ne calcule rien (R3) : montant HT brut et code
+    /// régime brut. Bornes positionnelles ODBC (<c>?</c>) : <c>date_vente &gt;= from</c> (incluse), <c>&lt; to</c> (exclue).
+    /// </summary>
+    internal const string SelectBuyerFeesSql =
+        "SELECT e." + ColNoBa + ", l." + ColNoLigne + ", l." + ColDesignation + ", l." + ColMontantHt
+        + ", l." + ColCodeRegime
+        + " FROM " + TableLignes + " l"
+        + " INNER JOIN " + TableEntete + " e ON e." + ColNoBa + " = l." + ColNoBa
+        + " WHERE l." + ColTypeLigne + " = '" + EncheresV6RowMapper.LigneFrais + "'"
+        + " AND e." + ColDateVente + " >= ? AND e." + ColDateVente + " < ?"
+        + " ORDER BY e." + ColNoBa + ", l." + ColNoLigne;
+
     /// <summary>Tables dont la présence est contrôlée par <c>CheckHealth</c> (accès + comptage rapide).</summary>
     internal static readonly string[] ExpectedTables = { TableEntete, TableLignes, TableRegimes };
 
