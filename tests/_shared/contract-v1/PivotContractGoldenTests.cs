@@ -43,6 +43,12 @@ public sealed class PivotContractGoldenTests
     public static PivotDocumentDto BuildAvoirCompletAvecFraisVendeur(IReadOnlyList<PivotSellerFeeDto> sellerFees) =>
         BuildAvoir(paymentDueDate: null, sellerFees: sellerFees);
 
+    /// <summary>Le même document golden, mais portant des frais acheteur (B2C-08c) au grain lot.</summary>
+    /// <param name="buyerFees">Les frais acheteur à porter.</param>
+    /// <returns>Le document pivot de référence enrichi du frais acheteur.</returns>
+    public static PivotDocumentDto BuildAvoirCompletAvecFraisAcheteur(IReadOnlyList<PivotBuyerFeeDto> buyerFees) =>
+        BuildAvoir(paymentDueDate: null, buyerFees: buyerFees);
+
     /// <summary>Le même document golden, mais portant une période de facturation (EN 16931 BG-14, RD406).</summary>
     /// <param name="invoicePeriod">La période de facturation à porter.</param>
     /// <returns>Le document pivot de référence enrichi de BG-14.</returns>
@@ -50,17 +56,20 @@ public sealed class PivotContractGoldenTests
         BuildAvoir(paymentDueDate: null, invoicePeriod: invoicePeriod);
 
     /// <summary>
-    /// Construit l'avoir golden avec une échéance de paiement (BT-9), des frais vendeur (BV, B2C-08) et/ou une
-    /// période de facturation (BG-14) optionnels — base partagée des fabriques publiques (TOUS nuls pour
-    /// l'ancre golden figée, AVEC pour la non-régression des champs additifs EXT01).
+    /// Construit l'avoir golden avec une échéance de paiement (BT-9), des frais vendeur (BV, B2C-08), des
+    /// frais acheteur (B2C-08c) et/ou une période de facturation (BG-14) optionnels — base partagée des
+    /// fabriques publiques (TOUS nuls pour l'ancre golden figée, AVEC pour la non-régression des champs
+    /// additifs EXT01).
     /// </summary>
     /// <param name="paymentDueDate">L'échéance à porter, ou <c>null</c> pour le golden de référence figé.</param>
     /// <param name="sellerFees">Les frais vendeur à porter, ou <c>null</c> pour le golden de référence figé.</param>
+    /// <param name="buyerFees">Les frais acheteur à porter, ou <c>null</c> pour le golden de référence figé.</param>
     /// <param name="invoicePeriod">La période de facturation à porter, ou <c>null</c> pour le golden de référence figé.</param>
     /// <returns>Le document pivot golden.</returns>
     public static PivotDocumentDto BuildAvoir(
         DateTime? paymentDueDate,
         IReadOnlyList<PivotSellerFeeDto>? sellerFees = null,
+        IReadOnlyList<PivotBuyerFeeDto>? buyerFees = null,
         PivotInvoicePeriodDto? invoicePeriod = null)
     {
         var supplier = new PivotPartyDto(
@@ -118,6 +127,7 @@ public sealed class PivotContractGoldenTests
             sourceData: "{\"raw\":true,\"path\":\"C:\\x\"}",
             paymentDueDate: paymentDueDate,
             sellerFees: sellerFees,
+            buyerFees: buyerFees,
             invoicePeriod: invoicePeriod);
     }
 
@@ -232,6 +242,68 @@ public sealed class PivotContractGoldenTests
             GoldenAvoirSha256, "porter le BV change le contenu, donc l'empreinte");
 
         // Le BV ne gonfle PAS les totaux : l'agrégat de contrôle reste celui de l'avoir golden (base 10.3 intacte).
+        rebuilt.Totals.TotalNet.Should().Be(avecFrais.Totals.TotalNet);
+        rebuilt.Totals.TotalGross.Should().Be(avecFrais.Totals.TotalGross);
+    }
+
+    [Fact]
+    public void BuyerFees_when_absent_keep_the_canonical_json_and_hash_byte_identical()
+    {
+        // B2C-08c : un document SANS frais acheteur produit le JSON canonique et le hash STRICTEMENT
+        // inchangés (champ additif omis, pattern EXT01) — l'ancre golden est figée sur l'avoir sans frais
+        // acheteur. Miroir strict du test SellerFees.
+        var sansFrais = BuildAvoirComplet();
+
+        string json = CanonicalJson.Serialize(sansFrais);
+
+        json.Should().NotContain("BuyerFees", "un frais acheteur absent n'émet aucune clé (le hash doit rester figé)");
+        PayloadHasher.ComputeHash(sansFrais).Should().Be(
+            GoldenAvoirSha256, "l'ajout du frais acheteur ne doit RIEN changer pour un document qui ne le porte pas");
+    }
+
+    [Fact]
+    public void BuyerFees_empty_list_is_normalized_to_absent_and_stays_hash_neutral()
+    {
+        // B2C-08c : une liste de frais acheteur VIDE non-null est normalisée en absente (≡ null) — elle
+        // n'émet jamais « BuyerFees:[] », pour que le hash reste neutre quel que soit ce que passe le producteur.
+        var avecVide = BuildAvoirCompletAvecFraisAcheteur(System.Array.Empty<PivotBuyerFeeDto>());
+
+        avecVide.BuyerFees.Should().BeNull("une liste vide est normalisée en null au constructeur (vide ≡ absent).");
+        string json = CanonicalJson.Serialize(avecVide);
+
+        json.Should().NotContain("BuyerFees", "une liste vide n'émet aucune clé (jamais un tableau vide).");
+        PayloadHasher.ComputeHash(avecVide).Should().Be(
+            GoldenAvoirSha256, "vide ou absent → même hash canonique (champ additif hash-neutre).");
+    }
+
+    [Fact]
+    public void BuyerFees_when_present_are_emitted_round_trip_and_change_the_hash()
+    {
+        var frais = new[]
+        {
+            new PivotBuyerFeeDto(lotReference: "no_ba=5000", netAmount: 50.00m, sourceRegimeCode: "MARGE", sourceLineRef: "ligne#fa", description: "Frais acheteur fictif"),
+        };
+        var avecFrais = BuildAvoirCompletAvecFraisAcheteur(frais);
+
+        string json = CanonicalJson.Serialize(avecFrais);
+
+        // Le frais acheteur est émis (champ additif, ADR-0007), SANS aucune ventilation de TVA (art. 297 E).
+        json.Should().Contain("\"BuyerFees\":[{\"LotReference\":\"no_ba=5000\",\"NetAmount\":50.00,\"SourceRegimeCode\":\"MARGE\",\"SourceLineRef\":\"ligne#fa\",\"Description\":\"Frais acheteur fictif\"}]", "le frais acheteur est porté sans champ de taxe");
+        json.Should().NotContain("TaxAmount\":50", "le frais acheteur n'est jamais une ligne taxable");
+
+        // Round-trip sans perte ET le hash DIFFÈRE du golden (preuve que le champ est réellement sérialisé).
+        var rebuilt = PivotCanonicalReader.ReadDocument(json);
+        rebuilt.BuyerFees.Should().NotBeNull();
+        IReadOnlyList<PivotBuyerFeeDto> rebuiltFees = rebuilt.BuyerFees!;
+        rebuiltFees.Should().ContainSingle();
+        rebuiltFees[0].LotReference.Should().Be("no_ba=5000");
+        rebuiltFees[0].NetAmount.Should().Be(50.00m);
+        rebuiltFees[0].SourceRegimeCode.Should().Be("MARGE");
+        CanonicalJson.Serialize(rebuilt).Should().Be(json, "round-trip sans perte avec le frais acheteur porté");
+        PayloadHasher.ComputeHash(avecFrais).Should().NotBe(
+            GoldenAvoirSha256, "porter le frais acheteur change le contenu, donc l'empreinte");
+
+        // Le frais acheteur ne gonfle PAS les totaux : l'agrégat de contrôle reste celui de l'avoir golden.
         rebuilt.Totals.TotalNet.Should().Be(avecFrais.Totals.TotalNet);
         rebuilt.Totals.TotalGross.Should().Be(avecFrais.Totals.TotalGross);
     }

@@ -217,11 +217,52 @@ internal static class EncheresV6RowMapper
             description: ligne.Designation);
     }
 
+    /// <summary>
+    /// Mappe une ligne de frais acheteur (type 2) en enregistrement brut <see cref="EncheresV6BuyerFee"/>
+    /// (B2C-08c) — 2e jambe de la marge. Symétrique strict de <see cref="MapSellerFee"/>. EXTRACTION PURE :
+    /// aucune logique fiscale (CLAUDE.md n°6, R3) — le montant HT est la seule donnée de calcul portée,
+    /// convertie en <c>decimal</c> au centime (half-up) à la frontière comme tout montant (CLAUDE.md n°1,
+    /// ADR-0004 D3-7) ; le code régime est transporté BRUT. La TVA de la ligne n'est PAS modélisée ici (pour
+    /// le calcul de marge, le frais acheteur n'est qu'un terme HT). Le rattachement au lot se fait par le
+    /// <c>no_ba</c> du bordereau. NB : le type 2 est AUSSI une ligne de document (facturée à l'acheteur,
+    /// <see cref="IsDocumentLine"/>) — il est relu ici comme donnée de calcul de marge, sans le dupliquer
+    /// dans la facture.
+    /// </summary>
+    /// <param name="bordereau">Le bordereau (entête) auquel le frais acheteur est rattaché (par <c>no_ba</c>).</param>
+    /// <param name="ligne">La ligne de frais acheteur (type 2).</param>
+    /// <returns>L'enregistrement de frais acheteur brut correspondant.</returns>
+    public static EncheresV6BuyerFee MapBuyerFee(EncheresV6Bordereau bordereau, EncheresV6Ligne ligne)
+    {
+        if (bordereau is null)
+        {
+            throw new ArgumentNullException(nameof(bordereau));
+        }
+
+        if (ligne is null)
+        {
+            throw new ArgumentNullException(nameof(ligne));
+        }
+
+        string noBa = RequireField(bordereau.NoBa, "no_ba", bordereau.NoBa);
+
+        return new EncheresV6BuyerFee(
+            noBa: noBa,
+            netAmount: RoundAmount(ligne.MontantHt),
+            sourceRegimeCode: ligne.CodeRegime,
+            sourceLineRef: ligne.NoLigne,
+            description: ligne.Designation);
+    }
+
     /// <summary>Indique si un type de ligne source est une ligne de document (adjudication ou frais).</summary>
     /// <param name="typeLigne">Le type de ligne source brut.</param>
     /// <returns><c>true</c> pour les types 4 (adjudication) et 2 (frais).</returns>
     internal static bool IsDocumentLine(string? typeLigne) =>
         typeLigne == LigneAdjudication || typeLigne == LigneFrais;
+
+    /// <summary>Indique si un type de ligne source est un frais acheteur (type 2 — B2C-08c, 2e jambe de la marge).</summary>
+    /// <param name="typeLigne">Le type de ligne source brut.</param>
+    /// <returns><c>true</c> pour le type 2 (frais acheteur).</returns>
+    internal static bool IsBuyerFeeLine(string? typeLigne) => typeLigne == LigneFrais;
 
     /// <summary>Indique si un type de ligne source est un règlement (type 3).</summary>
     /// <param name="typeLigne">Le type de ligne source brut.</param>

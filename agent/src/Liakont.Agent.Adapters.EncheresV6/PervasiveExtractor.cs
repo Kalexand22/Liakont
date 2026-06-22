@@ -241,6 +241,36 @@ public sealed class PervasiveExtractor : IExtractor
         return fees;
     }
 
+    /// <summary>
+    /// Extrait les FRAIS ACHETEUR (type 2) d'une période, en LECTURE SEULE STRICTE (F01-F02 §4.3, B2C-08c) —
+    /// 2e jambe de la marge, miroir strict de <see cref="ExtractSellerFees"/>. Données de calcul de marge
+    /// rattachées au bordereau par <c>no_ba</c>. EXTRACTION PURE : aucune logique fiscale (R3, CLAUDE.md n°6).
+    /// Le type 2 est aussi une ligne de document (facturée à l'acheteur) ; il est relu ici comme donnée de
+    /// calcul de marge, sans le dupliquer dans la facture. Liste matérialisée : la connexion est libérée à la sortie.
+    /// </summary>
+    /// <param name="fromInclusiveUtc">Borne basse de la période (UTC, incluse).</param>
+    /// <param name="toExclusiveUtc">Borne haute de la période (UTC, exclue).</param>
+    /// <returns>Les frais acheteur de la période, rattachés à leur bordereau (par <c>no_ba</c>).</returns>
+    public IReadOnlyList<EncheresV6BuyerFee> ExtractBuyerFees(DateTime fromInclusiveUtc, DateTime toExclusiveUtc)
+    {
+        // Frais acheteur (B2C-08c) : lignes type 2 sur la période [date_vente], rattachées à leur bordereau
+        // (no_ba) par l'INNER JOIN (rattachement par le no_ba existant, sans jointure inventée). Lecture seule
+        // stricte (EncheresV6Schema.SelectBuyerFeesSql, garde EnsureSelectOnly via CreateSelect). Erreurs
+        // typées (R7) comme ExtractSellerFees. Liste matérialisée.
+        var fees = new List<EncheresV6BuyerFee>();
+        using (IDbConnection connection = OpenConnection())
+        using (IDbCommand command = CreatePeriodSelect(connection, EncheresV6Schema.SelectBuyerFeesSql, fromInclusiveUtc, toExclusiveUtc))
+        using (IDataReader reader = ExecuteReader(command))
+        {
+            while (ReadNext(reader))
+            {
+                fees.Add(ReadBuyerFee(reader));
+            }
+        }
+
+        return fees;
+    }
+
     /// <inheritdoc />
     public IReadOnlyList<SourceTaxRegimeDto> ListSourceTaxRegimes()
     {
@@ -541,6 +571,24 @@ public sealed class PervasiveExtractor : IExtractor
         };
 
         return EncheresV6RowMapper.MapSellerFee(bordereau, ligne);
+    }
+
+    private static EncheresV6BuyerFee ReadBuyerFee(IDataReader reader)
+    {
+        // Le frais acheteur (type 2) est rattaché au bordereau par son no_ba. Le mapper partagé
+        // (parité fixtures/ODBC) convertit le montant HT brut en decimal half-up et transporte le code régime
+        // brut — aucune interprétation fiscale ici (R3). Miroir strict de ReadSellerFee.
+        var bordereau = new EncheresV6Bordereau { NoBa = ReadRequiredKey(reader, EncheresV6Schema.ColNoBa) };
+        var ligne = new EncheresV6Ligne
+        {
+            TypeLigne = EncheresV6RowMapper.LigneFrais,
+            NoLigne = ReadString(reader, EncheresV6Schema.ColNoLigne),
+            Designation = ReadString(reader, EncheresV6Schema.ColDesignation),
+            MontantHt = ReadRequiredDouble(reader, EncheresV6Schema.ColMontantHt),
+            CodeRegime = ReadString(reader, EncheresV6Schema.ColCodeRegime),
+        };
+
+        return EncheresV6RowMapper.MapBuyerFee(bordereau, ligne);
     }
 
     private static EncheresV6Bordereau ReadPaymentBordereau(IDataReader reader)

@@ -211,7 +211,8 @@ internal static class CheckTvaMapping
             sourceData: pivot.SourceData,
             paymentDueDate: pivot.PaymentDueDate,
             isB2cReportingDeclaration: pivot.IsB2cReportingDeclaration,
-            sellerFees: pivot.SellerFees);
+            sellerFees: pivot.SellerFees,
+            buyerFees: pivot.BuyerFees);
     }
 
     private static string LinePrefix(int index, PivotLineDto line) =>

@@ -485,6 +485,63 @@ public class PervasiveExtractorTests
     }
 
     [Fact]
+    public void ExtractBuyerFees_reads_type2_fee_attached_to_its_bordereau()
+    {
+        var connection = Connection(TwoBuyerFees());
+
+        List<EncheresV6BuyerFee> fees = Extractor(connection).ExtractBuyerFees(PeriodFrom, PeriodTo).ToList();
+
+        fees.Should().HaveCount(2);
+        fees.Select(f => f.NoBa).Should().Equal("4500", "4501");
+        EncheresV6BuyerFee fee = fees.Single(f => f.NoBa == "4500");
+        fee.NetAmount.Should().Be(15.00m, "le montant HT legacy est converti en decimal half-up (CLAUDE.md n°1)");
+        fee.SourceRegimeCode.Should().Be("5", "le code régime est transporté brut (R3)");
+        fee.SourceLineRef.Should().Be("ligne#2");
+    }
+
+    [Fact]
+    public void ExtractBuyerFees_rounds_dirty_legacy_float_half_up()
+    {
+        // Frais acheteur brut 8.329999999999998 → 8.33 (arrondi commercial half-up, comme tout montant).
+        var connection = Connection(new[] { BuyerFeeRow("4900", "ligne#2", 8.329999999999998, "5") });
+
+        EncheresV6BuyerFee fee = Extractor(connection).ExtractBuyerFees(PeriodFrom, PeriodTo).Single();
+
+        fee.NetAmount.Should().Be(8.33m);
+    }
+
+    [Fact]
+    public void ExtractBuyerFees_query_targets_type2_lines_and_binds_the_period()
+    {
+        var connection = Connection(TwoBuyerFees());
+
+        Drain(Extractor(connection).ExtractBuyerFees(PeriodFrom, PeriodTo));
+
+        RecordingCommand command = connection.Commands.Single();
+        command.CommandText.Should().Be(EncheresV6Schema.SelectBuyerFeesSql);
+        command.CommandText.Should().Contain("type_ligne = '2'", "le frais acheteur est la ligne type 2 (B2C-08c)");
+        command.CommandText.Should().Contain("INNER JOIN entete_ba e ON e.no_ba = l.no_ba", "rattachement par le no_ba existant, aucune jointure inventée");
+        command.CommandText.Should().Contain("date_vente >= ? AND e.date_vente < ?");
+        command.Parameters.Count.Should().Be(2, "période bornée par deux paramètres positionnels");
+        ((FakeParameter)command.Parameters[0]!).Value.Should().Be(PeriodFrom);
+        ((FakeParameter)command.Parameters[1]!).Value.Should().Be(PeriodTo);
+    }
+
+    [Fact]
+    public void ExtractBuyerFees_is_read_only_no_write_command_or_transaction()
+    {
+        var connection = Connection(TwoBuyerFees());
+
+        Drain(Extractor(connection).ExtractBuyerFees(PeriodFrom, PeriodTo));
+
+        connection.ExecutedCommandTexts.Should().OnlyContain(
+            t => t.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase),
+            "lecture seule stricte : aucune commande non-SELECT (CLAUDE.md n°5)");
+        connection.NonQueryExecutions.Should().Be(0, "aucun INSERT/UPDATE/DELETE n'est émis");
+        connection.TransactionsBegun.Should().Be(0, "aucune transaction d'écriture ni verrou explicite");
+    }
+
+    [Fact]
     public void Fixtures_and_odbc_produce_identical_pivot_for_the_same_dataset()
     {
         // Acceptance ADP03 : « test de parité fixtures vs ODBC mocké sur le même jeu de données ». Un SEUL
@@ -682,6 +739,9 @@ public class PervasiveExtractorTests
 
         Action sellerFees = () => EncheresV6Schema.EnsureSelectOnly(EncheresV6Schema.SelectSellerFeesSql);
         sellerFees.Should().NotThrow();
+
+        Action buyerFees = () => EncheresV6Schema.EnsureSelectOnly(EncheresV6Schema.SelectBuyerFeesSql);
+        buyerFees.Should().NotThrow();
     }
 
     private static EncheresV6EmitterIdentity Emitter() =>
@@ -873,6 +933,29 @@ public class PervasiveExtractorTests
             [EncheresV6Schema.ColNoBa] = noBa,
             [EncheresV6Schema.ColNoLigne] = noLigne,
             [EncheresV6Schema.ColDesignation] = "Frais vendeur (commission vendeur) — fictif",
+            [EncheresV6Schema.ColMontantHt] = montantHt,
+            [EncheresV6Schema.ColCodeRegime] = codeRegime,
+        };
+    }
+
+    private static Dictionary<string, object?>[] TwoBuyerFees()
+    {
+        return new[]
+        {
+            BuyerFeeRow("4500", "ligne#2", 15.00, "5"),
+            BuyerFeeRow("4501", "ligne#2", 30.00, "5"),
+        };
+    }
+
+    private static Dictionary<string, object?> BuyerFeeRow(string noBa, string noLigne, double montantHt, string codeRegime)
+    {
+        // Projection de la requête SelectBuyerFeesSql : seules les colonnes lues par ReadBuyerFee
+        // (mêmes colonnes que ReadSellerFee).
+        return new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [EncheresV6Schema.ColNoBa] = noBa,
+            [EncheresV6Schema.ColNoLigne] = noLigne,
+            [EncheresV6Schema.ColDesignation] = "Frais acheteur (commission acheteur) — fictif",
             [EncheresV6Schema.ColMontantHt] = montantHt,
             [EncheresV6Schema.ColCodeRegime] = codeRegime,
         };

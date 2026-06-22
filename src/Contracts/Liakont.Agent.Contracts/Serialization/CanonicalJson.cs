@@ -142,6 +142,16 @@ public static class CanonicalJson
             WriteArray(writer, document.SellerFees, WriteSellerFee);
         }
 
+        // Frais acheteur (B2C-08c, 2e jambe de la marge) : champ ADDITIF en FIN (ADR-0007), symétrique strict
+        // de SellerFees — collection nullable OMISE quand null (seul un champ ABSENT est hash-neutre). Un
+        // document sans frais acheteur produit le JSON canonique INCHANGÉ (octet par octet, pattern EXT01).
+        // Aucune ventilation de TVA (art. 297 E) : ce n'est pas une ligne.
+        if (document.BuyerFees != null)
+        {
+            writer.WritePropertyName("BuyerFees");
+            WriteArray(writer, document.BuyerFees, WriteBuyerFee);
+        }
+
         // EN 16931 BG-14 (slot réservé abonnement — RD406) : champ ADDITIF en FIN (ADR-0007), émis
         // SEULEMENT s'il est porté — un document sans période produit le JSON canonique INCHANGÉ.
         if (document.InvoicePeriod != null)
@@ -154,6 +164,19 @@ public static class CanonicalJson
     }
 
     private static void WriteSellerFee(CanonicalJsonWriter writer, PivotSellerFeeDto fee)
+    {
+        writer.BeginObject();
+        writer.WritePropertyName("LotReference");
+        writer.WriteString(fee.LotReference);
+        writer.WritePropertyName("NetAmount");
+        writer.WriteDecimal(fee.NetAmount);
+        WriteOptionalString(writer, "SourceRegimeCode", fee.SourceRegimeCode);
+        WriteOptionalString(writer, "SourceLineRef", fee.SourceLineRef);
+        WriteOptionalString(writer, "Description", fee.Description);
+        writer.EndObject();
+    }
+
+    private static void WriteBuyerFee(CanonicalJsonWriter writer, PivotBuyerFeeDto fee)
     {
         writer.BeginObject();
         writer.WritePropertyName("LotReference");

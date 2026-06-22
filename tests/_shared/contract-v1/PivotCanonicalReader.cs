@@ -75,12 +75,23 @@ public static class PivotCanonicalReader
             sourceData: TextOrNull(map, "SourceData"),
             paymentDueDate: DateOrNull(map, "PaymentDueDate"),
             sellerFees: BuildListOrNull(map, "SellerFees", BuildSellerFee),
+            buyerFees: BuildListOrNull(map, "BuyerFees", BuildBuyerFee),
             invoicePeriod: ObjectOrNull(map, "InvoicePeriod") is { } invoicePeriod ? BuildInvoicePeriod(invoicePeriod) : null);
     }
 
     private static PivotSellerFeeDto BuildSellerFee(IDictionary<string, object?> map)
     {
         return new PivotSellerFeeDto(
+            lotReference: Text(map, "LotReference"),
+            netAmount: Number(map, "NetAmount"),
+            sourceRegimeCode: TextOrNull(map, "SourceRegimeCode"),
+            sourceLineRef: TextOrNull(map, "SourceLineRef"),
+            description: TextOrNull(map, "Description"));
+    }
+
+    private static PivotBuyerFeeDto BuildBuyerFee(IDictionary<string, object?> map)
+    {
+        return new PivotBuyerFeeDto(
             lotReference: Text(map, "LotReference"),
             netAmount: Number(map, "NetAmount"),
             sourceRegimeCode: TextOrNull(map, "SourceRegimeCode"),
