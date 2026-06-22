@@ -150,6 +150,44 @@ items:
       - "B2C-05 done (ancrage F03 proposé + citations primaires)"
       - "Validation HUMAINE de l'ancrage (formule + méthode éventuelle) sur source primaire ; si non validé, la gate reste fermée et l'aval marge reste bloqué"
 
+  B2C05b:
+    title: "SOURCER la forme canonique du « montant de marge » (cas DGFiP n°33) SUR LE STANDARD → ancrage F03 PROPOSÉ (agent propose, humain valide) — AGNOSTIQUE PA"
+    description: |
+      (Suite de B2C-05, re-split v36.) PRÉREQUIS de la TRANSMISSION de la marge (B2C-09c). AUCUN code.
+      L'agent fait la RECHERCHE documentaire et écrit une PROPOSITION d'ancrage dans F03 ; l'humain valide
+      via GATE_B2C_SHAPE_SOURCING avant que la transmission ne soit codée.
+      1. IDENTIFIER ET CITER la source primaire de la FORME CANONIQUE du « montant de marge » n°33 : quel
+         champ EN 16931 / quelle catégorie de TVA / quel code VATEX portent le montant de marge en
+         e-reporting B2C (flux 10.3). Source = spécifications externes DGFiP (cas n°33) + listes de codes
+         EN 16931 / EXTENDED-CTC-FR (cohérent F03 §2.1/§2.2). JAMAIS « ce que répond une PA » : un retour
+         de PA (ticket support) ne vaut que comme preuve d'appui, jamais comme source ni comme gate
+         (CLAUDE.md n°8/16 ; review n°16 = P1 si une fonctionnalité produit dépend d'un PA concret).
+      2. Si le standard ne tranche pas nettement (p. ex. pas de VATEX-FR dédié biens d'occasion, cf.
+         F03 §2.2) → la PROPOSITION EXPOSE les options et la décision est PRISE EN GATE par l'humain
+         (comme le régime 6 « EU-J ou hors-champ », F03 §6 décision #1), jamais devinée (n°2).
+      3. Livrable = section F03 PROPOSÉE (champ + catégorie/VATEX du montant de marge n°33) avec citations
+         exactes, soumise à GATE_B2C_SHAPE_SOURCING. Aucune donnée fiscale réelle inventée.
+    acceptance:
+      - "Section F03 PROPOSÉE : champ + catégorie/VATEX du montant de marge n°33, citations primaires (DGFiP n°33 / EN 16931 / EXTENDED-CTC-FR), AUCUNE PA comme source ou gate"
+      - "Standard ambigu → options exposées + décision déférée à GATE_B2C_SHAPE_SOURCING (humain), jamais devinée (n°2)"
+      - "AUCUN code de transmission/calcul ; la forme du payload reste GELÉE tant que la gate n'est pas done"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  GATE_B2C_SHAPE_SOURCING:
+    type: gate
+    executor: human
+    title: "Checkpoint intra-segment : forme canonique du montant de marge (cas DGFiP n°33) sourcée SUR LE STANDARD, agnostique PA"
+    description: |
+      Gate INTRA-SEGMENT (n'est la gate d'aucun segment → le protocole ne crée PAS de PR ; l'opérateur la
+      passe à `done` via orch-state.ps1 — cf. GATE_B2C_SOURCING / GATE_DEMO_ISATECH). CONDITION : un humain
+      valide la PROPOSITION F03 de B2C-05b — la forme canonique du montant de marge n°33 (champ +
+      catégorie/VATEX) est ancrée sur le standard DGFiP/EN 16931 (PAS sur une PA), ou, si le standard est
+      ambigu, l'humain tranche explicitement. Tant que pending, la TRANSMISSION de la marge (B2C-09c) reste
+      bloquée — c'est voulu (n°2 ; n°8/16 : aucune dépendance à un PA concret).
+    acceptance:
+      - "Forme canonique n°33 ancrée sur source primaire standard (ou décision humaine tracée si ambiguë) ; aucune dépendance à un PA concret"
+      - "Débloque la branche transmission B2C-09c (capacité SupportsMarginAmountReporting déjà posée B2C-09a + méthode IPaClient agnostique à ajouter)"
+
   B2C06:
     title: "Obtenir/modéliser le schéma source du bordereau vendeur (BV) — réel ISATECH (prod) / fixture FICTIVE (démo)"
     description: |
@@ -203,6 +241,28 @@ items:
       - "Tests d'intégration (run-tests) EXÉCUTÉS et verts : neutralité de hash + absence de TVA distincte"
       - "verify-fast passes ; codex-review clean or only accepted P2s"
 
+  B2C08c:
+    title: "Porter le frais ACHETEUR comme DONNÉE SOURCE de calcul de marge dans le pivot (hash-neutre, générique) — miroir de B2C-08"
+    description: |
+      (Re-split v36 — 2e jambe de la marge.) Symétrique STRICT de B2C-08 (frais vendeur) pour la formule
+      sourcée `marge = frais acheteur + frais vendeur` (F03 §2.4, GATE_B2C_SOURCING done). Au niveau du
+      PIVOT GÉNÉRIQUE (Liakont.Agent.Contracts.Pivot), source-agnostique — PAS un objet EncheresV6.
+      1. Ajouter un carrier ADDITIF hash-neutre au grain lot (p. ex. PivotBuyerFeeDto sur PivotDocumentDto,
+         exactement comme SellerFees/PivotSellerFeeDto de B2C-08 : liste null si absente, vide ≡ absent —
+         pattern EXT01). Test : pivot SANS frais acheteur → hash canonique INCHANGÉ (golden contrat-v1).
+      2. JAMAIS via une PivotLineDto taxable, une ventilation Taxes/Rate/TaxAmount, ni une valeur de part
+         inventée (TvaMappingPart figé). Le frais acheteur alimente le CALCUL de marge (B2C-09b) ; il ne
+         gonfle pas la base 10.3 et ne fait apparaître AUCUNE TVA distincte (art. 297 E).
+      3. Peupler depuis le CHAMP SOURCE TYPÉ de chaque adaptateur (EncheresV6 : type_ligne 2 « frais
+         acheteur », DÉJÀ lu — lecture d'un champ typé, PAS une inférence depuis la catégorie S, n°2/n°6).
+         Tout futur adaptateur peuple le même carrier depuis son propre champ autoritatif.
+    acceptance:
+      - "Carrier frais acheteur additif hash-neutre au grain lot sur PivotDocumentDto (miroir SellerFees) ; test : pivot SANS frais acheteur → hash canonique INCHANGÉ (golden contrat-v1)"
+      - "Aucune PivotLineDto taxable / ventilation TVA / part inventée ; le frais acheteur ne gonfle pas la base 10.3 (art. 297 E)"
+      - "Peuplé depuis un champ source typé (EncheresV6 type_ligne 2), aucune inférence fiscale (n°2) ; extraction pure côté agent (n°6) ; AgentBoundaryTests vert"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts : neutralité de hash + 2e jambe disponible au calcul"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
   B2C08b:
     title: "(= « B2C-08bis » du plan) Persister/éditer en console le paramètre « méthode de marge » — CONDITIONNEL à B2C-05"
     description: |
@@ -238,32 +298,48 @@ items:
       - "verify-fast passes ; codex-review clean or only accepted P2s"
 
   B2C09b:
-    title: "Calcul de la marge + transmission du montant (decimal half-up, aucune TVA distincte 297 E)"
+    title: "CALCUL de la marge par lot (decimal half-up, aucune TVA distincte 297 E) — sans transmission"
     description: |
-      (Plan B2C-09b.) Dépend de B2C-05 (formule validée GATE_B2C_SOURCING), B2C-08 (donnée source),
-      B2C-09a (capacité+gate) ET B2C-03 (lien). Si B2C-05 a établi des méthodes, dépend AUSSI de B2C-08b
-      (le param doit être câblé) — sinon B2C-08b est retiré.
-      1. Appliquer la formule ancrée par B2C-05, selon la méthode paramétrée (B2C-08b si méthodes). Calcul
+      (Re-split v36 : CALCUL seul ; la TRANSMISSION est B2C-09c.) Dépend de B2C-05 (formule validée
+      GATE_B2C_SOURCING), B2C-08 (frais vendeur) ET B2C-08c (frais acheteur, 2e jambe), B2C-03 (lien).
+      Méthode PAR OPÉRATION unique (seule ancrée ; pas d'enum, B2C-08b retiré — cf. audit 2026-06-21).
+      1. Appliquer la formule ancrée : marge = Σ frais acheteur + Σ frais vendeur, PAR LOT (no_ba). Calcul
          en `decimal` exclusivement, arrondi half-up 2 décimales via PivotRounding.RoundAmount ; test
          d'arrondi obligatoire (n°1).
-      2. CRITÈRE BLOQUANT (art. 297 E) : le payload du montant de marge ne porte AUCUNE ligne ni total de
-         TVA distincte (TotalTax=0, aucune ventilation > 0) ; un cas qui ferait apparaître une TVA distincte
+      2. CRITÈRE BLOQUANT (art. 297 E) : le montant de marge est une BASE — aucune ligne ni total de TVA
+         distincte (TotalTax=0, aucune ventilation > 0) ; un cas qui ferait apparaître une TVA distincte
          ÉCHOUE (adossé à F03:41 / F07-F08:36, aucun seuil inventé).
-      3. Transmettre le montant via la capacité B2C-09a (validée à l'envoi, résultat typé si absente) ;
-         shape conforme au sourcing (sinon resté gelé). Lien reporting↔pièces (B2C-03) au grain lot.
-      4. Si la méthode « globalisation » est retenue, son agrégation par PÉRIODE est un mécanisme NEUF
-         (≠ PaymentAggregationCalculator, base encaissement) — d'où le sizing L.
+      3. Produit le montant de marge calculé (porté en pivot/contrat pour B2C-09c). AUCUNE transmission ici.
     acceptance:
-      - "Calcul en `decimal`, arrondi half-up 2 décimales via PivotRounding.RoundAmount ; test d'arrondi (n°1)"
-      - "CRITÈRE BLOQUANT 297 E : payload sans aucune ligne/total de TVA distincte (TotalTax=0, aucune ventilation > 0) ; un cas faisant apparaître une TVA distincte ÉCHOUE (F03:41 / F07-F08:36, aucun seuil inventé)"
-      - "Transmission via la capacité B2C-09a (résultat typé si absente, jamais `if (pa is X)`) ; lien reporting↔pièces B2C-03 au grain lot"
-      - "Mécanisme de globalisation (agrégation par période) distinct de PaymentAggregationCalculator si retenu"
-      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts : calcul decimal + absence de TVA distincte + transmission Fake, ≥ 2 bases"
+      - "marge = Σ frais acheteur (B2C-08c) + Σ frais vendeur (B2C-08) PAR LOT ; `decimal` half-up via PivotRounding.RoundAmount ; test d'arrondi (n°1)"
+      - "CRITÈRE BLOQUANT 297 E : montant de marge = base, aucune ligne/total de TVA distincte (TotalTax=0, aucune ventilation > 0) ; un cas faisant apparaître une TVA distincte ÉCHOUE (F03:41 / F07-F08:36)"
+      - "Montant de marge calculé disponible pour B2C-09c ; AUCUNE transmission dans cet item"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts : calcul decimal + absence de TVA distincte, ≥ 2 bases"
+      - "verify-fast passes ; codex-review clean or only accepted P2s"
+
+  B2C09c:
+    title: "TRANSMISSION du montant de marge via capacité PA agnostique (cas DGFiP n°33) — forme sourcée par GATE_B2C_SHAPE_SOURCING"
+    description: |
+      (Re-split v36 : TRANSMISSION.) Dépend de B2C-09b (montant calculé), B2C-09a (capacité
+      SupportsMarginAmountReporting + gate typé) ET GATE_B2C_SHAPE_SOURCING (forme canonique n°33 sourcée
+      sur le standard). AUCUNE référence à une PA concrète (n°8/16).
+      1. Ajouter le CHEMIN DE TRANSMISSION du montant de marge sur l'abstraction PA (IPaClient /
+         Transmission.Contracts) — aucune méthode marge n'existe aujourd'hui — piloté par la capacité
+         SupportsMarginAmountReporting (résultat typé PaCapabilityNotSupportedResult si absente) ; jamais
+         `if (pa is X)` (NetArchTest). Chaque plug-in mappe le pivot vers son format.
+      2. La FORME du payload (champ + catégorie/VATEX n°33) est celle ANCRÉE par GATE_B2C_SHAPE_SOURCING
+         (standard DGFiP/EN 16931), jamais devinée ni « ce que répond une PA » (n°2, n°8/16).
+      3. Garde 297 E à l'envoi (aucune TVA distincte) ; lien reporting↔pièces (B2C-03) au grain lot.
+    acceptance:
+      - "Chemin de transmission marge sur l'abstraction PA, piloté par SupportsMarginAmountReporting (résultat typé si absente) ; jamais `if (pa is X)` (NetArchTest)"
+      - "Payload conforme à la forme ANCRÉE par GATE_B2C_SHAPE_SOURCING (standard), jamais une forme PA-spécifique ni devinée (n°2)"
+      - "Garde 297 E à l'envoi (aucune TVA distincte) ; lien reporting↔pièces B2C-03 au grain lot"
+      - "Tests d'intégration (run-tests) EXÉCUTÉS et verts : transmission Fake + gate capacité ouvert/fermé, ≥ 2 bases"
       - "verify-fast passes ; codex-review clean or only accepted P2s"
 
   # Gate de segment HUMAINE : recette de bout en bout (Essentiel + marge complète).
-  # depends_on (B2C04, B2C09a, B2C09b) porté par le manifest ; B2C09b couvre transitivement
-  # B2C03/05/06/07/08 + GATE_B2C_SOURCING, B2C04 couvre B2C01/02/03.
+  # depends_on (B2C04, B2C09a, B2C09c) porté par le manifest ; B2C09c couvre transitivement B2C09b →
+  # B2C03/05/05b/06/07/08/08c + GATE_B2C_SOURCING + GATE_B2C_SHAPE_SOURCING, B2C04 couvre B2C01/02/03.
   GATE_EREPORTING_B2C:
     type: gate
     executor: human
