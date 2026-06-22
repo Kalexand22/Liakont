@@ -74,6 +74,7 @@ public static class PivotCanonicalReader
             prepaidAmount: DecimalOrNull(map, "PrepaidAmount"),
             sourceData: TextOrNull(map, "SourceData"),
             paymentDueDate: DateOrNull(map, "PaymentDueDate"),
+            isB2cReportingDeclaration: BooleanOrFalse(map, "IsB2cReportingDeclaration"),
             sellerFees: BuildListOrNull(map, "SellerFees", BuildSellerFee),
             buyerFees: BuildListOrNull(map, "BuyerFees", BuildBuyerFee),
             invoicePeriod: ObjectOrNull(map, "InvoicePeriod") is { } invoicePeriod ? BuildInvoicePeriod(invoicePeriod) : null);
@@ -227,6 +228,9 @@ public static class PivotCanonicalReader
         map.TryGetValue(key, out var value) ? (decimal?)(decimal)value! : null;
 
     private static bool Boolean(IDictionary<string, object?> map, string key) => (bool)map[key]!;
+
+    private static bool BooleanOrFalse(IDictionary<string, object?> map, string key) =>
+        map.ContainsKey(key) && (bool)map[key]!;
 
     private static DateTime Date(IDictionary<string, object?> map, string key) =>
         DateTime.ParseExact((string)map[key]!, "yyyy-MM-dd", CultureInfo.InvariantCulture);

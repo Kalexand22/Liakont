@@ -130,6 +130,51 @@ public class PivotEmitterEnricherTests
         enriched.Supplier!.VatNumber.Should().BeNull("BT-31 dérivé seulement d'un SIREN bien formé (9 chiffres)");
     }
 
+    [Fact]
+    public void Rebuild_preserves_every_additive_pivot_field_when_filling_the_emitter()
+    {
+        // Régression : l'enrichissement émetteur reconstruit le pivot champ par champ (Rebuild). TOUT champ
+        // ADDITIF de fin de contrat (BT-9 échéance, marqueur 10.3, frais vendeur/acheteur, BG-14 période) doit
+        // SURVIVRE — un oubli au Rebuild les droppe silencieusement au CHECK/SEND (le merge ADR-0007 avait
+        // laissé tomber InvoicePeriod ici ; ce test garde les cinq).
+        var document = new PivotDocumentDto(
+            sourceDocumentKind: "FAC",
+            number: "A-2026-0002",
+            issueDate: new DateTime(2026, 6, 1),
+            sourceReference: "demoerpa:A-2026-0002",
+            supplier: null,
+            totals: new PivotTotalsDto(100m, 20m, 120m),
+            operationCategory: null,
+            paymentDueDate: new DateTime(2026, 7, 1),
+            isB2cReportingDeclaration: true,
+            sellerFees: new[]
+            {
+                new PivotSellerFeeDto(
+                    lotReference: "no_ba=42", netAmount: 50.00m, sourceRegimeCode: "MARGE",
+                    sourceLineRef: "ligne#bv", description: "Frais vendeur fictif"),
+            },
+            buyerFees: new[]
+            {
+                new PivotBuyerFeeDto(
+                    lotReference: "no_ba=42", netAmount: 30.00m, sourceRegimeCode: "MARGE",
+                    sourceLineRef: "ligne#ba", description: "Frais acheteur fictif"),
+            },
+            invoicePeriod: new PivotInvoicePeriodDto(new DateTime(2026, 6, 1), new DateTime(2026, 6, 30)));
+
+        // Émetteur absent + profil fourni → Enrich reconstruit le pivot (Rebuild).
+        PivotDocumentDto enriched = PivotEmitterEnricher.Enrich(
+            document, Profile("123456782", "SEM Keroman"), Fiscal("LivraisonBiens"));
+
+        enriched.Supplier.Should().NotBeNull("l'émetteur a été rempli → le pivot a bien été reconstruit");
+        enriched.PaymentDueDate.Should().Be(new DateTime(2026, 7, 1), "BT-9 survit au Rebuild");
+        enriched.IsB2cReportingDeclaration.Should().BeTrue("le marqueur 10.3 survit au Rebuild");
+        enriched.SellerFees.Should().ContainSingle().Which.LotReference.Should().Be("no_ba=42");
+        enriched.BuyerFees.Should().ContainSingle().Which.NetAmount.Should().Be(30.00m);
+        enriched.InvoicePeriod.Should().NotBeNull("BG-14 survit au Rebuild (régression du merge)");
+        enriched.InvoicePeriod!.StartDate.Should().Be(new DateTime(2026, 6, 1));
+        enriched.InvoicePeriod.EndDate.Should().Be(new DateTime(2026, 6, 30));
+    }
+
     private static TenantProfileDto ProfileWithCountry(string siren, string raisonSociale, string country) => new()
     {
         Id = Guid.NewGuid(),

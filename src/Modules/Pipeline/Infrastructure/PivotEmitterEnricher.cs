@@ -145,5 +145,6 @@ internal static class PivotEmitterEnricher
             paymentDueDate: pivot.PaymentDueDate,
             isB2cReportingDeclaration: pivot.IsB2cReportingDeclaration,
             sellerFees: pivot.SellerFees,
-            buyerFees: pivot.BuyerFees);
+            buyerFees: pivot.BuyerFees,
+            invoicePeriod: pivot.InvoicePeriod);
 }
