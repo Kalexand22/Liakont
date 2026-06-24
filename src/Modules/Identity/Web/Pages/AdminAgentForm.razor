@@ -346,10 +346,9 @@
         ToastService.Show("Compétence retirée.", Severity.Success);
     }
 
-    private void MapError(string message)
-    {
-        _globalError = message;
-    }
+    // Aucun champ dédié sur ce formulaire : toute erreur est surfacée en bannière globale par le socle
+    // (le socle possède l'affichage global — BUG-4 volet A).
+    private string? MapError(string message) => message;
 
     private void HandleTitleInput(ChangeEventArgs e)
     {

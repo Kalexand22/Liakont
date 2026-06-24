@@ -103,6 +103,27 @@ public sealed class AdminJobScheduleFormTests : BunitContext
         cut.Markup.Should().Contain("11 juin 2026 à 01:00 UTC");
     }
 
+    // BUG-4 volet A : un échec de création (ici : opérateur sans société courante) doit être VISIBLE.
+    // Avant le correctif, MapError écrivait le champ _globalError du parent sans re-render → bannière jamais affichée.
+    [Fact]
+    public void Save_Failure_Without_Current_Company_Shows_A_Visible_Error()
+    {
+        Services.AddScoped<IActorContextAccessor>(_ => new StubActorContextAccessor(useDefaultCompany: false));
+
+        var cut = RenderCreate();
+
+        cut.Find("[data-testid='job-schedule-form-name']").Input("Ancrage quotidien");
+        cut.Find("[data-testid='job-schedule-form-job-type']").Change(EmptyKey);
+        cut.Find("[data-testid='job-schedule-form-cron']").Input("0 2 * * *");
+
+        cut.Find("[data-testid='job-schedule-form-save-btn']").Click();
+
+        cut.WaitForAssertion(
+            () => cut.Find("[data-testid='job-schedule-form-error']").TextContent
+                .Should().Contain("Aucune société sélectionnée"),
+            TimeSpan.FromSeconds(5));
+    }
+
     private IRenderedComponent<AdminJobScheduleForm> RenderCreate() =>
         Render<AdminJobScheduleForm>(p => p.Add(c => c.Id, (Guid?)null));
 
@@ -221,10 +242,18 @@ public sealed class AdminJobScheduleFormTests : BunitContext
 
     private sealed class StubActorContextAccessor : IActorContextAccessor
     {
-        public IActorContext Current { get; } = new StubActorContext();
+        private static readonly Guid DefaultCompany = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+        // useDefaultCompany=true → société courante présente (cas nominal) ; false → AUCUNE société (sysadmin/supervision).
+        public StubActorContextAccessor(bool useDefaultCompany = true) =>
+            Current = new StubActorContext(useDefaultCompany ? DefaultCompany : null);
+
+        public IActorContext Current { get; }
 
         private sealed class StubActorContext : IActorContext
         {
+            public StubActorContext(Guid? companyId) => CompanyId = companyId;
+
             public Guid UserId => Guid.Empty;
 
             public Guid CorrelationId => Guid.Empty;
@@ -235,7 +264,7 @@ public sealed class AdminJobScheduleFormTests : BunitContext
 
             public string? Email => null;
 
-            public Guid? CompanyId => Guid.Parse("11111111-1111-1111-1111-111111111111");
+            public Guid? CompanyId { get; }
 
             public string? Timezone => null;
 

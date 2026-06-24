@@ -291,6 +291,9 @@ src/Modules/Notification/Web/Pages/AdminNotificationRouting.razor
 src/Modules/Notification/Web/Pages/AdminCatalogServices.razor
 src/Modules/Notification/Web/Pages/AdminWebhookSubscriptions.razor
 src/Modules/Notification/Web/Pages/AdminIntegrations.razor
+<!-- §4.39 — BUG-4 volet A : echec de save DeclaredFormPage rendu visible (MapDomainError -> Func<string,string?>) -->
+src/Common/UI/Components/DeclaredFormPage.razor.cs
+src/Modules/Notification/Web/Pages/AdminWebhookForm.razor
 <!-- §4.36 — lecture timestamptz via DbTimestamp (casts directs (DateTimeOffset)row.x corriges) -->
 src/Modules/Job/Infrastructure/PostgresJobUnitOfWork.cs
 src/Modules/Job/Infrastructure/Queries/PostgresScheduleQueries.cs
@@ -1067,6 +1070,35 @@ migration socle modifiée. La dérive de ces trois fichiers est absorbée par le
 ci-dessus — **le baseline n'est PAS régénéré** (il reste la référence stable ; régénérer est optionnel, §4.12).
 **Vérification** : `verify-fast` (2 solutions, dont `socle-provenance-check` exit 0) + `run-tests` (unit
 garde/runner + intégration `HasPendingJobOfTypeAsync` et seam DI réel sur 2 bases).
+
+### 4.39 BUG-4 volet A — échec d'enregistrement de `DeclaredFormPage` rendu VISIBLE
+Recette EncheresV6 : sur un formulaire bâti sur `DeclaredFormPage` (socle), un échec de save **non
+mappé à un champ** (ex. `AdminJobScheduleForm.CreateAsync` qui lève `InvalidOperationException`
+« Aucune société sélectionnée. » pour un opérateur sans société courante) restait **SILENCIEUX** : le
+bouton « Enregistrer » semblait inerte, aucune bannière d'erreur. Cause : `MapDomainError` (le `MapError`
+du formulaire) écrivait le champ `_globalError` du composant **parent**, mais la bannière est rendue
+depuis le **paramètre** `GlobalError` de l'enfant ; comme le clic est géré par l'enfant, le parent ne se
+re-rendait pas et la valeur fraîche ne redescendait jamais dans le paramètre → bannière vide. (Les erreurs
+PAR CHAMP, elles, s'affichaient car lues en direct dans le `RenderFragment Content` du parent ré-évalué au
+rendu de l'enfant — seul le cas global était avalé.)
+
+Correctif (modification additive d'un fichier `Stratum.*` épinglé, marqué `// BUG-4 volet A` dans le code) :
+- `src/Common/UI/Components/DeclaredFormPage.razor.cs` (**AJOUTÉ** au bloc CONSIGNED-DRIFT) : le paramètre
+  `MapDomainError` passe de `Action<string>` à `Func<string, string?>`. Il retourne `null` quand le
+  formulaire a routé l'erreur vers un champ (rien à afficher globalement), sinon le **message à afficher**
+  (éventuellement reformulé). Dans le `catch` de `PerformSaveAsync`, ce message non-null passe par
+  `SetGlobalError` — qui invoque l'`EventCallback` `GlobalErrorChanged` (re-rend le parent), garantissant la
+  visibilité. Le chemin succès et le mappage par champ sont INCHANGÉS.
+
+Les 9 formulaires consommateurs adaptent leur `MapError`/`HandleDomainError` (retour `string?` : `null` si
+mappé à un champ, le message sinon — au lieu d'écrire `_globalError` directement, désormais possédé par le
+socle). Huit étaient déjà consignés (§4.20, §4.31–4.35) ; `AdminWebhookForm.razor` (qui reformule un code
+d'erreur en libellé FR) est **AJOUTÉ** au bloc CONSIGNED-DRIFT. Le champ `_globalError` reste la cible du
+`@bind-GlobalError` (renseignée par le socle via le callback). Le baseline n'est PAS régénéré (la dérive est
+absorbée par le bloc `SOCLE-CONSIGNED-DRIFT`). **Vérification** : build solution (0 warning), test bUnit
+ciblé `AdminJobScheduleFormTests.Save_Failure_Without_Current_Company_Shows_A_Visible_Error` (échec VISIBLE,
+contrôle négatif confirmé) + suites `Liakont.Host.Tests.Unit` (1071) et `Stratum.Common.UI.Tests.Unit` (802)
+vertes.
 
 ## 5. ADR du socle hérités
 

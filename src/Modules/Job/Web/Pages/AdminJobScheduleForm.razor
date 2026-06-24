@@ -449,7 +449,9 @@
         });
     }
 
-    private void MapError(string message)
+    // Retourne null si l'erreur est mappée à un champ ; sinon le message à afficher en bannière globale
+    // (le socle possède l'affichage global — BUG-4 volet A).
+    private string? MapError(string message)
     {
         var lower = message.ToLowerInvariant();
         if (lower.Contains("name") || lower.Contains("nom") || lower.Contains("inv-job-005"))
@@ -459,9 +461,11 @@
         else if (lower.Contains("job type") || lower.Contains("type"))
             _jobTypeError = message;
         else
-            // Payload désormais structuré (champs typés) : une erreur de payload/JSON remontée par le serveur
-            // n'a plus de champ unique — surfacée en erreur globale.
-            _globalError = message;
+            // Payload structuré (champs typés) ou échec hors domaine (« Aucune société sélectionnée. ») :
+            // aucun champ dédié → le socle le surface en erreur globale VISIBLE.
+            return message;
+
+        return null;
     }
 
     private void HandleNameInput(ChangeEventArgs e)
