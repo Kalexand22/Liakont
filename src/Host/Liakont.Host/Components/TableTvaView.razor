@@ -604,11 +604,13 @@
 
     private string DescribeDeadRuleReason(string reason) => reason switch
     {
-        // Vocabulaire « Composante » en vertical enchères actif (E2) ; hors vertical, formulation
-        // neutre (la notion n'y est pas mise en avant — un opérateur générique n'a pas le découpage).
+        // PartNotConsulted ne concerne plus que la composante « Adjudication » : « Hors Enchères » (CHECK)
+        // et « Frais » (e-reporting B2C de la marge, B4) sont, elles, consultées (voir ConsultedMappingParts).
+        // Message VRAI et actionnable : on dit OÙ mapper l'adjudication plutôt qu'inciter à supprimer (BUG-3).
+        // Vocabulaire « Composante » en vertical enchères actif (E2) ; hors vertical, formulation neutre.
         "PartNotConsulted" => Model.AuctionVerticalEnabled
-            ? "Composante non consultée par le pipeline (découpage Adjudication / Frais non appliqué)"
-            : "part non consultée par le pipeline (découpage adjudication/frais non appliqué)",
+            ? "Composante « Adjudication » non consultée : pour mapper l'adjudication, utilisez la composante « Hors Enchères »"
+            : "composante non consultée : pour mapper cette ligne, utilisez la composante « Hors Enchères »",
         "RegimeNeverObserved" => "code régime jamais observé dans la source",
         _ => reason,
     };

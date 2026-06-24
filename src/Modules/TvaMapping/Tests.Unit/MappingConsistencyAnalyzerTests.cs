@@ -10,13 +10,14 @@ using Xunit;
 /// <summary>
 /// Contrôle de cohérence du paramétrage TVA (lot FIX03), symétrique du rapport de couverture (TVA03).
 /// Vérifie que les règles MORTES sont signalées (part non consultée, code jamais observé) sans jamais
-/// bloquer — c'est un signal (CLAUDE.md n°3). Les parts consultées reflètent la RÉALITÉ du pipeline
-/// (<c>{Autre}</c> tant que PIP03b est gelé), pas l'activation du vertical (qui ne gouverne que
-/// l'éditeur) ; l'analyseur lui-même reste générique sur l'ensemble consulté qu'on lui fournit.
+/// bloquer — c'est un signal (CLAUDE.md n°3). Les parts consultées reflètent la RÉALITÉ des consommateurs
+/// (<c>{Autre}</c> par le CHECK, <c>{Frais}</c> par B4 e-reporting B2C marge — seule Adjudication reste
+/// exclue), pas l'activation du vertical (qui ne gouverne que l'éditeur) ; l'analyseur lui-même reste
+/// générique sur l'ensemble consulté qu'on lui fournit.
 /// </summary>
 public sealed class MappingConsistencyAnalyzerTests
 {
-    private static readonly MappingPart[] AutreOnly = { MappingPart.Autre };
+    private static readonly MappingPart[] AutreAndFrais = { MappingPart.Autre, MappingPart.Frais };
     private static readonly IReadOnlySet<MappingPart> AutreSet = new HashSet<MappingPart> { MappingPart.Autre };
 
     private static readonly IReadOnlySet<MappingPart> AllPartsSet =
@@ -26,11 +27,12 @@ public sealed class MappingConsistencyAnalyzerTests
     private static readonly string[] ObservedAB = { "R-A", "R-B" };
 
     [Fact]
-    public void PipelineConsulted_IsAutreOnly()
+    public void PipelineConsulted_IsAutreAndFrais()
     {
-        // Le pipeline générique mappe toujours avec Autre (CheckTvaMapping.LinePart, PIP03b gelé) — le
-        // jeu consulté ne dépend PAS de l'activation du vertical enchères.
-        ConsultedMappingParts.PipelineConsulted().Should().BeEquivalentTo(AutreOnly);
+        // Deux consommateurs : CHECK mappe Autre (CheckTvaMapping.LinePart) ; B4 e-reporting B2C marge
+        // mappe Frais (B2cMarginAggregatorTenantJob.ResolveMarginAsync). Adjudication reste exclue. Le
+        // jeu consulté ne dépend PAS de l'activation du vertical enchères (qui ne gouverne que l'éditeur).
+        ConsultedMappingParts.PipelineConsulted().Should().BeEquivalentTo(AutreAndFrais);
     }
 
     [Fact]
@@ -46,6 +48,19 @@ public sealed class MappingConsistencyAnalyzerTests
         dead.SourceRegimeCode.Should().Be("R-A");
         dead.Part.Should().Be(MappingPart.Adjudication);
         dead.Reasons.Should().Equal(DeadRuleReason.PartNotConsulted);
+    }
+
+    [Fact]
+    public void FraisRule_IsNotDead_BecauseB4ConsultsFrais()
+    {
+        // Régression BUG-3 : une règle Frais EST consultée (B4 e-reporting B2C marge) — elle ne doit
+        // JAMAIS être marquée morte (le faux « morte » poussait à supprimer une règle indispensable).
+        var report = Analyze(
+            rules: new[] { Rule("R-A", MappingPart.Frais) },
+            consultedParts: ConsultedMappingParts.PipelineConsulted(),
+            observed: ObservedA);
+
+        report.HasDeadRules.Should().BeFalse();
     }
 
     [Fact]

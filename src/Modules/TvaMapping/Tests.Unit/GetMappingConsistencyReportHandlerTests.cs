@@ -40,10 +40,10 @@ public sealed class GetMappingConsistencyReportHandlerTests
     }
 
     [Fact]
-    public async Task Handle_AdjudicationRule_IsReportedDead_PipelineConsultsAutreOnly()
+    public async Task Handle_AdjudicationRule_IsReportedDead_SinceNoConsumerReadsAdjudication()
     {
-        // Le pipeline ne consulte que la part Autre (PIP03b gelé) : une règle Adjudication est morte,
-        // indépendamment de toute activation du vertical (qui ne gouverne que l'éditeur).
+        // Aucun consommateur ne lit Adjudication (CHECK=Autre, B4=Frais) : une règle Adjudication est
+        // morte, indépendamment de toute activation du vertical (qui ne gouverne que l'éditeur).
         var regimeQueries = new FakeSourceTaxRegimeQueries(new[] { Regime("R-A") });
         var mappingQueries = new FakeTvaMappingQueries(TableDto(Rule("R-A", "Adjudication"), Rule("R-A", "Autre")));
         var handler = CreateHandler(regimeQueries, mappingQueries);
@@ -56,6 +56,21 @@ public sealed class GetMappingConsistencyReportHandlerTests
         dead.SourceRegimeCode.Should().Be("R-A");
         dead.Part.Should().Be("Adjudication");
         dead.Reasons.Should().Equal("PartNotConsulted");
+    }
+
+    [Fact]
+    public async Task Handle_FraisRule_IsNotReportedDead_SinceB4ConsultsFrais()
+    {
+        // Régression BUG-3 : B4 (e-reporting B2C marge) consulte la part Frais — une règle Frais n'est
+        // JAMAIS marquée morte (le faux « morte » poussait à supprimer une règle indispensable).
+        var regimeQueries = new FakeSourceTaxRegimeQueries(new[] { Regime("R-A") });
+        var mappingQueries = new FakeTvaMappingQueries(TableDto(Rule("R-A", "Frais")));
+        var handler = CreateHandler(regimeQueries, mappingQueries);
+
+        var dto = await handler.Handle(new GetMappingConsistencyReportQuery(), CancellationToken.None);
+
+        dto.IsTableConfigured.Should().BeTrue();
+        dto.DeadRules.Should().BeEmpty();
     }
 
     [Fact]

@@ -8,7 +8,7 @@ using Liakont.Modules.TvaMapping.Domain.Entities;
 /// ceux qui ne sont pas mappés, la cohérence part des RÈGLES de la table pour signaler celles qui ne
 /// pourront jamais s'appliquer :
 /// <list type="bullet">
-///   <item>part non consultée par le pipeline du tenant (Adjudication / Frais sans vertical enchères) ;</item>
+///   <item>part non consultée par les consommateurs du tenant (Adjudication — seul CHECK=Autre et B4=Frais consultent) ;</item>
 ///   <item>code régime jamais observé dans la source (faute de frappe probable).</item>
 /// </list>
 ///
