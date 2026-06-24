@@ -1,0 +1,53 @@
+// Table de mapping TVA de DÉMO — tenant VOLONTAIRE (SVV, ventes volontaires aux enchères, dossier 2).
+//
+// CODES RÉGIME RÉELS de la base source EncheresV6_Demo (colonne Regime_tva.code_regime_tva, transportée
+// BRUTE par l'agent depuis ligne_pv.code_regime_tva). Le pipeline mappe TOUJOURS en part « Autre »
+// (CheckTvaMapping.LinePart est une constante = Autre ; le découpage adjudication/frais n'est PAS dérivé
+// du pivot générique — ADR-0004 / F03 §2.3). Une règle en part Adjudication/Frais serait MORTE (FIX03).
+//
+// PÉRIMÈTRE VOLONTAIREMENT MINIMAL (fail-closed, CLAUDE.md n°2/3) : seuls les DEUX régimes tranchés sont
+// mappés —
+//   « 5 » Assujetti 20 %      -> adjudication TAXABLE (catégorie S, 20 %)            F03 §2.1 « 20→S »
+//   « 6 » Non assujetti 20 %  -> RÉGIME DE LA MARGE (enchères B2C)                   F03 §2.3 / §3
+// Tous les AUTRES régimes présents dans la base (1, 2, 3, 7, 8, 9, 0) restent NON mappés : le CHECK les
+// BLOQUE (defaultBehavior=Block) avec un verdict opérateur « régime absent de la table validée ». C'est
+// VOULU : le caractère « marge / hors champ / exonéré » d'un régime non assujetti se tranche
+// régime-par-régime par l'expert-comptable (F03 §3, décision ouverte #1) — jamais deviné par le produit.
+// Karl complète la table en direct dans la console pendant la recette (démontre le workflow opérateur).
+//
+// Régime de la marge (« 6 », décision Karl ancrée F03 §2.3/§2.5 et README de deployments/encheres-demo) :
+// adjudication EXONÉRÉE (catégorie E, VATEX-EU-J = objets de collection, F03 §2.2) ; la TVA porte sur la
+// MARGE (honoraire acheteur TTC + honoraire vendeur TTC), JAMAIS distincte (art. 297 E, F03 §2.3). Le
+// marqueur de déclaration B2C-marge est DÉRIVÉ par la plateforme depuis cette catégorie E+VATEX (jamais
+// posé par l'agent, jamais depuis une heuristique « TVA=0 ») — voir B2cMarginMarking.IsMarginDeclaration.
+//
+// Données STRICTEMENT FICTIVES (base de démo, CLAUDE.md n°7) : aucun client réel. Table NON VALIDÉE
+// (validatedBy marqueur + validatedDate null) : le garde-fou d'envoi (PIP01) refuse tout envoi RÉEL tant
+// que l'expert-comptable ne l'a pas validée dans la console. Import idempotent (jamais d'écrasement).
+{
+  "mappingVersion": "encheres-demo-volontaire-v1",
+  "validatedBy": "Table de DÉMO (codes régime EncheresV6_Demo) — variante enchères volontaires — usage démo uniquement",
+  "validatedDate": null,
+  "defaultBehavior": "Block",
+  "rules": [
+    {
+      "sourceRegimeCode": "5",
+      "label": "Régime 5 « Assujetti 20 % » — adjudication taxable (vente normale)",
+      "part": "Autre",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 20,
+      "note": "Assujetti à taux normal -> catégorie S (F03 §2.1 « 20→S »)."
+    },
+    {
+      "sourceRegimeCode": "6",
+      "label": "Régime 6 « Non assujetti 20 % » — régime de la marge (enchères B2C)",
+      "part": "Autre",
+      "category": "E",
+      "vatex": "VATEX-EU-J",
+      "rateMode": "Fixed",
+      "rateValue": 0,
+      "note": "Déclencheur du régime de la marge (décision Karl, F03 §2.3/§3) : adjudication EXONÉRÉE, la TVA porte sur la marge (honoraires acheteur + vendeur TTC), jamais distincte (art. 297 E)."
+    }
+  ]
+}

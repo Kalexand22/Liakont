@@ -106,3 +106,26 @@
   → E + VATEX-EU-J. Le seed `config/exemples/tenant-seed/encheres/mapping-tva.json` actuel utilise
   `NORMAL/MARGE` + `Adjudication/Frais` (désaligné avec l'adaptateur qui extrait 5/6 et le Check qui mappe en
   Autre). **À aligner en Partie 4** (orchestration démo), hors périmètre du maillon de marquage.
+
+## Partie 4 — Orchestration démo « Enchères » observable (LEAN — décision Karl 2026-06-24)
+Décisions Karl : **lean d'abord** (observabilité via pages existantes /traitements + /documents ; la page
+dédiée des émissions marge = lot suivant) + **tout préparer, STOP avant l'envoi réel SuperPDP** (PA Fake
+en mémoire ; swap SuperPDP documenté). Aucun code C# de prod touché (config/scripts/docs uniquement).
+- [x] **Seed démo 2 tenants** `deployments/encheres-demo/tenant-seed/{volontaire,judiciaire}/` :
+  `tenant-profile.json` (SIREN fictifs **vérifiés non attribués** data.gouv : 976543215 SVV / 960123453 SCP ;
+  `operationCategory: "Mixte"` — requis sinon CHECK bloque tout, sourcé F09 §1), `pa-accounts.json` (Fake
+  Staging, sans secret), `mapping-tva.json` (**codes RÉELS 5→S 20 % / 6→E+VATEX-EU-J en Part.Autre**, F03
+  §2.1/§2.3, NON VALIDÉE → PIP01 actif ; autres régimes bloquent = fail-closed). Résout la dépendance P2.3.
+- [x] **`demo.ps1`** (ASCII-only, convention du dossier) : `source` (CREATE DB + import idempotent + SIREN +
+  **login lecture seule `liakont_encheres_ro` db_datareader**, n°5), `agent-config` (génère 2 agent.json
+  dossier 2/1 + schema enc, secrets en placeholders à chiffrer DPAPI sur le poste agent), `status`, `help`.
+  Testé de bout en bout sur la base montée (status/source/agent-config OK).
+- [x] **README runbook** : parcours complet (plateforme bucodi reset → source → 2 tenants console → mapping +
+  nature Mixte + PA Fake + SIREN + agent → run → **déclencher B4 via l'admin des planifications** (cadence
+  déploiement, cron null) → observer) + section envoi RÉEL SuperPDP séparée (sur décision).
+- [x] `.gitignore` : `.secrets.local.json` + `agent/` (anti-fuite secrets, n°10).
+- [x] codex-review (engine claude) : round 1 = **1 P1** (faux-vert : `operationCategory: null` → CHECK bloque
+  tout → B4 agrège 0) **corrigé** (Mixte dans les 2 profils + étape runbook) ; **round 2 = CLEAN**.
+- Reste (hors lot, lean) : page console dédiée des émissions marge ; provisioning 100 % automatisé
+  (bloqué par modèle console-driven : tenants/secrets/clé agent en console par conception) ; flux factures
+  clients + notes hono (#7) ; lot PDF GED ; envoi réel SuperPDP (décision Karl).

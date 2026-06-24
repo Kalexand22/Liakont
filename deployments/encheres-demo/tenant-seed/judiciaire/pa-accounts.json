@@ -1,0 +1,8 @@
+[
+  {
+    "pluginType": "Fake",
+    "environment": "Staging",
+    "accountIdentifiers": "{ \"accountId\": \"ENCHERES-DEMO-JUDICIAIRE-0001\" }",
+    "apiKey": "${PA_API_KEY_FAKE_STAGING}"
+  }
+]

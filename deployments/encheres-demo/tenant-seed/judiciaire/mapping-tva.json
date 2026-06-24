@@ -1,0 +1,41 @@
+// Table de mapping TVA de DÉMO — tenant JUDICIAIRE (SCP, ventes judiciaires / criée, dossier 1).
+//
+// Même contrat que la variante volontaire (voir ../volontaire/mapping-tva.json pour le détail des
+// ancrages) : codes régime RÉELS de EncheresV6_Demo, mappés en part « Autre » (CheckTvaMapping.LinePart
+// constante). La criée est un flux B2B (acheteurs assujettis identifiés) : l'aiguillage est
+// DOCUMENT-DRIVEN (un acheteur à SIREN part en facture électronique B2B), la table TVA ne fait que
+// classer la catégorie de l'adjudication — elle ne décide PAS du canal.
+//
+// Périmètre minimal fail-closed (CLAUDE.md n°2/3) : seuls les deux régimes tranchés sont mappés —
+//   « 5 » Assujetti 20 %      -> S, 20 %                 F03 §2.1 « 20→S »
+//   « 6 » Non assujetti 20 %  -> régime de la marge      F03 §2.3 / §3 (décision Karl)
+// Les autres régimes (1, 2) restent NON mappés -> CHECK BLOQUE (defaultBehavior=Block), à trancher par
+// l'expert-comptable en console. Données FICTIVES (CLAUDE.md n°7), table NON VALIDÉE (PIP01 suspend les
+// envois réels). Import idempotent.
+{
+  "mappingVersion": "encheres-demo-judiciaire-v1",
+  "validatedBy": "Table de DÉMO (codes régime EncheresV6_Demo) — variante ventes judiciaires — usage démo uniquement",
+  "validatedDate": null,
+  "defaultBehavior": "Block",
+  "rules": [
+    {
+      "sourceRegimeCode": "5",
+      "label": "Régime 5 « Assujetti 20 % » — adjudication taxable (vente normale)",
+      "part": "Autre",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 20,
+      "note": "Assujetti à taux normal -> catégorie S (F03 §2.1 « 20→S »)."
+    },
+    {
+      "sourceRegimeCode": "6",
+      "label": "Régime 6 « Non assujetti 20 % » — régime de la marge",
+      "part": "Autre",
+      "category": "E",
+      "vatex": "VATEX-EU-J",
+      "rateMode": "Fixed",
+      "rateValue": 0,
+      "note": "Régime de la marge (décision Karl, F03 §2.3/§3) : adjudication exonérée, TVA sur la marge, jamais distincte (art. 297 E)."
+    }
+  ]
+}
