@@ -174,10 +174,13 @@ internal static class CheckTvaMapping
     }
 
     /// <summary>
-    /// Pose la catégorie UNCL5305 et le VATEX issus du mapping sur l'UNIQUE ventilation de la ligne. Les
-    /// montants et le taux source ne sont JAMAIS recalculés (le pivot ne calcule rien — F01-F02 §3.7 règle 2 ;
-    /// la résolution d'un taux ComputedFromSource est un geste d'envoi aval, PIP01c). Seule la classification
-    /// (catégorie/VATEX), produit du mapping plateforme, est ajoutée.
+    /// Pose la catégorie UNCL5305, le VATEX et le TAUX issus du mapping sur l'UNIQUE ventilation de la ligne. Les
+    /// MONTANTS source ne sont JAMAIS recalculés (le pivot ne calcule rien — F01-F02 §3.7 règle 2). Le TAUX porté
+    /// par l'agent PRIME ; à défaut (l'agent ne porte pas toujours le taux, R3), on applique le taux FIXE déclaré
+    /// par la table validée — il est CONNU au CHECK, et une catégorie comme <c>S</c> exige un taux strictement
+    /// positif (sinon le document est bloqué en aval). Un taux <c>ComputedFromSource</c> reste <c>null</c> ici
+    /// (<see cref="TvaLineMappingResult.Rate"/> nul) : sa résolution est différée à l'envoi (PIP01c). Aucune
+    /// valeur n'est inventée (CLAUDE.md n°2) : le taux fixe vient de la table validée, pas d'une déduction.
     /// </summary>
     private static PivotLineDto EnrichLine(PivotLineDto line, TvaLineMappingResult result)
     {
@@ -186,7 +189,7 @@ internal static class CheckTvaMapping
 
         var enrichedTax = new PivotLineTaxDto(
             taxAmount: originalTax.TaxAmount,
-            rate: originalTax.Rate,
+            rate: originalTax.Rate ?? result.Rate,
             categoryCode: category,
             vatexCode: result.Vatex);
 

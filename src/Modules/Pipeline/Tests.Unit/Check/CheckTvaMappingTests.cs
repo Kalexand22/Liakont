@@ -81,6 +81,51 @@ public sealed class CheckTvaMappingTests
     }
 
     [Fact]
+    public void Evaluate_TaxableLine_Without_Source_Rate_Applies_Fixed_Mapping_Rate()
+    {
+        // L'agent porte le MONTANT de TVA mais PAS toujours le taux (rate null — il ne mappe pas la TVA, R3).
+        // La table validée déclare un taux FIXE (20 %) pour ce régime → le CHECK applique ce taux à la ligne
+        // enrichie. Sans cela, une catégorie S sans taux serait bloquée à tort en aval (« taux absent »), alors
+        // que le taux est CONNU de la table validée (CLAUDE.md n°2 : lu de la table, jamais inventé).
+        var regimes = new[] { "NORMAL" };
+        var line = new PivotLineDto(
+            description: "Adjudication taxable",
+            netAmount: 120.00m,
+            sourceRegimeCodes: regimes,
+            taxes: new[] { new PivotLineTaxDto(taxAmount: 24.00m, rate: null) });
+        var pivot = CheckTestData.BuildPivot(new[] { line }, 120.00m, 24.00m);
+        var plan = CheckTvaMapping.BuildPlan(pivot);
+        var mapping = CheckTestData.MappedResult(version: "cmp-v1");
+
+        var evaluation = CheckTvaMapping.Evaluate(pivot, plan, mapping);
+
+        evaluation.IsBlocked.Should().BeFalse();
+        var enrichedTax = evaluation.EnrichedDocument!.Lines[0].Taxes[0];
+        enrichedTax.CategoryCode.Should().Be(VatCategory.S);
+        enrichedTax.Rate.Should().Be(20m, "taux source absent → taux FIXE de la table validée appliqué à la ligne");
+        enrichedTax.TaxAmount.Should().Be(24.00m, "le CHECK ne recalcule jamais le montant de TVA source");
+    }
+
+    [Fact]
+    public void Evaluate_Line_With_Source_Rate_Keeps_Agent_Rate_Over_Mapping()
+    {
+        // Quand l'agent porte DÉJÀ un taux, il PRIME : le mapping n'est qu'un repli pour les lignes sans taux.
+        var regimes = new[] { "NORMAL" };
+        var line = new PivotLineDto(
+            description: "Adjudication taxable taux porté",
+            netAmount: 120.00m,
+            sourceRegimeCodes: regimes,
+            taxes: new[] { new PivotLineTaxDto(taxAmount: 24.00m, rate: 5.5m) });
+        var pivot = CheckTestData.BuildPivot(new[] { line }, 120.00m, 24.00m);
+        var plan = CheckTvaMapping.BuildPlan(pivot);
+        var mapping = CheckTestData.MappedResult(version: "cmp-v1");
+
+        var evaluation = CheckTvaMapping.Evaluate(pivot, plan, mapping);
+
+        evaluation.EnrichedDocument!.Lines[0].Taxes[0].Rate.Should().Be(5.5m, "le taux porté par l'agent prime sur le repli mapping");
+    }
+
+    [Fact]
     public void Evaluate_Unmapped_Line_Returns_Blocked_With_Engine_Reason()
     {
         var pivot = CheckTestData.SingleLinePivot(regimeCode: "INCONNU");
