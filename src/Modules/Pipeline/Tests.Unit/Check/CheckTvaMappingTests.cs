@@ -61,6 +61,47 @@ public sealed class CheckTvaMappingTests
     }
 
     [Fact]
+    public void BuildPlan_Line_With_No_Regime_Code_Blocks_With_Source_Absence_Message_Not_Bg30()
+    {
+        // BUG-10 : une ligne SANS code régime TVA en source (ligne_pv.code_regime_tva NULL, doc 100264 lots 29/30)
+        // est une ABSENCE de donnée source — PAS une scission multi-régime BG-30. Le message doit nommer la VRAIE
+        // cause et ne JAMAIS promettre une « évolution ultérieure » (aveu de non-couverture, à bannir).
+        var line = new PivotLineDto(
+            description: "Adjudication lot 29",
+            netAmount: 100m,
+            sourceRegimeCodes: Array.Empty<string>(),
+            taxes: new[] { new PivotLineTaxDto(0m, null) });
+        var pivot = CheckTestData.BuildPivot(new[] { line }, 100m, 0m);
+
+        var plan = CheckTvaMapping.BuildPlan(pivot);
+
+        plan.Requests.Should().BeEmpty();
+        var reason = plan.ShapeBlockReasons.Should().ContainSingle().Which;
+        reason.Should().Contain("aucun code régime TVA en source", "le motif nomme la vraie cause (absence en source)");
+        reason.Should().Contain("corrigez la donnée source", "l'action corrective est concrète et auto-suffisante");
+        reason.Should().NotContain("évolution ultérieure", "aucun aveu de non-couverture affiché à l'opérateur (BUG-10)");
+        reason.Should().NotContain("BG-30", "ce n'est pas une scission multi-régime mais une absence de code régime");
+    }
+
+    [Fact]
+    public void BuildPlan_ShapeBlockReasons_Never_Promise_Future_Pipeline_Evolution()
+    {
+        // Régression BUG-10 : la « scission BG-30 » reste un motif valide pour le cas multi-codes, mais SANS la
+        // promesse « ce cas sera couvert par une évolution ultérieure du pipeline ».
+        var regimes = new[] { "A", "B" };
+        var line = new PivotLineDto(
+            description: "Ligne ambiguë",
+            netAmount: 100m,
+            sourceRegimeCodes: regimes,
+            taxes: new[] { new PivotLineTaxDto(20m, 20m) });
+        var pivot = CheckTestData.BuildPivot(new[] { line }, 100m, 20m);
+
+        var plan = CheckTvaMapping.BuildPlan(pivot);
+
+        plan.ShapeBlockReasons.Should().ContainSingle().Which.Should().NotContain("évolution ultérieure");
+    }
+
+    [Fact]
     public void Evaluate_All_Mapped_Enriches_Category_And_Vatex_And_Keeps_Source_Amounts()
     {
         var pivot = CheckTestData.SingleLinePivot(regimeCode: "NORMAL", net: 120.00m, tax: 24.00m, rate: 20m);

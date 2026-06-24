@@ -58,8 +58,8 @@ public static class TvaMapper
                 $"Régime de TVA source « {request.SourceRegimeCode} » (part « {request.Part} ») absent de la " +
                 $"table de mapping du tenant (version « {table.MappingVersion} ») : document bloqué " +
                 "(defaultBehavior=block, F03 §4.1) — aucune catégorie n'est devinée. Action opérateur : " +
-                "ajoutez une règle pour ce régime dans la console (Paramétrage › TVA), puis faites " +
-                "revalider la table par l'expert-comptable avant tout envoi.");
+                "ajoutez une règle pour ce régime dans la console (Paramétrage › TVA), puis revalidez " +
+                "la table avant tout envoi.");
         }
 
         if (!FlagsSatisfied(rule.SourceFlags, request.SourceFlags))
@@ -69,8 +69,8 @@ public static class TvaMapper
                 $"de la table (version « {table.MappingVersion} ») existe mais ses conditions de flags source " +
                 $"ne sont pas satisfaites par le document (flags requis : {DescribeFlags(rule.SourceFlags)}). " +
                 "Document bloqué (F03 §3) — aucune catégorie n'est devinée. Action opérateur : vérifiez la " +
-                "règle (flags source attendus) dans la console (Paramétrage › TVA), puis faites revalider " +
-                "la table par l'expert-comptable.");
+                "règle (flags source attendus) dans la console (Paramétrage › TVA), puis revalidez " +
+                "la table.");
         }
 
         // Taux : figé pour Fixed ; pour ComputedFromSource il est résolu en aval (pipeline PIP01) à

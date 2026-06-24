@@ -41,16 +41,15 @@ internal static class DocumentCheckEvaluator
 
     /// <summary>Motif de blocage de la garde-fou production (item PIP01b §3). NE JAMAIS affaiblir (CLAUDE.md n°3, P1).</summary>
     private const string ProductionGuardReason =
-        "Table de mapping TVA non validée — validation par l'expert-comptable requise. Un compte Plateforme " +
-        "Agréée actif est en environnement « Production » : aucun document n'est transmis tant que la table TVA " +
-        "n'est pas validée (table d'exemple ou modifiée non revalidée). Action opérateur : faites valider la " +
-        "table de mapping TVA (Paramétrage › TVA) par l'expert-comptable.";
+        "Table de mapping TVA non validée. Un compte Plateforme Agréée actif est en environnement « Production » : " +
+        "aucun document n'est transmis tant que la table TVA n'est pas validée (table d'exemple ou modifiée non " +
+        "revalidée). Action opérateur : validez la table de mapping TVA (Paramétrage › TVA).";
 
     /// <summary>Motif de blocage quand aucune table de mapping n'existe pour le tenant.</summary>
     private const string TableAbsentReason =
         "Aucune table de mapping TVA n'est définie pour ce tenant : document bloqué (aucune catégorie n'est " +
-        "devinée). Action opérateur : créez la table dans la console (Paramétrage › TVA), puis faites-la valider " +
-        "par l'expert-comptable avant tout envoi.";
+        "devinée). Action opérateur : créez puis validez la table dans la console (Paramétrage › TVA) avant tout " +
+        "envoi.";
 
     /// <summary>
     /// Motif de blocage quand la nature d'opération du tenant n'est pas paramétrée (ADR-0031 amendé : la nature
@@ -61,21 +60,6 @@ internal static class DocumentCheckEvaluator
         "La nature d'opération (livraison de biens / prestation de services / mixte) n'est pas paramétrée pour ce " +
         "tenant : document bloqué (aucune nature n'est devinée). Action opérateur : renseignez la nature " +
         "d'opération dans la console (Paramétrage › Fiscal).";
-
-    /// <summary>
-    /// Motif de blocage d'un document à la FORME d'une marge B2C (honoraires + aucune TVA distincte) que la
-    /// table validée NE classe PAS au régime de la marge (CLAUDE.md n°2/3, F03 §6 décision #1). Transmis par la
-    /// voie document, ses honoraires (DONNÉE DE CALCUL, hors lignes) seraient perdus — « bloquer plutôt qu'envoyer
-    /// faux ». NE PAS affaiblir : la cause est un mapping ambigu (exonéré non reconnu marge) ou un acheteur
-    /// professionnel sous régime exonéré, jamais devinée.
-    /// </summary>
-    private const string UnclassifiedMarginReason =
-        "ce bordereau d'enchères porte des honoraires (commission acheteur/vendeur) et aucune TVA distincte, mais " +
-        "la table de mapping validée ne le classe PAS au régime de la marge (adjudication exonérée sans code de " +
-        "marge VATEX-EU-F/I/J, ou acheteur professionnel sous régime exonéré). Transmis tel quel, les honoraires " +
-        "seraient perdus (marge sous-déclarée). Document bloqué. Action opérateur : faites valider par " +
-        "l'expert-comptable le mapping du régime de cette adjudication (régime de la marge → catégorie E + " +
-        "VATEX-EU-F/I/J), ou vérifiez la donnée source (acheteur professionnel → facture B2B).";
 
     /// <summary>
     /// Évalue un document : mapping TVA → garde-fou production → validation. Les services (mapping,
@@ -161,7 +145,8 @@ internal static class DocumentCheckEvaluator
         // document taxable (TVA distincte) garde sa voie nominale. Le marqueur est dérivé dans CheckTvaMapping.
         if (B2cMarginMarking.LooksLikeUnclassifiedMargin(evaluation.EnrichedDocument!))
         {
-            return CheckDecision.Blocked(WithDocumentNumber(documentNumber, UnclassifiedMarginReason));
+            return CheckDecision.Blocked(
+                WithDocumentNumber(documentNumber, BuildUnclassifiedMarginReason(evaluation.EnrichedDocument!)));
         }
 
         var validation = services.GetRequiredService<IValidationService>();
@@ -211,6 +196,86 @@ internal static class DocumentCheckEvaluator
         }
 
         return CheckDecision.Ready(evaluation.MappingVersion, evaluation.Ventilation!, pivot.OperationCategory.Value);
+    }
+
+    /// <summary>
+    /// Motif de blocage d'un document à la FORME d'une marge B2C (honoraires + aucune TVA distincte) que la
+    /// table validée NE classe PAS au régime de la marge (CLAUDE.md n°2/3, F03 §6 décision #1). Transmis par la
+    /// voie document, ses honoraires (DONNÉE DE CALCUL, hors lignes) seraient perdus — « bloquer plutôt qu'envoyer
+    /// faux ». Diagnostiquable : le message CITE les FAITS lus sur le document enrichi (code régime source par
+    /// ligne + catégorie/VATEX/taux obtenus du mapping, et le profil RÉEL de l'acheteur), jamais des hypothèses
+    /// génériques — l'opérateur voit l'écart sans ouvrir le code ni la base. Aucun fait n'est deviné (CLAUDE.md n°2).
+    /// </summary>
+    /// <param name="enriched">Le document enrichi par le mapping TVA (lignes portant catégorie/VATEX/taux).</param>
+    private static string BuildUnclassifiedMarginReason(PivotDocumentDto enriched)
+    {
+        var lignes = new List<string>(enriched.Lines.Count);
+        for (var i = 0; i < enriched.Lines.Count; i++)
+        {
+            var line = enriched.Lines[i];
+            var regimes = line.SourceRegimeCodes.Count == 0
+                ? "aucun"
+                : string.Join(", ", line.SourceRegimeCodes);
+            var tax = line.Taxes.Count == 1 ? line.Taxes[0] : null;
+            var categorie = tax?.CategoryCode?.ToString() ?? "non résolue";
+            var vatex = string.IsNullOrWhiteSpace(tax?.VatexCode) ? "aucun" : tax!.VatexCode!;
+            var taux = tax?.Rate is { } rate
+                ? string.Create(CultureInfo.InvariantCulture, $"{rate} %")
+                : "non résolu";
+            var detail = string.Create(
+                CultureInfo.InvariantCulture,
+                $"ligne {i + 1} (« {line.Description} ») : régime source {regimes} → catégorie {categorie}, VATEX {vatex}, taux {taux}");
+            lignes.Add(detail);
+        }
+
+        var mappingObtenu = string.Join(" ; ", lignes);
+        var acheteur = DescribeBuyer(enriched.Customer);
+        return
+            "ce bordereau d'enchères porte des honoraires (commission acheteur/vendeur) et aucune TVA distincte, " +
+            "mais la table de mapping validée ne le classe PAS au régime de la marge (l'attendraient : catégorie E " +
+            $"+ VATEX-EU-F/I/J par ligne). Mapping obtenu : {mappingObtenu}. Acheteur lu : {acheteur}. Transmis " +
+            "tel quel, les honoraires seraient perdus (marge sous-déclarée). Document bloqué. Action opérateur : " +
+            "si c'est bien une marge B2C, complétez/corrigez la table de mapping TVA (Paramétrage › TVA) pour " +
+            "mapper ce ou ces régimes source vers catégorie E + VATEX-EU-F/I/J ; si l'acheteur est un " +
+            "professionnel, corrigez la donnée source (le document relève alors d'une facture B2B).";
+    }
+
+    /// <summary>
+    /// Décrit FACTUELLEMENT l'acheteur lu sur le document (indices professionnels réellement présents, ou
+    /// « particulier » si aucun) — pour citer le FAIT dans le motif de blocage, jamais une hypothèse. Champs du
+    /// contrat pivot uniquement (frontière P1) : SIREN / SIRET / n° TVA / indice société brut.
+    /// </summary>
+    private static string DescribeBuyer(PivotPartyDto? buyer)
+    {
+        if (buyer is null)
+        {
+            return "aucun acheteur identifié";
+        }
+
+        var indices = new List<string>();
+        if (!string.IsNullOrWhiteSpace(buyer.Siren))
+        {
+            indices.Add($"SIREN {buyer.Siren}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(buyer.Siret))
+        {
+            indices.Add($"SIRET {buyer.Siret}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(buyer.VatNumber))
+        {
+            indices.Add($"n° TVA {buyer.VatNumber}");
+        }
+
+        if (buyer.IsCompanyHint)
+        {
+            indices.Add("indice société");
+        }
+
+        return indices.Count == 0
+            ? "particulier (aucun indice professionnel : ni SIREN, ni SIRET, ni n° TVA, ni indice société)"
+            : $"professionnel ({string.Join(", ", indices)})";
     }
 
     /// <summary>

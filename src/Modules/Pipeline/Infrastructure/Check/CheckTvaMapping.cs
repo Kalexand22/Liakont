@@ -53,12 +53,7 @@ internal static class CheckTvaMapping
 
             if (line.SourceRegimeCodes.Count != 1 || line.Taxes.Count != 1)
             {
-                shapeBlockReasons.Add(
-                    $"{LinePrefix(i, line)} porte {line.SourceRegimeCodes.Count} code(s) régime et " +
-                    $"{line.Taxes.Count} ventilation(s) TVA : l'association régime → ventilation n'est pas " +
-                    "déterminée par une règle sourcée (scission EN 16931 BG-30 / ADR-0004 D3-1 non couverte par " +
-                    "le contrôle V1) — document bloqué (aucune association devinée). Action opérateur : vérifiez " +
-                    "la donnée source de cette ligne ; ce cas sera couvert par une évolution ultérieure du pipeline.");
+                shapeBlockReasons.Add(ShapeBlockReason(i, line));
                 continue;
             }
 
@@ -229,6 +224,36 @@ internal static class CheckTvaMapping
             isB2cReportingDeclaration: isB2cReportingDeclaration,
             sellerFees: pivot.SellerFees,
             buyerFees: pivot.BuyerFees);
+    }
+
+    /// <summary>
+    /// Motif de blocage d'une ligne hors forme V1 (pas exactement 1 code régime ET 1 ventilation), rédigé
+    /// d'après le FAIT lu sur la ligne (jamais une hypothèse). Deux causes distinctes, message vrai pour chacune :
+    /// <list type="bullet">
+    ///   <item>AUCUN code régime TVA en source (donnée source incomplète) — le régime n'est jamais deviné
+    ///   (CLAUDE.md n°2) ; l'action corrective est de compléter la donnée source.</item>
+    ///   <item>PLUSIEURS codes régime et/ou ventilations sur une même ligne — l'association d'un code régime à
+    ///   une ventilation TVA particulière n'est pas tranchée par une règle sourcée (scission EN 16931 BG-30 /
+    ///   ADR-0004 D3-1) ; le document est bloqué (aucune association devinée).</item>
+    /// </list>
+    /// Aucune promesse d'« évolution ultérieure » (aveu de non-couverture affiché à l'opérateur, à bannir).
+    /// </summary>
+    private static string ShapeBlockReason(int index, PivotLineDto line)
+    {
+        if (line.SourceRegimeCodes.Count == 0)
+        {
+            return
+                $"{LinePrefix(index, line)} ne porte aucun code régime TVA en source : le régime de TVA est absent " +
+                "de la donnée source de cette ligne — document bloqué (aucun régime n'est deviné). Action " +
+                "opérateur : corrigez la donnée source pour que cette ligne porte son code régime TVA.";
+        }
+
+        return
+            $"{LinePrefix(index, line)} porte {line.SourceRegimeCodes.Count} code(s) régime et " +
+            $"{line.Taxes.Count} ventilation(s) TVA : l'association régime → ventilation n'est pas déterminée par " +
+            "une règle sourcée (scission EN 16931 BG-30 / ADR-0004 D3-1) — document bloqué (aucune association " +
+            "devinée). Action opérateur : corrigez la donnée source pour que cette ligne porte un seul code " +
+            "régime et une seule ventilation de TVA.";
     }
 
     private static string LinePrefix(int index, PivotLineDto line) =>
