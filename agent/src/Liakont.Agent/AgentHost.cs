@@ -16,18 +16,28 @@ using Liakont.Agent.Core.Logging;
 /// </summary>
 internal sealed class AgentHost : IDisposable
 {
+    // Le heartbeat est léger (lecture seule + un POST) : à l'arrêt on lui laisse un court budget, puis on
+    // donne tout le reste de la grâce au cycle d'extraction pour qu'un run en cours se termine (F12 §2.2).
+    // Exposé en secondes pour que le service l'INTÈGRE à son annonce d'arrêt au SCM (sinon l'arrêt
+    // séquentiel heartbeat-puis-run pourrait consommer toute la marge annoncée et risquer un kill SCM).
+    internal const int HeartbeatStopGraceSeconds = 5;
+
     // Le cycle du service acquiert le MÊME verrou inter-process (mutex par instance) que la commande CLI
     // `run` : un run de diagnostic lancé pendant que le service tourne ne s'exécute pas en parallèle (double
     // extraction/push + contention sur la file SQLite). Verrou déjà détenu → cycle SAUTÉ, le prochain tick
     // réessaiera (codex P2).
     private static readonly TimeSpan RunLockAcquireTimeout = TimeSpan.FromSeconds(2);
 
+    private static readonly TimeSpan HeartbeatStopGrace = TimeSpan.FromSeconds(HeartbeatStopGraceSeconds);
+
     private readonly AgentBackgroundRunner _runner;
+    private readonly AgentBackgroundRunner? _heartbeatRunner;
     private readonly IDisposable? _composed;
 
-    private AgentHost(AgentBackgroundRunner runner, IDisposable? composed)
+    private AgentHost(AgentBackgroundRunner runner, AgentBackgroundRunner? heartbeatRunner, IDisposable? composed)
     {
         _runner = runner;
+        _heartbeatRunner = heartbeatRunner;
         _composed = composed;
     }
 
@@ -46,11 +56,24 @@ internal sealed class AgentHost : IDisposable
         // muette avec une config/un environnement fautifs — CLAUDE.md n°3).
         Action<CancellationToken> runCycle;
         ComposedRunCycle? composed = null;
+        AgentBackgroundRunner? heartbeatRunner = null;
         try
         {
             composed = AgentRunComposition.Build(log);
             ComposedRunCycle built = composed;
             runCycle = token => RunWithLock(built, log, token);
+
+            // Heartbeat périodique (AGT03 §1, F12 §2.5) : émis à CADENCE PROPRE (heartbeatMinutes) et
+            // INDÉPENDAMMENT des runs d'extraction (« même hors run »). Il ne prend PAS le verrou de run
+            // (lecture seule, léger), donc un run d'extraction en cours ne le bloque pas. Le rapporteur ne
+            // lève jamais (F12 §2.5) — un échec réseau est un WARN local, jamais une auto-alerte agent. Le
+            // premier battement part dès le démarrage (l'hôte de fond exécute le délégué avant la 1re attente),
+            // si bien que l'agent communique dès le 1er démarrage automatique, sans Restart-Service (RB16).
+            heartbeatRunner = new AgentBackgroundRunner(
+                _ => built.Heartbeat.SendHeartbeat(),
+                built.HeartbeatInterval,
+                log,
+                threadName: "LiakontAgentHeartbeat");
         }
         catch (Exception ex)
         {
@@ -62,15 +85,24 @@ internal sealed class AgentHost : IDisposable
         }
 
         var runner = new AgentBackgroundRunner(runCycle, TimeSpan.FromMinutes(1), log);
-        return new AgentHost(runner, composed);
+        return new AgentHost(runner, heartbeatRunner, composed);
     }
 
-    public void Start() => _runner.Start();
+    public void Start()
+    {
+        _heartbeatRunner?.Start();
+        _runner.Start();
+    }
 
-    public bool Stop(TimeSpan gracePeriod) => _runner.Stop(gracePeriod);
+    public bool Stop(TimeSpan gracePeriod)
+    {
+        _heartbeatRunner?.Stop(HeartbeatStopGrace);
+        return _runner.Stop(gracePeriod);
+    }
 
     public void Dispose()
     {
+        _heartbeatRunner?.Dispose();
         _runner.Dispose();
         _composed?.Dispose();
     }

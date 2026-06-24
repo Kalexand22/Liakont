@@ -44,8 +44,11 @@ internal sealed class AgentService : ServiceBase
     {
         _log?.Info("Service Liakont Agent — arrêt demandé, attente de la fin du run en cours.");
 
-        // Prévenir le SCM que l'arrêt peut prendre du temps (attente d'un run d'extraction en cours).
-        RequestAdditionalTime((GraceSeconds + 5) * 1000);
+        // Prévenir le SCM que l'arrêt peut prendre du temps. L'hôte arrête d'abord le heartbeat (au plus
+        // HeartbeatStopGraceSeconds) PUIS attend la fin du run d'extraction en cours (au plus GraceSeconds) :
+        // on annonce la somme des deux + 5 s de coussin (jonction de thread, journalisation) pour ne jamais
+        // se faire tuer par le SCM pile à la frontière.
+        RequestAdditionalTime((GraceSeconds + AgentHost.HeartbeatStopGraceSeconds + 5) * 1000);
 
         bool idle = _host?.Stop(TimeSpan.FromSeconds(GraceSeconds)) ?? true;
         if (!idle)
