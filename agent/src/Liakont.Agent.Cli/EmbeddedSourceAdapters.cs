@@ -22,7 +22,7 @@ internal static class EmbeddedSourceAdapters
     /// <summary>Noms (SourceName) des adaptateurs source embarqués reconnus par check-config.</summary>
     public static string[] Names() => new[]
     {
-        new EncheresV6Extractor().SourceName,
+        EncheresV6ExtractorFactory.AdapterName,
         DemoErpAExtractorFactory.AdapterName,
         DemoErpBExtractorFactory.AdapterName,
     };
@@ -63,8 +63,13 @@ internal static class EmbeddedSourceAdapters
             return DemoErpBExtractorFactory.Create(config, protector, log);
         }
 
+        if (string.Equals(adapter, EncheresV6ExtractorFactory.AdapterName, StringComparison.OrdinalIgnoreCase))
+        {
+            return EncheresV6ExtractorFactory.Create(config, protector, log);
+        }
+
         throw new AgentConfigException(
-            $"L'adaptateur « {adapter} » n'est pas câblé au cycle d'extraction du service dans cette version "
-            + "(AGT02 couvre DemoErpA et DemoErpB ; EncheresV6 sera câblé avec son lot ADP). Vérifiez extraction.adapter.");
+            $"L'adaptateur « {adapter} » n'est pas câblé au cycle d'extraction du service dans cette version. "
+            + "Vérifiez extraction.adapter (EncheresV6, DemoErpA ou DemoErpB).");
     }
 }

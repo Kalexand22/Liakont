@@ -51,7 +51,7 @@ public class AgentBoundaryTests
         {
             typeof(AgentContractVersion).Assembly,
             typeof(IExtractor).Assembly,
-            typeof(EncheresV6Extractor).Assembly,
+            typeof(PervasiveExtractor).Assembly,
             typeof(Liakont.Agent.Adapters.DemoErpA.DemoErpAExtractor).Assembly,
             typeof(Liakont.Agent.Adapters.DemoErpB.DemoErpBExtractor).Assembly,
         };

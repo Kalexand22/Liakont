@@ -4,15 +4,16 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using Liakont.Agent.Adapters.EncheresV6;
+using Liakont.Agent.Core.Extraction;
 
 /// <summary>
 /// Connexion ADO.NET ESPIONNE pour prouver la LECTURE SEULE STRICTE du <see cref="PervasiveExtractor"/>
 /// (acceptance ADP02 : « le test intercepte TOUTES les commandes émises et échoue si une commande
 /// non-SELECT, une transaction d'écriture ou un verrou est émis »). Chaque commande exécutée est
 /// enregistrée ; toute tentative d'écriture (ExecuteNonQuery, BeginTransaction) est comptée ou bloquée.
-/// Sert aussi de fabrique (<see cref="IEncheresV6ConnectionFactory"/>) renvoyant elle-même.
+/// Sert aussi de fabrique (<see cref="ISourceConnectionFactory"/>) renvoyant elle-même.
 /// </summary>
-internal sealed class RecordingConnection : IDbConnection, IEncheresV6ConnectionFactory
+internal sealed class RecordingConnection : IDbConnection, ISourceConnectionFactory
 {
     private readonly IReadOnlyList<IReadOnlyDictionary<string, object?>> _documentRows;
     private readonly Func<string, object?> _scalarResolver;

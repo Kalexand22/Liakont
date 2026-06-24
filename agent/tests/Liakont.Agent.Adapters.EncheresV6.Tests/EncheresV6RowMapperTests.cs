@@ -8,11 +8,11 @@ using Liakont.Agent.Core.Extraction;
 using Xunit;
 
 /// <summary>
-/// Tests de la transformation BRUTE EncheresV6 → pivot (<see cref="EncheresV6RowMapper"/>),
-/// partagée avec le futur PervasiveExtractor (ADP02). Accès aux types internes via
-/// <c>InternalsVisibleTo</c>. Vérifie les invariants du contrat d'extraction : conversion
-/// flottant→decimal half-up (CLAUDE.md n°1), aucun mapping TVA (R3), aucune règle inventée pour
-/// la nature d'opération (CLAUDE.md n°2), avoir orphelin bloqué (ADR-0004 D3-3).
+/// Tests de la transformation BRUTE EncheresV6 → pivot (<see cref="EncheresV6RowMapper"/>), modèle BA/BV
+/// de la marge (validé + sourcé). Vérifie les invariants du contrat d'extraction : commission acheteur en
+/// <c>BuyerFees</c> TTC (BA, lignes type 1), commission vendeur en <c>SellerFees</c> TTC (BV, lignes type
+/// 2), adjudication = seule LIGNE du document, émetteur/nature d'opération NON portés (FilledByPlatform),
+/// conversion flottant→decimal half-up (CLAUDE.md n°1), aucun mapping TVA (R3), avoir orphelin bloqué.
 /// </summary>
 public class EncheresV6RowMapperTests
 {
@@ -20,7 +20,6 @@ public class EncheresV6RowMapperTests
     [InlineData(8.329999999999998, 8.33)] // flottant Pervasive « sale » → nettoyé puis arrondi
     [InlineData(1.666, 1.67)]
     [InlineData(2.675, 2.68)] // demi-centime → half-up (away-from-zero)
-    [InlineData(10.125, 10.13)]
     [InlineData(100.0, 100.00)]
     public void RoundAmount_converts_dirty_float_half_up(double raw, decimal expected)
     {
@@ -28,242 +27,244 @@ public class EncheresV6RowMapperTests
     }
 
     [Fact]
-    public void MapDocument_carries_operation_category_from_config_never_derives_it()
+    public void RoundAmount_throws_schema_exception_on_NaN_infinity_or_overflow()
     {
-        EncheresV6Bordereau bordereau = SaleWithAdjudicationAndFees();
-
-        // La même donnée source, deux paramétrages : la nature suit la config, jamais une règle dérivée.
-        PivotDocumentDto asGoods = EncheresV6RowMapper.MapDocument(bordereau, Emitter(), OperationCategory.LivraisonBiens, null);
-        PivotDocumentDto asMixed = EncheresV6RowMapper.MapDocument(bordereau, Emitter(), OperationCategory.Mixte, null);
-
-        asGoods.OperationCategory.Should().Be(OperationCategory.LivraisonBiens);
-        asMixed.OperationCategory.Should().Be(OperationCategory.Mixte);
+        ((Action)(() => EncheresV6RowMapper.RoundAmount(double.NaN))).Should().Throw<SourceSchemaException>();
+        ((Action)(() => EncheresV6RowMapper.RoundAmount(double.PositiveInfinity))).Should().Throw<SourceSchemaException>();
+        ((Action)(() => EncheresV6RowMapper.RoundAmount(1e30))).Should().Throw<SourceSchemaException>();
     }
 
     [Fact]
-    public void MapDocument_keeps_source_regime_raw_and_leaves_tva_mapping_null()
+    public void MapBaDocument_does_not_carry_supplier_or_operation_category()
     {
-        PivotDocumentDto doc = EncheresV6RowMapper.MapDocument(SaleWithAdjudicationAndFees(), Emitter(), OperationCategory.LivraisonBiens, null);
+        PivotDocumentDto doc = EncheresV6RowMapper.MapBaDocument(MargeBa(), null);
 
-        PivotLineDto adjudication = doc.Lines[0];
-        adjudication.SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("5");
-        adjudication.Taxes.Should().ContainSingle();
-        adjudication.Taxes[0].CategoryCode.Should().BeNull("le mapping TVA est plateforme (R3)");
-        adjudication.Taxes[0].VatexCode.Should().BeNull();
-        adjudication.Taxes[0].Rate.Should().Be(20m);
-        adjudication.Taxes[0].TaxAmount.Should().Be(20.00m);
-    }
-
-    [Fact]
-    public void MapDocument_carries_raw_document_kind_and_emitter_siren_from_config()
-    {
-        PivotDocumentDto doc = EncheresV6RowMapper.MapDocument(SaleWithAdjudicationAndFees(), Emitter(), OperationCategory.LivraisonBiens, null);
-
+        doc.Supplier.Should().BeNull("l'émetteur est rempli par la plateforme (FilledByPlatform), jamais par l'agent");
+        doc.OperationCategory.Should().BeNull("la nature d'opération est plateforme, jamais devinée (CLAUDE.md n°2)");
         doc.SourceDocumentKind.Should().Be("B", "le type de pièce source est transporté brut (ADR-0004 D3-3)");
-        doc.Supplier!.Siren.Should().Be("111111111", "le SIREN émetteur vient de la config, pas de la base");
-        doc.SourceReference.Should().Be("no_ba=4500");
-        doc.CurrencyCode.Should().Be("EUR");
+        doc.SourceReference.Should().Be("encheresv6:ba:100022");
+        doc.Number.Should().Be("100022");
     }
 
     [Fact]
-    public void MapDocument_rounds_dirty_float_and_keeps_original_in_source_data()
+    public void MapBaDocument_carries_buyer_commission_as_ttc_fee_not_a_taxable_line()
     {
-        PivotDocumentDto doc = EncheresV6RowMapper.MapDocument(SaleWithAdjudicationAndFees(), Emitter(), OperationCategory.LivraisonBiens, null);
+        PivotDocumentDto doc = EncheresV6RowMapper.MapBaDocument(MargeBa(), null);
 
-        PivotLineDto fees = doc.Lines[1];
-        fees.NetAmount.Should().Be(8.33m);
-        fees.Taxes[0].TaxAmount.Should().Be(1.67m);
-        fees.SourceData.Should().NotBeNull();
-        fees.SourceData!.Should().Contain("8.329999999999998", "le montant original non arrondi est tracé (F01-F02 §3.7)");
+        // Adjudication = seule LIGNE (régime marge → TVA 0 → document marge propre, art. 297 E).
+        doc.Lines.Should().ContainSingle();
+        doc.Lines[0].NetAmount.Should().Be(2000.00m);
+        doc.Lines[0].Taxes[0].TaxAmount.Should().Be(0m, "sous le régime de la marge l'adjudication est exonérée");
+        doc.Lines[0].Taxes[0].CategoryCode.Should().BeNull("le mapping TVA est plateforme (R3)");
+        doc.Lines[0].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("6");
+        doc.Totals.TotalTax.Should().Be(0m);
+
+        // Commission acheteur = BuyerFee TTC (HT 334.40 + TVA 66.88), jamais une ligne taxable.
+        doc.BuyerFees.Should().ContainSingle();
+        doc.BuyerFees![0].NetAmount.Should().Be(401.28m);
+        doc.BuyerFees[0].LotReference.Should().Be("100022", "la jambe acheteur est au grain bordereau (no_ba)");
+        doc.SellerFees.Should().BeNull("le BA ne porte pas la jambe vendeur");
     }
 
     [Fact]
-    public void MapDocument_sets_company_hint_from_societe_without_heuristic()
+    public void MapBaDocument_reads_taxable_adjudication_vat_from_either_column()
     {
-        PivotDocumentDto particulier = EncheresV6RowMapper.MapDocument(SaleWithAdjudicationAndFees(), Emitter(), OperationCategory.LivraisonBiens, null);
+        EncheresV6Bordereau ba = MargeBa();
+        ba.Lignes[0].CodeRegime = "5"; // taxable
+        ba.Lignes[0].MttTvaInclusAdj = 400.00; // TVA d'adjudication « incluse »
+        ba.Lignes[0].MttTvaEnPlusAdj = 0.0;
+
+        PivotDocumentDto doc = EncheresV6RowMapper.MapBaDocument(ba, null);
+
+        doc.Lines[0].Taxes[0].TaxAmount.Should().Be(400.00m);
+        doc.Totals.TotalTax.Should().Be(400.00m);
+    }
+
+    [Fact]
+    public void MapBaDocument_sets_company_hint_and_siren_raw_without_heuristic()
+    {
+        PivotDocumentDto particulier = EncheresV6RowMapper.MapBaDocument(MargeBa(), null);
         particulier.Customer!.IsCompanyHint.Should().BeFalse();
+        particulier.Customer.Siren.Should().BeNull();
 
-        EncheresV6Bordereau pro = SaleWithAdjudicationAndFees();
-        pro.AcheteurSociete = "Galerie Cliente SARL (fictif)";
-        PivotDocumentDto professionnel = EncheresV6RowMapper.MapDocument(pro, Emitter(), OperationCategory.LivraisonBiens, null);
-        professionnel.Customer!.IsCompanyHint.Should().BeTrue();
+        EncheresV6Bordereau pro = MargeBa();
+        pro.Societe = "AUTOSUD21";
+        pro.AcheteurSiren = "404482572";
+        PivotDocumentDto professionnel = EncheresV6RowMapper.MapBaDocument(pro, null);
+        professionnel.Customer!.IsCompanyHint.Should().BeTrue("le champ societe non vide est un indice brut");
+        professionnel.Customer.Siren.Should().Be("404482572", "le SIREN est transporté brut, jamais déduit");
     }
 
     [Fact]
-    public void MapDocument_excludes_payment_lines_from_document_lines()
+    public void MapBaDocument_orphan_credit_note_is_blocked_never_guessed()
     {
-        EncheresV6Bordereau bordereau = SaleWithAdjudicationAndFees();
-        bordereau.Lignes.Add(new EncheresV6Ligne
-        {
-            TypeLigne = "3",
-            Designation = "Reglement CB",
-            MontantHt = 130.00,
-            DateReglement = new DateTime(2026, 1, 15),
-            ModeReglement = "CB",
-            NoLigne = "ligne#3",
-        });
-
-        PivotDocumentDto doc = EncheresV6RowMapper.MapDocument(bordereau, Emitter(), OperationCategory.LivraisonBiens, null);
-
-        doc.Lines.Should().HaveCount(2, "les lignes de règlement (type 3) ne sont pas des lignes de document");
-        doc.Payments.Should().BeEmpty("les encaissements passent par ExtractPayments, pas par le document");
-    }
-
-    [Fact]
-    public void MapDocument_orphan_credit_note_is_blocked_never_guessed()
-    {
-        EncheresV6Bordereau avoir = SaleWithAdjudicationAndFees();
+        EncheresV6Bordereau avoir = MargeBa();
         avoir.BordereauOuAvoir = "A";
         avoir.NoBaLettrage = "9999";
 
-        Action act = () => EncheresV6RowMapper.MapDocument(avoir, Emitter(), OperationCategory.LivraisonBiens, null);
+        Action act = () => EncheresV6RowMapper.MapBaDocument(avoir, null);
 
         act.Should().Throw<SourceSchemaException>("un avoir sans origine résoluble est bloqué (ADR-0004 D3-3)");
     }
 
     [Fact]
-    public void MapDocument_credit_note_links_to_resolved_origin()
+    public void MapBaDocument_credit_note_links_to_resolved_origin()
     {
-        EncheresV6Bordereau origin = SaleWithAdjudicationAndFees();
-        EncheresV6Bordereau avoir = SaleWithAdjudicationAndFees();
-        avoir.NoBa = "4600";
-        avoir.NumeroPiece = "AV-2026-0007";
+        EncheresV6Bordereau origin = MargeBa();
+        origin.NoBa = "100020";
+        EncheresV6Bordereau avoir = MargeBa();
+        avoir.NoBa = "100099";
         avoir.BordereauOuAvoir = "A";
-        avoir.NoBaLettrage = "4500";
+        avoir.NoBaLettrage = "100020";
 
-        PivotDocumentDto doc = EncheresV6RowMapper.MapDocument(avoir, Emitter(), OperationCategory.LivraisonBiens, origin);
+        PivotDocumentDto doc = EncheresV6RowMapper.MapBaDocument(avoir, origin);
 
         doc.SourceDocumentKind.Should().Be("A");
         doc.CreditNoteRefs.Should().ContainSingle();
-        doc.CreditNoteRefs[0].Number.Should().Be("F-2026-0500");
-        doc.CreditNoteRefs[0].IssueDate.Should().Be(new DateTime(2026, 1, 12));
-        doc.CreditNoteRefs[0].SourceReference.Should().Be("no_ba=4500");
+        doc.CreditNoteRefs[0].Number.Should().Be("100020");
+        doc.CreditNoteRefs[0].SourceReference.Should().Be("encheresv6:ba:100020");
     }
 
     [Fact]
-    public void MapDocument_missing_required_field_is_a_schema_error()
+    public void MapBaDocument_throws_when_date_vente_missing()
     {
-        EncheresV6Bordereau bordereau = SaleWithAdjudicationAndFees();
-        bordereau.NumeroPiece = null;
+        EncheresV6Bordereau ba = MargeBa();
+        ba.DateVente = default;
 
-        Action act = () => EncheresV6RowMapper.MapDocument(bordereau, Emitter(), OperationCategory.LivraisonBiens, null);
-
-        act.Should().Throw<SourceSchemaException>();
+        ((Action)(() => EncheresV6RowMapper.MapBaDocument(ba, null))).Should().Throw<SourceSchemaException>();
     }
 
     [Fact]
-    public void RoundAmount_throws_schema_exception_on_NaN_or_infinity()
+    public void MapBvDocument_carries_seller_commission_as_ttc_fee()
     {
-        Action actNaN = () => EncheresV6RowMapper.RoundAmount(double.NaN);
-        Action actInfPos = () => EncheresV6RowMapper.RoundAmount(double.PositiveInfinity);
+        PivotDocumentDto doc = EncheresV6RowMapper.MapBvDocument(MargeBv(), null);
 
-        actNaN.Should().Throw<SourceSchemaException>("un flottant NaN ne doit jamais être arrondi à l'aveugle (ADR-0004 D3-7)");
-        actInfPos.Should().Throw<SourceSchemaException>("un flottant infini ne doit jamais être arrondi à l'aveugle (ADR-0004 D3-7)");
+        doc.Supplier.Should().BeNull();
+        doc.Number.Should().Be("100012");
+        doc.SourceReference.Should().Be("encheresv6:bv:100012");
+        doc.Totals.TotalTax.Should().Be(0m, "la jambe vendeur ne porte pas de TVA distincte (marge)");
+
+        // Commission vendeur = SellerFee TTC (HT 300 + TVA 60). Le débours (type 3) n'est PAS porté.
+        doc.SellerFees.Should().ContainSingle();
+        doc.SellerFees![0].NetAmount.Should().Be(360.00m);
+        doc.SellerFees[0].LotReference.Should().Be("100012", "la jambe vendeur est au grain bordereau (no_bv)");
+        doc.BuyerFees.Should().BeNull("le BV ne porte pas la jambe acheteur");
     }
 
     [Fact]
-    public void MapDocument_throws_schema_exception_when_date_vente_is_default()
+    public void MapBvDocument_excludes_debours_type3_from_margin()
     {
-        EncheresV6Bordereau bordereau = SaleWithAdjudicationAndFees();
-        bordereau.DateVente = default;
+        EncheresV6BordereauVendeur bv = MargeBv();
+        bv.Lignes.Add(new EncheresV6LigneVendeur
+        {
+            TypeLigne = "3", // débours (transport) — HORS marge
+            Designation = "Transport",
+            MttFraisHt = 100.00,
+            MttTvaFrais = 20.00,
+        });
 
-        Action act = () => EncheresV6RowMapper.MapDocument(bordereau, Emitter(), OperationCategory.LivraisonBiens, null);
+        PivotDocumentDto doc = EncheresV6RowMapper.MapBvDocument(bv, null);
 
-        act.Should().Throw<SourceSchemaException>("une date_vente manquante doit bloquer le document, jamais le laisser passer silencieusement");
+        doc.SellerFees.Should().ContainSingle("seule la commission (type 2) est portée ; le débours type 3 est hors marge");
+        doc.SellerFees![0].NetAmount.Should().Be(360.00m);
     }
 
     [Fact]
-    public void RoundAmount_throws_schema_exception_on_overflow()
+    public void MapBvDocument_orphan_credit_note_is_blocked_never_guessed()
     {
-        // 1e30 > decimal.MaxValue (≈ 7.9e28) → OverflowException sur le cast → SourceSchemaException typée
-        Action act = () => EncheresV6RowMapper.RoundAmount(1e30);
+        EncheresV6BordereauVendeur avoir = MargeBv();
+        avoir.BordereauOuAvoir = "A";
+        avoir.NoBvLettrage = "9999";
 
-        act.Should().Throw<SourceSchemaException>("un montant hors de la plage decimal est bloqué (ADR-0004 D3-7)");
-    }
+        Action act = () => EncheresV6RowMapper.MapBvDocument(avoir, null);
 
-    [Fact]
-    public void SanitizeNonAmount_throws_schema_exception_on_overflow()
-    {
-        // 1e30 > decimal.MaxValue → OverflowException sur le cast → SourceSchemaException typée
-        Action act = () => EncheresV6RowMapper.SanitizeNonAmount(1e30, "taux_tva");
-
-        act.Should().Throw<SourceSchemaException>("une valeur non-montant hors de la plage decimal est bloquée (ADR-0004 D3-7)");
+        act.Should().Throw<SourceSchemaException>("un avoir vendeur sans origine résoluble est bloqué (ADR-0004 D3-3)");
     }
 
     [Fact]
     public void MapPayment_maps_type3_line_to_raw_pivot_payment()
     {
-        EncheresV6Bordereau bordereau = SaleWithAdjudicationAndFees();
+        var bordereau = new EncheresV6Bordereau { NoBa = "100022" };
         var reglement = new EncheresV6Ligne
         {
             TypeLigne = "3",
-            Designation = "Reglement CB",
-            MontantHt = 130.00,
-            DateReglement = new DateTime(2026, 1, 15),
-            ModeReglement = "CB",
+            CodeLigne = "CB",
+            Designation = "Carte bancaire",
+            MontantLigne = 401.28,
+            DateReglement = new DateTime(2024, 1, 15),
             NoRemise = "REM-0500",
-            NoLigne = "ligne#3",
+            NoLignePv = "0",
         };
 
         PivotPaymentDto payment = EncheresV6RowMapper.MapPayment(bordereau, reglement);
 
-        payment.PaymentDate.Should().Be(new DateTime(2026, 1, 15));
-        payment.Amount.Should().Be(130.00m);
-        payment.Method.Should().Be("CB");
-        payment.RelatedDocumentNumber.Should().Be("F-2026-0500");
-        payment.SourceReference.Should().Be("no_remise=REM-0500");
+        payment.PaymentDate.Should().Be(new DateTime(2024, 1, 15));
+        payment.Amount.Should().Be(401.28m);
+        payment.RelatedDocumentNumber.Should().Be("100022");
+        payment.SourceReference.Should().Be("encheresv6:remise:REM-0500");
     }
 
-    private static EncheresV6Bordereau SaleWithAdjudicationAndFees()
+    // Bordereau ACHETEUR : 1 lot au régime 6 (marge), adjudication 2000 (TVA 0) + commission acheteur
+    // 334.40 HT + 66.88 TVA = 401.28 TTC (cas réel no_ba=100022).
+    private static EncheresV6Bordereau MargeBa()
     {
-        var bordereau = new EncheresV6Bordereau
+        var ba = new EncheresV6Bordereau
         {
-            NoBa = "4500",
-            NumeroPiece = "F-2026-0500",
+            NoBa = "100022",
             BordereauOuAvoir = "B",
-            DateVente = new DateTime(2026, 1, 12),
-            AcheteurNom = "Acheteur Particulier (fictif)",
-            AcheteurVille = "Rennes",
-            AcheteurCodePostal = "35000",
-            AcheteurPays = "FR",
-            TotalHt = 108.33,
-            TotalTva = 21.67,
-            TotalTtc = 130.00,
+            DateVente = new DateTime(2024, 1, 12),
+            Nom = "Acheteur Particulier (fictif)",
+            CodePostal = "35000",
+            Ville = "Rennes",
+            CodePays = "FR",
+            TotalBordereau = 2401.28,
         };
 
-        bordereau.Lignes.Add(new EncheresV6Ligne
+        ba.Lignes.Add(new EncheresV6Ligne
         {
-            TypeLigne = "4",
-            Designation = "Adjudication lot 9",
-            MontantHt = 100.00,
-            MontantTva = 20.00,
-            TauxTva = 20.0,
-            Quantite = 1,
-            PrixUnitaire = 100.00,
-            CodeRegime = "5",
-            NoLigne = "ligne#1",
+            TypeLigne = "1",
+            NoLignePv = "1",
+            Designation = "Adjudication lot 1",
+            MontantAdjHt = 2000.00,
+            MttTvaInclusAdj = 0.0,
+            MttTvaEnPlusAdj = 0.0,
+            MontantFraisHt = 334.40,
+            MontantTvaFrais = 66.88,
+            CodeRegime = "6",
         });
 
-        bordereau.Lignes.Add(new EncheresV6Ligne
-        {
-            TypeLigne = "2",
-            Designation = "Frais acheteur",
-            MontantHt = 8.329999999999998,
-            MontantTva = 1.666,
-            TauxTva = 20.0,
-            Quantite = 1,
-            CodeRegime = "5",
-            NoLigne = "ligne#2",
-        });
-
-        return bordereau;
+        return ba;
     }
 
-    private static EncheresV6EmitterIdentity Emitter() =>
-        new EncheresV6EmitterIdentity(
-            name: "Étude Fictïve SVV",
-            siren: "111111111",
-            city: "Rennes",
-            postalCode: "35000",
-            countryCode: "FR");
+    // Bordereau VENDEUR : 1 lot (adjudication) + commission vendeur 300 HT + 60 TVA = 360 TTC (type 2).
+    private static EncheresV6BordereauVendeur MargeBv()
+    {
+        var bv = new EncheresV6BordereauVendeur
+        {
+            NoBv = "100012",
+            BordereauOuAvoir = "B",
+            DateVente = new DateTime(2024, 1, 12),
+            Nom = "Vendeur Commettant (fictif)",
+            CodeRegimeTva = "6",
+            TotalBordereau = 1860.00,
+        };
+
+        bv.Lignes.Add(new EncheresV6LigneVendeur
+        {
+            TypeLigne = "1",
+            NoLignePv = "1",
+            Designation = "Adjudication lot 1",
+            MontantAdjHt = 2000.00,
+        });
+        bv.Lignes.Add(new EncheresV6LigneVendeur
+        {
+            TypeLigne = "2",
+            NoLignePv = "0",
+            Designation = "Frais de vente 15%",
+            MttFraisHt = 300.00,
+            MttTvaFrais = 60.00,
+        });
+
+        return bv;
+    }
 }

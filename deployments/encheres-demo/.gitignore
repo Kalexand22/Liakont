@@ -1,0 +1,3 @@
+# Base de démo SQL Server GÉNÉRÉE (~4,5 Mo de INSERT) : régénérable depuis les extractions
+# samples via build-sqlserver-from-samples.ps1 — hors review et hors commit (donnée, pas code).
+encheresv6-demo-sqlserver.sql

@@ -73,10 +73,10 @@ public sealed class FileSystemEncheresV6PdfSourceTests : IDisposable
         string pdf = WritePdf(linked, "bordereau-4500.pdf");
         WritePdf(linked, "bordereau-4501.pdf");
 
-        IReadOnlyList<SourceAttachment> attachments = LinkedSource(linked).GetAttachments("no_ba=4500");
+        IReadOnlyList<SourceAttachment> attachments = LinkedSource(linked).GetAttachments("encheresv6:ba:4500");
 
         attachments.Should().ContainSingle();
-        attachments[0].SourceReference.Should().Be("no_ba=4500");
+        attachments[0].SourceReference.Should().Be("encheresv6:ba:4500");
         attachments[0].FilePath.Should().Be(pdf);
         attachments[0].FileName.Should().Be("bordereau-4500.pdf");
         _log.Warnings.Should().BeEmpty();
@@ -90,7 +90,7 @@ public sealed class FileSystemEncheresV6PdfSourceTests : IDisposable
         WritePdf(linked, "4500-v2.pdf");
         WritePdf(linked, "F-2026_4500_bis.pdf");
 
-        IReadOnlyList<SourceAttachment> attachments = LinkedSource(linked).GetAttachments("no_ba=4500");
+        IReadOnlyList<SourceAttachment> attachments = LinkedSource(linked).GetAttachments("encheresv6:ba:4500");
 
         attachments.Select(a => a.FileName)
             .Should().BeEquivalentTo("4500.pdf", "4500-v2.pdf", "F-2026_4500_bis.pdf");
@@ -103,7 +103,7 @@ public sealed class FileSystemEncheresV6PdfSourceTests : IDisposable
         WritePdf(linked, "45000.pdf");
         WritePdf(linked, "14500.pdf");
 
-        IReadOnlyList<SourceAttachment> attachments = LinkedSource(linked).GetAttachments("no_ba=4500");
+        IReadOnlyList<SourceAttachment> attachments = LinkedSource(linked).GetAttachments("encheresv6:ba:4500");
 
         attachments.Should().BeEmpty("« 4500 » ne doit pas matcher « 45000 » ni « 14500 » (jeton délimité)");
         _log.Warnings.Should().ContainSingle().Which.Should().Contain("introuvable");
@@ -115,10 +115,10 @@ public sealed class FileSystemEncheresV6PdfSourceTests : IDisposable
         string linked = CreateFolder("linked");
         WritePdf(linked, "bordereau-9999.pdf");
 
-        IReadOnlyList<SourceAttachment> attachments = LinkedSource(linked).GetAttachments("no_ba=4500");
+        IReadOnlyList<SourceAttachment> attachments = LinkedSource(linked).GetAttachments("encheresv6:ba:4500");
 
         attachments.Should().BeEmpty();
-        _log.Warnings.Should().ContainSingle().Which.Should().Contain("no_ba=4500");
+        _log.Warnings.Should().ContainSingle().Which.Should().Contain("4500");
     }
 
     [Fact]
@@ -126,7 +126,7 @@ public sealed class FileSystemEncheresV6PdfSourceTests : IDisposable
     {
         string missing = Path.Combine(_root, "does-not-exist");
 
-        IReadOnlyList<SourceAttachment> attachments = LinkedSource(missing).GetAttachments("no_ba=4500");
+        IReadOnlyList<SourceAttachment> attachments = LinkedSource(missing).GetAttachments("encheresv6:ba:4500");
 
         attachments.Should().BeEmpty();
         _log.Warnings.Should().ContainSingle().Which.Should().Contain("introuvable");
@@ -138,7 +138,7 @@ public sealed class FileSystemEncheresV6PdfSourceTests : IDisposable
         string pool = CreateFolder("pool");
         var source = new FileSystemEncheresV6PdfSource(new EncheresV6PdfSourceOptions(poolFolderPath: pool), _log);
 
-        source.GetAttachments("no_ba=4500").Should().BeEmpty();
+        source.GetAttachments("encheresv6:ba:4500").Should().BeEmpty();
         _log.Warnings.Should().BeEmpty("aucune capacité lien déclarée : comportement normal, pas d'alerte");
     }
 
@@ -157,7 +157,7 @@ public sealed class FileSystemEncheresV6PdfSourceTests : IDisposable
         string linked = CreateFolder("linked");
         File.WriteAllText(Path.Combine(linked, "bordereau-4500.txt"), "pas un pdf");
 
-        LinkedSource(linked).GetAttachments("no_ba=4500").Should().BeEmpty();
+        LinkedSource(linked).GetAttachments("encheresv6:ba:4500").Should().BeEmpty();
     }
 
     [Fact]
@@ -215,7 +215,7 @@ public sealed class FileSystemEncheresV6PdfSourceTests : IDisposable
         var source = new FileSystemEncheresV6PdfSource(
             new EncheresV6PdfSourceOptions(linkedFolderPath: linked, searchPattern: "x\u0000.pdf"), _log);
 
-        source.GetAttachments("no_ba=4500").Should().BeEmpty();
+        source.GetAttachments("encheresv6:ba:4500").Should().BeEmpty();
         _log.Warnings.Should().ContainSingle();
     }
 
@@ -248,8 +248,8 @@ public sealed class FileSystemEncheresV6PdfSourceTests : IDisposable
 
         var source = new FileSystemEncheresV6PdfSource(
             new EncheresV6PdfSourceOptions(linkedFolderPath: linked, poolFolderPath: linked), _log);
-        _ = source.GetAttachments("no_ba=4500");
-        _ = source.GetAttachments("no_ba=0000"); // introuvable : ne crée rien
+        _ = source.GetAttachments("encheresv6:ba:4500");
+        _ = source.GetAttachments("encheresv6:ba:0000"); // introuvable : ne crée rien
         _ = source.ListPoolDocuments(PeriodFrom, PeriodTo).ToList();
 
         SnapshotFolder(linked).Should().BeEquivalentTo(before, "la source PDF est en LECTURE SEULE STRICTE");

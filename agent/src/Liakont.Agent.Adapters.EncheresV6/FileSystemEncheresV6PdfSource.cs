@@ -116,8 +116,8 @@ public sealed class FileSystemEncheresV6PdfSource : IEncheresV6PdfSource
         }
 
         string trimmed = sourceReference!.Trim();
-        string value = trimmed.StartsWith(EncheresV6RowMapper.SourceReferencePrefix, StringComparison.Ordinal)
-            ? trimmed.Substring(EncheresV6RowMapper.SourceReferencePrefix.Length)
+        string value = trimmed.StartsWith(EncheresV6RowMapper.SourceRefBaPrefix, StringComparison.Ordinal)
+            ? trimmed.Substring(EncheresV6RowMapper.SourceRefBaPrefix.Length)
             : trimmed;
 
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();

@@ -16,7 +16,11 @@ internal sealed class EncheresV6SourceSnapshot
     [JsonProperty("regimes")]
     public List<EncheresV6Regime> Regimes { get; } = new List<EncheresV6Regime>();
 
-    /// <summary>Bordereaux (ventes et avoirs) avec leurs lignes (tables <c>entete_ba</c> + <c>lignes_ba</c>).</summary>
+    /// <summary>Bordereaux ACHETEUR (ventes et avoirs) avec leurs lignes (tables <c>entete_ba</c> + <c>lignes_ba</c>).</summary>
     [JsonProperty("bordereaux")]
     public List<EncheresV6Bordereau> Bordereaux { get; } = new List<EncheresV6Bordereau>();
+
+    /// <summary>Bordereaux VENDEUR (jambe vendeur de la marge) avec leurs lignes (tables <c>entete_bv</c> + <c>lignes_bv</c>).</summary>
+    [JsonProperty("bordereaux_vendeur")]
+    public List<EncheresV6BordereauVendeur> BordereauxVendeur { get; } = new List<EncheresV6BordereauVendeur>();
 }
