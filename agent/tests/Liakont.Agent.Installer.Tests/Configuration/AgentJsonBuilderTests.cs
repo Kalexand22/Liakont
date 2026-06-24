@@ -101,6 +101,36 @@ public class AgentJsonBuilderTests
         json.Should().NotContain("extractFromUtc", "vide → uniquement les nouveaux documents, aucune borne d'historique");
     }
 
+    [Fact]
+    public void Build_ecrit_adapterConfig_sous_le_nom_de_l_adaptateur_selectionne()
+    {
+        ResolvedConfiguration config = ResolvedConfig(
+            (ProfileFieldKeys.PlatformUrl, "https://liakont.exemple.fr"),
+            (ProfileFieldKeys.ApiKey, "pk"),
+            (ProfileFieldKeys.Adapter, "EncheresV6"),
+            (ProfileFieldKeys.Dossier, "2"),
+            (ProfileFieldKeys.SourceSchema, "enc"));
+
+        string json = AgentJsonBuilder.Build(config, new FakeSecretProtector());
+
+        var root = Newtonsoft.Json.Linq.JObject.Parse(json);
+        ((string?)root["adapterConfig"]!["EncheresV6"]!["dossier"]).Should().Be("2");
+        ((string?)root["adapterConfig"]!["EncheresV6"]!["schema"]).Should().Be("enc");
+    }
+
+    [Fact]
+    public void Build_omet_adapterConfig_quand_aucune_config_specifique()
+    {
+        ResolvedConfiguration config = ResolvedConfig(
+            (ProfileFieldKeys.PlatformUrl, "https://liakont.exemple.fr"),
+            (ProfileFieldKeys.ApiKey, "pk"),
+            (ProfileFieldKeys.Adapter, "EncheresV6"));
+
+        string json = AgentJsonBuilder.Build(config, new FakeSecretProtector());
+
+        json.Should().NotContain("adapterConfig");
+    }
+
     private static ResolvedConfiguration ResolvedConfig(params (string Key, string? Value)[] values)
     {
         var dict = new Dictionary<string, string?>(StringComparer.Ordinal);

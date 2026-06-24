@@ -28,6 +28,8 @@ internal sealed class WizardForm : Form
     {
         (ProfileFieldKeys.Schedule, "Planification (HH:mm, séparées par des virgules)"),
         (ProfileFieldKeys.ExtractFromUtc, "Factures à partir du (AAAA-MM-JJ ; vide = uniquement les nouvelles)"),
+        (ProfileFieldKeys.Dossier, "N° de dossier comptable (EncheresV6 : filtre tenant, ex. 2)"),
+        (ProfileFieldKeys.SourceSchema, "Schéma SQL de la base source (EncheresV6 : ex. enc ; vide = tables nues)"),
         (ProfileFieldKeys.PdfPoolPath, "Dossier du pool de PDF"),
     };
 

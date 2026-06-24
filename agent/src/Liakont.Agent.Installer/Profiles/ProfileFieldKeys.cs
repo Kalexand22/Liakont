@@ -39,6 +39,19 @@ internal static class ProfileFieldKeys
     /// </summary>
     public const string ExtractFromUtc = "extractFromUtc";
 
+    /// <summary>
+    /// Config SPÉCIFIQUE à l'adaptateur — n° de dossier comptable (EncheresV6 : filtre tenant, OBLIGATOIRE en
+    /// mode ODBC). Écrit sous <c>adapterConfig.&lt;adaptateur&gt;.dossier</c>. Laissé vide pour un adaptateur
+    /// qui n'a pas cette notion.
+    /// </summary>
+    public const string Dossier = "dossier";
+
+    /// <summary>
+    /// Config SPÉCIFIQUE à l'adaptateur — préfixe de SCHÉMA SQL de la base source (EncheresV6 : ex. <c>enc</c> ;
+    /// vide = tables nues). Écrit sous <c>adapterConfig.&lt;adaptateur&gt;.schema</c>.
+    /// </summary>
+    public const string SourceSchema = "schema";
+
     /// <summary>Dossier du pool de PDF.</summary>
     public const string PdfPoolPath = "pdfPoolPath";
 
@@ -69,6 +82,8 @@ internal static class ProfileFieldKeys
         OdbcAdvanced,
         Schedule,
         ExtractFromUtc,
+        Dossier,
+        SourceSchema,
         PdfPoolPath,
         Logging,
         AutoUpdate,
