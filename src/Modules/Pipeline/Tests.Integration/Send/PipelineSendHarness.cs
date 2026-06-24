@@ -266,6 +266,20 @@ public sealed class PipelineSendHarness : IAsyncLifetime
         return rows.Select(r => ((string)r.status, (string?)r.pa_emission_id)).ToList();
     }
 
+    /// <summary>
+    /// Lit le journal d'émission B2C marge via la VRAIE query console (<c>PostgresB2cMarginEmissionQueries</c>),
+    /// REGROUPÉ par lot d'émission (<c>emission_batch_id</c> : une transmission = un POST) avec l'état courant —
+    /// exerce le SQL réel (CTE + fenêtre + COUNT DISTINCT) sur le conteneur. La query est construite sur
+    /// l'<c>IConnectionFactory</c> tenant-scopé du harnais (parité avec la résolution DI en production).
+    /// </summary>
+    public async Task<IReadOnlyList<Liakont.Modules.Pipeline.Contracts.B2cMarginEmissionAggregateDto>> ReadMarginEmissionAggregatesAsync(string? period = null)
+    {
+        await using var scope = _provider!.CreateAsyncScope();
+        var queries = new Liakont.Modules.Pipeline.Infrastructure.Queries.PostgresB2cMarginEmissionQueries(
+            scope.ServiceProvider.GetRequiredService<IConnectionFactory>());
+        return await queries.GetEmissionsAsync(period);
+    }
+
     /// <summary>Nombre d'entrées de coffre (paquet initial + addenda) scellées pour un document.</summary>
     public async Task<int> ArchiveEntryCountAsync(Guid documentId)
     {

@@ -67,6 +67,11 @@ public static class PipelineModuleRegistration
         // la projection payment_aggregations (recalculée) : c'est une piste d'audit immuable des transmissions.
         services.AddScoped<IB2cMarginEmissionStore, PostgresB2cMarginEmissionStore>();
 
+        // B4 (console) — lecture du journal d'émission marge, REGROUPÉE par lot d'émission (emission_batch_id : une
+        // transmission = un POST) avec l'état courant, pour la page console des émissions de marge B2C.
+        // Tenant-scopée (la connexion EST le tenant).
+        services.AddScoped<IB2cMarginEmissionQueries, PostgresB2cMarginEmissionQueries>();
+
         // RDL06 — les 4 déclencheurs de fan-out SYSTÈME du pipeline (SendAll / SyncAll / AggregatePaymentsAll /
         // RectifyReportsAll) sont enregistrés par le HOST via AddJobHandler (AddPipelineSystemJobHandlers,
         // l'extension AddJobHandler vit dans Stratum.Modules.Job.Infrastructure, hors frontière Contracts de ce

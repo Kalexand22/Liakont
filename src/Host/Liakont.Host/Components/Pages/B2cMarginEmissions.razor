@@ -1,0 +1,143 @@
+@page "/emissions-marge-b2c"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = LiakontPermissions.Read)]
+@using Liakont.Host.Security
+@using System.Globalization
+@using Microsoft.Extensions.Logging
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Liakont.Host.B2cReporting
+@inject IB2cMarginEmissionsConsoleQueries EmissionQueries
+@inject NavigationManager Nav
+@inject ILogger<B2cMarginEmissions> Logger
+
+<PageTitle>Émissions e-reporting B2C (marge) — Liakont</PageTitle>
+
+<h1 class="visually-hidden">Émissions e-reporting B2C — marge</h1>
+
+@* ── Filtre période (parité page Encaissements). TOUJOURS visible (même en erreur) pour re-sélectionner
+   une période et réessayer. Filtre de DATE pur (« yyyy-MM ») sur le jour de l'agrégat, jamais une règle
+   fiscale. Le changement recharge le périmètre serveur (re-key de la liste). ── *@
+<div class="bme-filters" data-testid="margin-emissions-filters">
+    <div class="bme-filters__group">
+        <label class="bme-filters__label" for="bme-period">Période</label>
+        <input id="bme-period" type="month" class="bme-filters__input" data-testid="margin-emissions-filter-period"
+               value="@_period" @onchange="OnPeriodChangedAsync" />
+    </div>
+</div>
+
+@if (_loadFailed)
+{
+    <LiakontAlert TestId="margin-emissions-error">
+        Impossible de charger les émissions de marge B2C pour le moment. Réessayez plus tard.
+    </LiakontAlert>
+}
+else if (_model is null)
+{
+    <LiakontLoading TestId="margin-emissions-loading" />
+}
+else
+{
+    @* ── Liste : gabarit DeclaredListPage (aucune grille « maison »). Rechargée (re-key) au changement de
+       période. Pas de fiche de détail d'agrégat : DetailUrl renvoie l'URI courante (activation de ligne sans
+       effet, comme Encaissements / Traitements). ── *@
+    <DeclaredListPage @key="_periodEpoch"
+                      TItem="B2cMarginEmissionRow"
+                      Title="Émissions e-reporting B2C — marge"
+                      TestId="margin-emissions"
+                      LoadItems="LoadItemsAsync"
+                      DetailUrl="@(_ => Nav.Uri)"
+                      ColumnRegistry="_registry"
+                      ColumnTemplates="_columnTemplates"
+                      GridKey="Liakont.B2cMarginEmissions"
+                      AriaLabel="Agrégats d'émission e-reporting B2C de la marge"
+                      DefaultSortColumn="@nameof(B2cMarginEmissionRow.AggregateDate)"
+                      DefaultSortDirection="SortDirection.Descending"
+                      SearchPlaceholder="Rechercher un jour, un id plateforme… (raccourci : /)"
+                      AllowExport="true"
+                      ExportFormats="@(ExportFormat.Csv | ExportFormat.Excel | ExportFormat.Pdf)"
+                      ExportFileName="emissions-marge-b2c">
+        <EmptyContent>
+            <p data-testid="margin-emissions-empty">
+                Aucune émission de marge B2C sur cette période. Les agrégats apparaissent ici après l'exécution
+                du traitement « E-reporting B2C de la marge » (job B4).
+            </p>
+        </EmptyContent>
+    </DeclaredListPage>
+}
+
+@code {
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    private readonly B2cMarginEmissionColumnRegistry _registry = new();
+
+    private B2cMarginEmissionsViewModel? _model;
+    private bool _loadFailed;
+
+    // Période courante au format « yyyy-MM » (input type=month + filtre de la query).
+    private string _period = string.Empty;
+
+    // @key de la liste : incrémenté à chaque rechargement de période pour forcer DeclaredListPage à relire
+    // LoadItems (il ne recharge pas tout seul), comme la page Documents / Encaissements.
+    private int _periodEpoch;
+
+    private readonly Dictionary<string, RenderFragment<B2cMarginEmissionRow>> _columnTemplates;
+
+    public B2cMarginEmissions()
+    {
+        _columnTemplates = new Dictionary<string, RenderFragment<B2cMarginEmissionRow>>
+        {
+            [nameof(B2cMarginEmissionRow.AggregateDate)] = item => __builder =>
+            {
+                __builder.AddContent(0, item.AggregateDate.ToString("dd/MM/yyyy", Fr));
+            },
+            [nameof(B2cMarginEmissionRow.LastActivityUtc)] = item => __builder =>
+            {
+                __builder.AddContent(0, item.LastActivityUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr));
+            },
+            [nameof(B2cMarginEmissionRow.Status)] = item => __builder =>
+            {
+                var (label, severity) = B2cMarginEmissionStatusDisplay.For(item.Status);
+                __builder.OpenComponent<StatusBadge>(0);
+                __builder.AddAttribute(1, "Label", label);
+                __builder.AddAttribute(2, "Severity", severity);
+                __builder.AddAttribute(3, "TestId", $"margin-status-{item.Status}");
+                __builder.CloseComponent();
+            },
+        };
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        _period = today.ToString("yyyy-MM", CultureInfo.InvariantCulture);
+        await ReloadAsync();
+    }
+
+    private Task<IReadOnlyList<B2cMarginEmissionRow>> LoadItemsAsync() =>
+        Task.FromResult(_model?.Emissions ?? []);
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _model = await EmissionQueries.GetEmissionsAsync(_period);
+            _loadFailed = false;
+            _periodEpoch++;
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the Liakont B2C margin emissions for the current period.");
+        }
+    }
+
+    private async Task OnPeriodChangedAsync(ChangeEventArgs e)
+    {
+        // L'input type=month émet « yyyy-MM » (format invariant) ; vide = aucun filtre de période.
+        _period = (e.Value as string) ?? string.Empty;
+        await ReloadAsync();
+    }
+}

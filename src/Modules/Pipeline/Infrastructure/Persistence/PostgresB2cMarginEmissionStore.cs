@@ -49,10 +49,10 @@ public sealed class PostgresB2cMarginEmissionStore : IB2cMarginEmissionStore
         const string sql = """
             INSERT INTO pipeline.b2c_margin_emissions
                 (id, document_id, source_reference, aggregate_date, currency, category, role,
-                 content_hash, status, pa_emission_id, pa_response_snapshot, detail, created_utc)
+                 content_hash, emission_batch_id, status, pa_emission_id, pa_response_snapshot, detail, created_utc)
             VALUES
                 (@Id, @DocumentId, @SourceReference, @AggregateDate, @Currency, @Category, @Role,
-                 @ContentHash, @Status, @PaEmissionId, @PaResponseSnapshot, @Detail, @CreatedUtc)
+                 @ContentHash, @EmissionBatchId, @Status, @PaEmissionId, @PaResponseSnapshot, @Detail, @CreatedUtc)
             """;
 
         await conn.ExecuteAsync(new CommandDefinition(
@@ -67,6 +67,7 @@ public sealed class PostgresB2cMarginEmissionStore : IB2cMarginEmissionStore
                 entry.Category,
                 entry.Role,
                 entry.ContentHash,
+                entry.EmissionBatchId,
                 Status = entry.Status.ToString(),
                 entry.PaEmissionId,
                 entry.PaResponseSnapshot,

@@ -126,6 +126,27 @@ en mémoire ; swap SuperPDP documenté). Aucun code C# de prod touché (config/s
 - [x] `.gitignore` : `.secrets.local.json` + `agent/` (anti-fuite secrets, n°10).
 - [x] codex-review (engine claude) : round 1 = **1 P1** (faux-vert : `operationCategory: null` → CHECK bloque
   tout → B4 agrège 0) **corrigé** (Mixte dans les 2 profils + étape runbook) ; **round 2 = CLEAN**.
-- Reste (hors lot, lean) : page console dédiée des émissions marge ; provisioning 100 % automatisé
+## Partie 5 — Page console des émissions marge B2C (FAIT 2026-06-24)
+Objectif : rendre OBSERVABLE en console le journal `pipeline.b2c_margin_emissions` (état Pending→Émis, id
+PA, détail). Journal **sans montants** (par conception) → la page trace le CYCLE d'émission, pas une règle
+fiscale. Calquée sur `/encaissements` + gabarit **DeclaredListPage** (jamais de grille maison — P1
+[[console-web-stratum-design-system]]). Décision « lean » : pas de bandeau capacité (éviterait d'élargir
+`PaCapabilitiesSummaryDto` cross-module) — la page = filtre période + liste + états vide/erreur.
+- [x] **Maille = une TRANSMISSION (un POST)** : regroupement par `emission_batch_id` (PAS `content_hash` —
+  deux POST d'un même contenu le partagent ; les fusionner masquerait une transmission, P2 review attrapé).
+  Ajout colonne **V007** `emission_batch_id` (un lot/POST, partagé Pending+issue) + champ entry + store + job.
+- [x] **Query** `IB2cMarginEmissionQueries` (Contracts.Queries) + `PostgresB2cMarginEmissionQueries`
+  (Infrastructure.Queries) — tenant-scopée (IConnectionFactory), CTE + `ROW_NUMBER` (dernière entrée) +
+  `COUNT(DISTINCT document_id)` (PG n'admet pas COUNT DISTINCT en fenêtre). DTO `B2cMarginEmissionAggregateDto`.
+- [x] **DI** PipelineModuleRegistration + AppBootstrap (service Host). **Nav** : entrée « Émissions marge B2C ».
+- [x] **Host** : Row + ColumnRegistry + StatusDisplay (Émis/engagée/rejeté/échec) + ViewModel + service de composition.
+- [x] **Page** `/emissions-marge-b2c` (DeclaredListPage, filtre période, `[Authorize(Read)]`) + CSS.
+- [x] **Tests** : bUnit page (5, P1 règle 19) + service unit (3) + StatusDisplay (3) + intégration query
+  (rollup par lot, + régression collision content_hash → 2 lignes jamais fusionnées).
+- [x] verify-fast (3 sols) + run-tests (6828, 0 échec) + Release/StyleCop (0 warn) + **codex-review : r1 2 P2
+  (maille content_hash collapse + trou test) → r2 1 P2 (StatusDisplay non testé) → r3 3 P2 (docs périmées) →
+  r4 CLEAN**. À committer/pusher.
+
+- Reste (hors lot, lean) : provisioning 100 % automatisé
   (bloqué par modèle console-driven : tenants/secrets/clé agent en console par conception) ; flux factures
   clients + notes hono (#7) ; lot PDF GED ; envoi réel SuperPDP (décision Karl).

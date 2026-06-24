@@ -60,6 +60,69 @@ public sealed class B2cMarginAggregatorJobTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Margin_Emission_Aggregates_Are_Read_Grouped_By_Emission_Batch_With_Current_Status()
+    {
+        // Vue console (B4) : le journal append-only (Pending puis Issued PAR DOCUMENT) est lu REGROUPÉ par lot
+        // d'émission (une TRANSMISSION = un POST) — une ligne par transmission, état COURANT, nb de pièces.
+        // Exerce le SQL réel (CTE + fenêtre ROW_NUMBER + COUNT DISTINCT) contre le conteneur.
+        await _harness.UsePublishedFakeAsync();
+
+        // Deux documents de marge du MÊME jour, dans le MÊME run → UN seul agrégat transmis (un POST, un lot).
+        foreach (var i in new[] { 1, 2 })
+        {
+            var documentId = Guid.NewGuid();
+            var declaration = CheckIntegrationFixtures.BuildB2cMarginDeclaration("ba-agg-" + i + "-" + documentId.ToString("N"), "NORMAL");
+            await _harness.SeedDetectedAndStageAsync(documentId, declaration);
+            await _harness.MarkReadyToSendAsync(documentId);
+        }
+
+        await _harness.RunB2cMarginAsync();
+
+        var aggregates = await _harness.ReadMarginEmissionAggregatesAsync();
+        aggregates.Should().ContainSingle("les 2 documents émis dans le même POST forment UNE transmission (un lot d'émission).");
+        var aggregate = aggregates[0];
+        aggregate.Status.Should().Be("Issued", "l'état COURANT (dernière entrée) prime sur le Pending initial.");
+        aggregate.DocumentCount.Should().Be(2, "deux pièces ont contribué à cette transmission.");
+        aggregate.PaEmissionId.Should().NotBeNullOrWhiteSpace("l'id serveur est exposé pour une transmission émise.");
+        aggregate.Category.Should().Be("TMA1");
+        aggregate.Role.Should().Be("SE");
+
+        // Filtre de DATE pur (année-mois sur le jour de l'agrégat) : le mois de l'agrégat le retourne, un autre non.
+        (await _harness.ReadMarginEmissionAggregatesAsync("2026-01")).Should().ContainSingle();
+        (await _harness.ReadMarginEmissionAggregatesAsync("2025-12")).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Two_Transmissions_Of_Identical_Content_Are_Two_Rows_Never_Collapsed()
+    {
+        // Régression (review P2) : deux transmissions RÉELLES distinctes d'un MÊME contenu (même jour, mêmes
+        // montants — barème d'enchères standard) partagent le content_hash. Un document tardif sur un jour déjà
+        // émis part dans un NOUVEL agrégat (POST séparé, lot distinct). La vue console doit montrer DEUX lignes
+        // (deux transmissions = deux POST), jamais une seule (compte gonflé + un id PA masqué). Le regroupement
+        // par lot d'émission le garantit (regrouper par content_hash les fusionnerait).
+        await _harness.UsePublishedFakeAsync();
+
+        // 1re transmission.
+        var doc1 = Guid.NewGuid();
+        await _harness.SeedDetectedAndStageAsync(doc1, CheckIntegrationFixtures.BuildB2cMarginDeclaration("ba-id1-" + doc1.ToString("N"), "NORMAL"));
+        await _harness.MarkReadyToSendAsync(doc1);
+        await _harness.RunB2cMarginAsync();
+
+        // 2e document IDENTIQUE (même jour, mêmes montants) arrivé APRÈS → nouvelle transmission (POST séparé),
+        // même content_hash mais lot d'émission distinct.
+        var doc2 = Guid.NewGuid();
+        await _harness.SeedDetectedAndStageAsync(doc2, CheckIntegrationFixtures.BuildB2cMarginDeclaration("ba-id2-" + doc2.ToString("N"), "NORMAL"));
+        await _harness.MarkReadyToSendAsync(doc2);
+        await _harness.RunB2cMarginAsync();
+
+        var aggregates = await _harness.ReadMarginEmissionAggregatesAsync();
+        aggregates.Should().HaveCount(2, "deux transmissions distinctes (POST séparés) ne sont jamais fusionnées, même à contenu identique.");
+        aggregates.Should().OnlyContain(a => a.Status == "Issued");
+        aggregates.Should().OnlyContain(a => a.DocumentCount == 1, "chaque transmission ne porte qu'UNE pièce — aucun gonflement du compte.");
+        aggregates.Select(a => a.EmissionBatchId).Distinct().Should().HaveCount(2, "chaque transmission a son propre lot d'émission.");
+    }
+
+    [Fact]
     public async Task Issued_Margin_Aggregate_Freezes_Reversible_Reporting_Piece_Link()
     {
         // D2/B6 : APRÈS confirmation d'envoi, le lien reporting↔pièce est gelé au grain DOCUMENT — l'export fiscal

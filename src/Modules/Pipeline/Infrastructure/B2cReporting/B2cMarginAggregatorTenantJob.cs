@@ -355,6 +355,12 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
         var roleCode = reportingTx.Role.ToDeclarantRoleCode();
         var contentHash = ComputeContentHash(reportingTx, categoryCode, roleCode);
 
+        // Identité de CETTE transmission (lot d'émission) : une valeur par POST, partagée par les entrées Pending
+        // (avant le POST) et d'issue (après). Distingue deux transmissions d'un MÊME contenu (content_hash
+        // identique — document tardif → nouvel agrégat) à la vue console, jamais fusionnées. Hors du try : les
+        // deux écritures partagent le même lot.
+        var emissionBatchId = Guid.NewGuid();
+
         try
         {
             // Pré-POST : marque chaque document tenté (crash-safe). Un crash après le POST mais avant l'issue
@@ -362,7 +368,7 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
             foreach (var contribution in transaction.Contributions)
             {
                 await emissionStore.AppendAsync(
-                    BuildEntry(contribution, transaction, categoryCode, roleCode, contentHash, B2cMarginEmissionStatus.Pending, paEmissionId: null, paResponse: null, detail: null),
+                    BuildEntry(contribution, transaction, categoryCode, roleCode, contentHash, emissionBatchId, B2cMarginEmissionStatus.Pending, paEmissionId: null, paResponse: null, detail: null),
                     cancellationToken);
             }
 
@@ -372,7 +378,7 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
             foreach (var contribution in transaction.Contributions)
             {
                 await emissionStore.AppendAsync(
-                    BuildEntry(contribution, transaction, categoryCode, roleCode, contentHash, status, result.PaDocumentId, result.RawResponse, detail),
+                    BuildEntry(contribution, transaction, categoryCode, roleCode, contentHash, emissionBatchId, status, result.PaDocumentId, result.RawResponse, detail),
                     cancellationToken);
             }
 
@@ -467,6 +473,7 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
         string categoryCode,
         string roleCode,
         string contentHash,
+        Guid emissionBatchId,
         B2cMarginEmissionStatus status,
         string? paEmissionId,
         string? paResponse,
@@ -479,6 +486,7 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
             Category = categoryCode,
             Role = roleCode,
             ContentHash = contentHash,
+            EmissionBatchId = emissionBatchId,
             Status = status,
             PaEmissionId = paEmissionId,
             PaResponseSnapshot = paResponse,

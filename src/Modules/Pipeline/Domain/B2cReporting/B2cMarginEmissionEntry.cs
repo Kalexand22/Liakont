@@ -34,6 +34,15 @@ public sealed record B2cMarginEmissionEntry
     /// <summary>Empreinte déterministe du contenu de l'agrégat transmis (audit ; pas une clé d'idempotence — l'anti-doublon est par document).</summary>
     public required string ContentHash { get; init; }
 
+    /// <summary>
+    /// Identité de la TRANSMISSION (lot d'émission) : une valeur par tentative d'envoi (par POST), partagée par
+    /// toutes les entrées de cet agrégat (les <c>Pending</c> avant le POST et les issues après). Distingue deux
+    /// transmissions distinctes d'un MÊME contenu (<see cref="ContentHash"/> identique mais POST séparés — un
+    /// document tardif sur un jour déjà émis part dans un nouvel agrégat) : la vue console regroupe par ce lot,
+    /// jamais par l'empreinte de contenu (qui fusionnerait deux transmissions réelles distinctes).
+    /// </summary>
+    public required Guid EmissionBatchId { get; init; }
+
     /// <summary>Issue de la tentative.</summary>
     public required B2cMarginEmissionStatus Status { get; init; }
 
