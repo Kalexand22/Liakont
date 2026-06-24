@@ -57,12 +57,6 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
             // la page /signatures porte la même policy, les ACTIONS y exigent liakont.actions.
             children.Add(new() { Label = "Signatures", Href = "/signatures" });
 
-            // Démo e-reporting B2C — Essentiel (B2C04) : surface de CONSULTATION du chemin Essentiel (déclarations
-            // 10.3, transmis/accusé, blocage régime non mappé, lien B2C-03, export). Gardée par liakont.read comme
-            // les autres surfaces de consultation ; la page /demo/b2c porte la même policy, le déclenchement manuel
-            // y exige liakont.actions.
-            children.Add(new() { Label = "Démo e-reporting B2C", Href = "/demo/b2c" });
-
             // Émissions marge B2C (B4) : surface de CONSULTATION du journal d'émission de l'e-reporting B2C de la
             // marge (agrégats jour×devise×catégorie×rôle, état Pending→Émis + id plateforme). Gardée par
             // liakont.read comme les autres surfaces de consultation ; la page /emissions-marge-b2c porte la même policy.
