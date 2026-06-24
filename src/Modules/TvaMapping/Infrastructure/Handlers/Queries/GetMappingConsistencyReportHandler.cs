@@ -77,9 +77,10 @@ public sealed class GetMappingConsistencyReportHandler
             })
             .ToArray();
 
-        // Parts réellement consultées par le pipeline = réalité (toujours {Autre} tant que PIP03b n'est
-        // pas livré), JAMAIS l'activation du vertical (qui ne gouverne que l'éditeur — D4). Voir
-        // ConsultedMappingParts : déclarer Adjudication/Frais consultées vertical ON serait un faux-négatif.
+        // Parts réellement consultées par les consommateurs = réalité ({Autre} par le CHECK, {Frais} par
+        // B4 e-reporting B2C marge), JAMAIS l'activation du vertical (qui ne gouverne que l'éditeur — D4).
+        // Voir ConsultedMappingParts : seule Adjudication reste non consultée (faux « morte » sur Frais
+        // corrigé — BUG-3).
         var consultedParts = ConsultedMappingParts.PipelineConsulted();
 
         var report = MappingConsistencyAnalyzer.Analyze(rules, consultedParts, observedCodes, tableConfigured: true);

@@ -489,7 +489,9 @@ public sealed class TableTvaViewTests : BunitContext
         cut.FindAll("[data-testid='table-tva-consistency']").Should().ContainSingle();
         cut.FindAll("[data-testid='table-tva-consistency-entry']").Should().ContainSingle();
         cut.Find("[data-testid='table-tva-consistency-entry']").TextContent.Should().Contain("ADJ");
-        cut.Find("[data-testid='table-tva-consistency-entry']").TextContent.Should().Contain("part non consultée par le pipeline");
+
+        // Message vrai et actionnable (BUG-3) : on n'incite plus à supprimer ; on oriente vers « Hors Enchères ».
+        cut.Find("[data-testid='table-tva-consistency-entry']").TextContent.Should().Contain("utilisez la composante « Hors Enchères »");
     }
 
     [Fact]
@@ -555,7 +557,8 @@ public sealed class TableTvaViewTests : BunitContext
         var entry = cut.Find("[data-testid='table-tva-consistency-entry']").TextContent;
         entry.Should().Contain("ADJ");
         entry.Should().Contain("(Adjudication)");
-        entry.Should().Contain("Composante non consultée par le pipeline");
+        entry.Should().Contain("Composante « Adjudication » non consultée");
+        entry.Should().Contain("utilisez la composante « Hors Enchères »");
     }
 
     [Fact]
