@@ -39,6 +39,12 @@ Import-Module (Join-Path $scriptRoot 'AgentInstall.psm1') -Force
 
 function Write-Step([string]$Message) { Write-Host "  $Message" }
 
+# Fichiers de la file locale SQLite (base + annexes WAL) — miroir de
+# Liakont.Agent.Core.Storage.LocalQueueFiles (C#). PURGÉS À CHAQUE DÉSINSTALLATION (BUG-2),
+# indépendamment de -RemoveData : sinon le filigrane d'extraction (agent_state.extraction.watermark.utc)
+# survit et une réinstallation reprend l'ancien filigrane au lieu de repartir d'un état vierge.
+$script:LocalQueueFiles = @('agent-queue.db', 'agent-queue.db-wal', 'agent-queue.db-shm')
+
 # Artefacts propres à l'instance Default vivant à la racine partagée %ProgramData%\Liakont :
 # avec -RemoveData sur Default, on ne retire QUE ceux-ci (jamais les sous-dossiers d'instances nommées).
 $script:DefaultOwnedArtifacts = @(
@@ -54,13 +60,15 @@ try {
     Write-Host "Désinstallation de l'agent Liakont — instance « $($instance.Name) »" -ForegroundColor Cyan
     Write-Step "Service Windows  : $($instance.ServiceName)"
     Write-Step "Binaires         : $installDir"
-    Write-Step "Données          : $($instance.DataDirectory)$(if ($RemoveData) { ' (SUPPRESSION demandée)' } else { ' (conservées)' })"
+    Write-Step "File locale      : agent-queue.db* (PURGÉE — réinstallation vierge, BUG-2)"
+    Write-Step "Données          : $($instance.DataDirectory)$(if ($RemoveData) { ' (SUPPRESSION demandée)' } else { ' (config/journaux conservés)' })"
 
     if ($DryRun) {
         Write-Host ""
         Write-Host "[DryRun] Plan validé — aucune modification effectuée." -ForegroundColor Yellow
         Write-Step "Arrêterait et supprimerait le service : $($instance.ServiceName)"
         Write-Step "Supprimerait les binaires             : $installDir"
+        Write-Step "Purgerait la file locale              : agent-queue.db* (+ annexes WAL)"
         if ($RemoveData) {
             if ($instance.IsDefault) {
                 Write-Step "Supprimerait UNIQUEMENT les artefacts Default (pas les instances nommées)"
@@ -87,6 +95,7 @@ try {
         $installedService = Join-Path $installDir 'Liakont.Agent.exe'
         if (Test-Path -LiteralPath $installedService) {
             Write-Host "Suppression du service..." -ForegroundColor Cyan
+            # Le binaire purge lui-même la file locale (agent-queue.db*) à la désinstallation (BUG-2).
             if ($instance.IsDefault) { & $installedService uninstall } else { & $installedService uninstall --instance $instance.Name }
             if ($LASTEXITCODE -ne 0) {
                 throw "Échec de la suppression du service « $($instance.ServiceName) » (code $LASTEXITCODE)."
@@ -100,6 +109,19 @@ try {
     else {
         Write-Step "Service déjà absent — rien à supprimer côté SCM."
     }
+
+    # ── File locale : purge inconditionnelle (BUG-2) ──
+    # Le filigrane d'extraction vit dans agent-queue.db (table agent_state) : il doit disparaître à la
+    # désinstallation pour qu'une réinstallation reparte d'un état vierge. Le binaire le fait déjà quand
+    # il est présent (idempotent) ; on couvre ici le chemin « binaire absent » (retrait sc.exe direct) et
+    # tout résidu -wal/-shm. Périmètre strict : dossier de données LOCAL, jamais la base SOURCE.
+    foreach ($queueFile in $script:LocalQueueFiles) {
+        $target = Join-Path $instance.DataDirectory $queueFile
+        if (Test-Path -LiteralPath $target) {
+            Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
+        }
+    }
+    Write-Step "File locale purgée (agent-queue.db* — réinstallation vierge)."
 
     # ── 2. Suppression des binaires de l'instance ──
     if (Test-Path -LiteralPath $installDir) {
