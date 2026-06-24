@@ -220,13 +220,27 @@ public sealed class PipelineCheckHarness : IAsyncLifetime
             RateValue = 20m,
         };
 
+        // Régime de la marge (Part.Autre) → E + VATEX-EU-J : signal validé permettant à la plateforme de DÉRIVER
+        // le marqueur de déclaration de marge B2C au CHECK (B2cMarginMarking) et d'exercer la garde fail-closed
+        // « marge non classée » (honoraires + exonéré + acheteur pro → bloqué). Clé (MARGE, Autre) distincte.
+        var marginAdjudicationRule = new MappingRule
+        {
+            SourceRegimeCode = "MARGE",
+            Label = "Régime de la marge — objets de collection (art. 297 A)",
+            Part = MappingPart.Autre,
+            Category = VatCategory.E,
+            Vatex = "VATEX-EU-J",
+            RateMode = RateMode.Fixed,
+            RateValue = 0m,
+        };
+
         var table = MappingTable.Create(
             CompanyId,
             MappingVersion,
             "Expert-comptable CMP",
             new DateOnly(2026, 7, 15),
             MappingDefaultBehavior.Block,
-            new[] { rule });
+            new[] { rule, marginAdjudicationRule });
 
         await using var scope = _provider!.CreateAsyncScope();
         var factory = scope.ServiceProvider.GetRequiredService<ITvaMappingUnitOfWorkFactory>();

@@ -140,17 +140,32 @@ internal static class CheckIntegrationFixtures
     }
 
     /// <summary>
-    /// Construit une DÉCLARATION de MARGE e-reporting B2C (flux 10.3, enchères — B4) : marqueur 10.3 +
-    /// honoraires acheteur/vendeur (DONNÉE DE CALCUL, hors lignes/totaux) à un code régime mappé en part FRAIS,
-    /// SANS aucune TVA distincte (art. 297 E : <c>Totals.TotalTax = 0</c>, adjudication exonérée sans taxe). La
-    /// marge n'est portée que par les honoraires (<c>marge = Σ honoraires</c>, F03 §2.4). Valeurs fictives (n°7).
+    /// Construit une DÉCLARATION de MARGE e-reporting B2C (flux 10.3, enchères — B4) telle que la SOURCE la
+    /// produit, c.-à-d. SANS le marqueur 10.3 : l'agent ne pose JAMAIS <c>IsB2cReportingDeclaration</c> (il
+    /// extrait des pièces, pas des déclarations — CLAUDE.md n°6) ; la PLATEFORME le DÉRIVE au read-time depuis
+    /// le mapping validé (régime de la marge → E + VATEX-EU-J, B2cMarginMarking). L'adjudication porte un
+    /// régime mappé en part AUTRE (CHECK), les honoraires un régime mappé en part FRAIS (B4) ; aucune TVA
+    /// distincte (art. 297 E : <c>Totals.TotalTax = 0</c>, adjudication exonérée). La marge n'est portée que
+    /// par les honoraires (<c>marge = Σ honoraires</c>, F03 §2.4). Acheteur anonyme (B2C). Valeurs fictives (n°7).
     /// </summary>
+    /// <param name="adjudicationRegimeCode">
+    /// Régime de l'adjudication (part AUTRE), source du signal « régime de la marge ». Défaut « MARGE » =
+    /// mappé E + VATEX-EU-J sur la table des harnais → la plateforme marque la déclaration. Passer un régime
+    /// taxable (« NORMAL » → S) exerce la NON-dérivation (document non-marge, jamais routé vers B4).
+    /// </param>
+    /// <param name="customer">
+    /// Acheteur. Défaut <c>null</c> = anonyme (B2C particulier). Passer un acheteur AVEC SIREN exerce le cas
+    /// B2B (jamais marqué marge — l'e-invoicing B2B prime, F03 §2.4) et, au CHECK, la garde fail-closed
+    /// « marge non classée » (honoraires sous régime exonéré + acheteur pro → bloqué).
+    /// </param>
     public static PivotDocumentDto BuildB2cMarginDeclaration(
         string sourceReference,
         string feeRegimeCode,
         decimal sellerFeeTtc = 60.00m,
         decimal buyerFeeTtc = 60.00m,
-        string lotReference = "lot-7")
+        string lotReference = "lot-7",
+        string adjudicationRegimeCode = "MARGE",
+        PivotPartyDto? customer = null)
     {
         // Adjudication sous le régime de la marge : exonérée, AUCUNE TVA distincte (taux 0 / montant 0) — la marge
         // n'apparaît qu'au niveau de l'agrégat (art. 297 E, F03 §2.3). Les honoraires sont portés hors lignes.
@@ -159,7 +174,7 @@ internal static class CheckIntegrationFixtures
             netAmount: 120.00m,
             quantity: 1m,
             unitPriceNet: 120.00m,
-            sourceRegimeCodes: new[] { feeRegimeCode },
+            sourceRegimeCodes: new[] { adjudicationRegimeCode },
             taxes: new[] { new PivotLineTaxDto(0.00m, 0m) },
             sourceLineRef: "ligne#1");
 
@@ -171,10 +186,39 @@ internal static class CheckIntegrationFixtures
             supplier: new PivotPartyDto("Étude Fictïve SVV"),
             totals: new PivotTotalsDto(120.00m, 0.00m, 120.00m, 120.00m),
             operationCategory: OperationCategory.LivraisonBiens,
+            customer: customer,
             lines: new[] { adjudication },
-            isB2cReportingDeclaration: true,
             sellerFees: new[] { new PivotSellerFeeDto(lotReference, sellerFeeTtc, feeRegimeCode, "bv#1") },
             buyerFees: new[] { new PivotBuyerFeeDto(lotReference, buyerFeeTtc, feeRegimeCode, "ba#1") });
+    }
+
+    /// <summary>
+    /// Construit un bordereau d'enchères TAXABLE (adjudication S 20 %, TVA distincte > 0) portant tout de même
+    /// des honoraires — l'adaptateur EncheresV6 extrait les frais pour TOUT bordereau (marge ou taxable). C'est
+    /// un document NON-marge RÉALISTE qui atteint <c>ReadyToSend</c> (TVA > 0 ⇒ hors de la garde « marge non
+    /// classée ») et que le job B4 doit IGNORER (catégorie S ≠ E). Valeurs fictives (CLAUDE.md n°7).
+    /// </summary>
+    public static PivotDocumentDto BuildTaxableAuctionWithFees(string sourceReference, string regimeCode = "NORMAL")
+    {
+        var adjudication = new PivotLineDto(
+            description: "Adjudication lot (taxable, S 20 %)",
+            netAmount: 120.00m,
+            quantity: 1m,
+            unitPriceNet: 120.00m,
+            sourceRegimeCodes: new[] { regimeCode },
+            taxes: new[] { new PivotLineTaxDto(24.00m, 20m) },
+            sourceLineRef: "ligne#1");
+
+        return new PivotDocumentDto(
+            sourceDocumentKind: "F",
+            number: "BAT-2026-" + ((uint)sourceReference.GetHashCode(StringComparison.Ordinal)).ToString("D10", CultureInfo.InvariantCulture),
+            issueDate: new DateTime(2026, 1, 20),
+            sourceReference: sourceReference,
+            supplier: new PivotPartyDto("Étude Fictïve SVV"),
+            totals: new PivotTotalsDto(120.00m, 24.00m, 144.00m, 144.00m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            lines: new[] { adjudication },
+            buyerFees: new[] { new PivotBuyerFeeDto("lot-7", 60.00m, regimeCode, "ba#1") });
     }
 
     public static IntegrationEvent<DocumentReceivedV1> Event(Guid documentId, string sourceReference, string payloadHash)

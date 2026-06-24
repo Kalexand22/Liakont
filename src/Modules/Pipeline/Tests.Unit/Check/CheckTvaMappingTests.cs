@@ -113,6 +113,52 @@ public sealed class CheckTvaMappingTests
     }
 
     [Fact]
+    public void Evaluate_MarginDocument_Derives_B2cReportingDeclaration_Marker()
+    {
+        // Adjudication exonérée mappée E + VATEX-EU-J (régime marge, table validée), frais acheteur, acheteur
+        // particulier, aucune TVA distincte (297 E) → le pivot enrichi porte le marqueur de déclaration de marge.
+        var regimes = new[] { "MARGE" };
+        var line = new PivotLineDto(
+            description: "Adjudication lot 1",
+            netAmount: 2000m,
+            sourceRegimeCodes: regimes,
+            taxes: new[] { new PivotLineTaxDto(taxAmount: 0m, rate: 0m) });
+        var pivot = new PivotDocumentDto(
+            sourceDocumentKind: "B",
+            number: "100022",
+            issueDate: new DateTime(2024, 1, 12),
+            sourceReference: "encheresv6:ba:100022",
+            supplier: null,
+            totals: new PivotTotalsDto(2000m, 0m, 2000m),
+            operationCategory: null,
+            customer: new PivotPartyDto("Acheteur Particulier"),
+            lines: new[] { line },
+            buyerFees: new[] { new PivotBuyerFeeDto("100022", 401.28m, sourceRegimeCode: "MARGE") });
+        var plan = CheckTvaMapping.BuildPlan(pivot);
+        var mapping = MarginMappedResult();
+
+        var evaluation = CheckTvaMapping.Evaluate(pivot, plan, mapping);
+
+        evaluation.IsBlocked.Should().BeFalse();
+        evaluation.EnrichedDocument!.IsB2cReportingDeclaration.Should().BeTrue(
+            "régime marge (E + VATEX-EU-J) + frais + acheteur B2C + 297 E → déclaration de marge B2C dérivée (F03)");
+    }
+
+    [Fact]
+    public void Evaluate_TaxableDocument_Does_Not_Derive_Marker()
+    {
+        // Document taxable (S, TVA distincte) : jamais une déclaration de marge → marqueur non posé.
+        var pivot = CheckTestData.SingleLinePivot(regimeCode: "NORMAL", net: 120.00m, tax: 24.00m, rate: 20m);
+        var plan = CheckTvaMapping.BuildPlan(pivot);
+        var mapping = CheckTestData.MappedResult(version: "cmp-v1");
+
+        var evaluation = CheckTvaMapping.Evaluate(pivot, plan, mapping);
+
+        evaluation.EnrichedDocument!.IsB2cReportingDeclaration.Should().BeFalse(
+            "un document taxable n'est jamais marqué déclaration de marge B2C");
+    }
+
+    [Fact]
     public void Evaluate_Preserves_PaymentDueDate_After_Enrichment()
     {
         var dueDate = new DateTime(2026, 2, 15);
@@ -141,4 +187,24 @@ public sealed class CheckTvaMappingTests
         evaluation.EnrichedDocument.Should().NotBeNull();
         evaluation.EnrichedDocument!.PaymentDueDate.Should().Be(dueDate);
     }
+
+    private static DocumentTvaMappingResult MarginMappedResult() =>
+        new()
+        {
+            TableExists = true,
+            IsValidated = true,
+            MappingVersion = "cmp-v1",
+            Lines = new[]
+            {
+                new TvaLineMappingResult
+                {
+                    SourceRegimeCode = "MARGE",
+                    LineRef = "0",
+                    IsMapped = true,
+                    Category = "E",
+                    Rate = 0m,
+                    Vatex = "VATEX-EU-J",
+                },
+            },
+        };
 }

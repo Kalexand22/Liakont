@@ -16,6 +16,7 @@ using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Domain;
 using Liakont.Modules.Pipeline.Domain.B2cReporting;
+using Liakont.Modules.Pipeline.Infrastructure.Check;
 using Liakont.Modules.Pipeline.Infrastructure.Serialization;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
@@ -166,13 +167,33 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
                     }
 
                     var pivot = await TryReadStagedPivotAsync(staging, tenantId, document, logger, cancellationToken);
-                    if (pivot is null || !B2cMarginDeclaration.Matches(pivot))
+                    if (pivot is null || !HasMarginFees(pivot))
                     {
-                        continue; // non stagé/altéré, ou non-marge (taxable → chemin par-document de SendTenantJob, D1).
+                        continue; // non stagé/altéré, ou sans frais (jamais une marge) — pré-filtre cheap avant tout mapping.
+                    }
+
+                    // Marqueur 10.3-marge DÉRIVÉ read-time via le mapping VALIDÉ (catégorie + VATEX), comme au
+                    // CHECK/SEND : le pivot stagé est le pivot SOURCE (régimes bruts, jamais marqué par l'agent).
+                    // On l'enrichit ICI par le MÊME moteur (CheckTvaMapping), qui pose le marqueur — une seule
+                    // source de la classification, jamais inventée (F03).
+                    var marked = await EnrichForMarginMarkingAsync(tvaMapping, companyId, pivot, cancellationToken);
+                    if (marked is null)
+                    {
+                        // Doc PORTEUR DE FRAIS dont l'adjudication n'est plus mappable depuis le CHECK (table
+                        // absente / régime décroché / ligne hors forme) : TRACÉ (jamais un skip muet), miroir du
+                        // HOLD TvaUnresolved de SendTenantJob. Le doc reste ReadyToSend, repris quand la table est rétablie.
+                        blocked.Add(B2cMarginBlockReason.AdjudicationNotMapped);
+                        LogMarginAdjudicationNotMapped(logger, summary.Id);
+                        continue;
+                    }
+
+                    if (!B2cMarginDeclaration.Matches(marked))
+                    {
+                        continue; // classé NON-marge (taxable / acheteur pro) → voie document (D1) : pas une anomalie, pas tracé.
                     }
 
                     examined++;
-                    var resolution = await ResolveMarginAsync(tvaMapping, companyId, pivot, cancellationToken);
+                    var resolution = await ResolveMarginAsync(tvaMapping, companyId, marked, cancellationToken);
                     if (resolution.IsResolved)
                     {
                         contributions.Add(new B2cMarginContribution
@@ -234,6 +255,44 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
             LogStagingIntegrity(logger, document.Id);
             return null;
         }
+    }
+
+    // Frais de marge présents (acheteur OU vendeur) : pré-filtre cheap — seuls les documents porteurs de frais
+    // peuvent être une déclaration de marge (B2cMarginDeclaration.Matches l'exige). Inutile de mapper les autres.
+    private static bool HasMarginFees(PivotDocumentDto pivot) =>
+        ((pivot.SellerFees?.Count ?? 0) > 0) || ((pivot.BuyerFees?.Count ?? 0) > 0);
+
+    // Enrichit le pivot SOURCE par le mapping TVA validé (catégorie + VATEX) via le MÊME moteur qu'au CHECK/SEND
+    // (CheckTvaMapping), qui DÉRIVE le marqueur de déclaration de marge B2C sur le pivot enrichi (régime marge +
+    // B2C + frais + 297 E, fail-closed — voir B2cMarginMarking). Retourne null si aucune ligne mappable ou si le
+    // mapping bloque (table absente / régime devenu non couvert depuis le CHECK) : document ignoré ce cycle,
+    // repris au suivant — jamais marqué à l'aveugle (CLAUDE.md n°2/3).
+    //
+    // DETTE (assumée en build) : ce mapping de l'ADJUDICATION (Part.Autre, marquage) est distinct de celui des
+    // HONORAIRES (Part.Frais) fait ensuite par ResolveMarginAsync → 2 allers-retours MapAsync par document
+    // candidat (au grain frais, donc borné aux bordereaux d'enchères). Non fusionnables trivialement
+    // (CheckTvaMapping.Evaluate exige Lines.Count == Requests.Count, plan adjudication-only). À revoir (MapAsync
+    // multi-part unique) SI la découverte ReadyToSend devient un point chaud — pas avant (pré-filtre HasMarginFees).
+    private static async Task<PivotDocumentDto?> EnrichForMarginMarkingAsync(
+        ITvaMappingService tvaMapping,
+        Guid companyId,
+        PivotDocumentDto pivot,
+        CancellationToken cancellationToken)
+    {
+        var plan = CheckTvaMapping.BuildPlan(pivot);
+        if (plan.Requests.Count == 0)
+        {
+            return null; // aucune ligne de forme mappable → aucun signal de régime marge dérivable.
+        }
+
+        var mapping = await tvaMapping.MapAsync(companyId, plan.Requests, cancellationToken);
+        if (!mapping.TableExists)
+        {
+            return null; // aucune table de mapping (supprimée depuis le CHECK) → pas de classification, jamais devinée.
+        }
+
+        var evaluation = CheckTvaMapping.Evaluate(pivot, plan, mapping);
+        return evaluation.IsBlocked ? null : evaluation.EnrichedDocument;
     }
 
     // Résout la marge d'un document marge : somme des honoraires (TTC) à taux UNIQUE (mapping F03, Part.Frais),
@@ -537,6 +596,10 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
     [LoggerMessage(EventId = 7445, Level = LogLevel.Error,
         Message = "E-reporting B2C marge : échec d'émission de l'agrégat du {Date} ({Currency}) — entrées Pending conservées (exclues du run suivant, jamais 2 POST).")]
     private static partial void LogEmissionFailed(ILogger logger, DateOnly date, string currency, Exception exception);
+
+    [LoggerMessage(EventId = 7446, Level = LogLevel.Warning,
+        Message = "E-reporting B2C marge : document « {DocumentId} » porteur de frais dont l'adjudication n'est plus mappable (table de mapping TVA modifiée depuis le contrôle) — non agrégé, tracé. Le document reste prêt à l'envoi ; action opérateur : faites valider/rétablir le mapping du régime de cette adjudication.")]
+    private static partial void LogMarginAdjudicationNotMapped(ILogger logger, Guid documentId);
 
     private sealed record DiscoveryResult(int Examined, IReadOnlyList<B2cMarginContribution> Contributions, IReadOnlyList<B2cMarginBlockReason> Blocked);
 }

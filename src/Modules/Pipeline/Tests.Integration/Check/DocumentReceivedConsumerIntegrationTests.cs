@@ -126,6 +126,30 @@ public sealed class DocumentReceivedConsumerIntegrationTests : IClassFixture<Pip
             "ReadyToSend", "le contenu re-stagé rend le CHECK déroulable — plus de zombie définitif (FIX07b)");
     }
 
+    [Fact]
+    public async Task Margin_Shaped_Document_Not_Classified_Margin_Is_Blocked_Fail_Closed()
+    {
+        // Garde fail-closed (review P2 / CLAUDE.md n°3) : un document à la FORME d'une marge (honoraires + aucune
+        // TVA distincte) que le mapping NE classe PAS marge — ici adjudication exonérée (E + VATEX-EU-J) MAIS
+        // acheteur PROFESSIONNEL (SIREN) → ni B2C marge, ni B2B représentable (honoraires hors lignes) — est
+        // BLOQUÉ au CHECK avec un message opérateur, jamais routé en silence (honoraires perdus = marge sous-déclarée).
+        var documentId = Guid.NewGuid();
+        var sourceReference = "no_ba=" + documentId.ToString("N");
+        var buyer = new PivotPartyDto("Galerie Pro SARL", siren: "945678902");
+        var pivot = CheckIntegrationFixtures.BuildB2cMarginDeclaration(sourceReference, "NORMAL", customer: buyer);
+
+        await SeedAndStageAsync(documentId, sourceReference, pivot);
+
+        await ConsumeAsync(documentId, sourceReference, CheckIntegrationFixtures.PayloadHashOf(pivot));
+
+        (await _harness.GetDocumentStateAsync(documentId)).Should().Be("Blocked");
+
+        var events = await _harness.GetEventsAsync(documentId);
+        events.Should().Contain(
+            e => e.Detail != null && e.Detail.Contains("honoraires", StringComparison.Ordinal),
+            "le motif fail-closed « marge non classée » doit être consigné dans la piste d'audit (CLAUDE.md n°12).");
+    }
+
     private async Task SeedAndStageAsync(Guid documentId, string sourceReference, PivotDocumentDto pivot)
     {
         var json = CanonicalJson.Serialize(pivot);

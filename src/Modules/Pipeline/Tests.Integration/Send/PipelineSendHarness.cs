@@ -465,13 +465,28 @@ public sealed class PipelineSendHarness : IAsyncLifetime
             RateValue = 20m,
         };
 
+        // Règle PART AUTRE pour le RÉGIME DE LA MARGE (B4 — marquage 10.3) : l'adjudication exonérée d'un
+        // bordereau d'enchères est mappée E + VATEX-EU-J (objets de collection, art. 297 A / F03 §2.2/§2.3).
+        // C'est le signal VALIDÉ qui permet à la plateforme de DÉRIVER IsB2cReportingDeclaration au read-time
+        // (B2cMarginMarking) — la marge n'est jamais déduite mécaniquement (F03 §3). Clé (MARGE, Autre) distincte.
+        var marginAdjudicationRule = new MappingRule
+        {
+            SourceRegimeCode = "MARGE",
+            Label = "Régime de la marge — objets de collection (art. 297 A)",
+            Part = MappingPart.Autre,
+            Category = VatCategory.E,
+            Vatex = "VATEX-EU-J",
+            RateMode = RateMode.Fixed,
+            RateValue = 0m,
+        };
+
         var table = MappingTable.Create(
             CompanyId,
             MappingVersion,
             "Expert-comptable CMP",
             new DateOnly(2026, 7, 15),
             MappingDefaultBehavior.Block,
-            new[] { rule, feeRule });
+            new[] { rule, feeRule, marginAdjudicationRule });
 
         await using var scope = _provider!.CreateAsyncScope();
         var factory = scope.ServiceProvider.GetRequiredService<ITvaMappingUnitOfWorkFactory>();

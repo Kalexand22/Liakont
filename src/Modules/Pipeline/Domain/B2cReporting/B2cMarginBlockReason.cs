@@ -17,4 +17,12 @@ public enum B2cMarginBlockReason
 
     /// <summary>Les honoraires d'une MÊME vente sont à des taux différents — découpage de la marge non sourcé (F03 §2.5).</summary>
     MixedRates = 4,
+
+    /// <summary>
+    /// L'adjudication (porteuse du signal « régime de la marge ») n'est plus mappable par la table validée
+    /// depuis le CHECK (table absente, régime décroché, ou ligne hors forme) : impossible de classer le
+    /// document, donc de résoudre sa marge. Tracé (miroir du HOLD <c>TvaUnresolved</c> de SendTenantJob),
+    /// jamais un skip muet — le document reste <c>ReadyToSend</c>, repris quand la table est rétablie.
+    /// </summary>
+    AdjudicationNotMapped = 5,
 }

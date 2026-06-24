@@ -51,3 +51,58 @@
 - [ ] Tests unitaires du job (fakes) : discrimination, fail-closed, agrégation, skip-si-émis.
 - [ ] e2e sandbox gardé (déjà : id 591).
 - [ ] codex-review boucle propre. Merge main = humain (Karl).
+
+---
+
+# Partie 2 — Maillon plateforme : marquage de la déclaration B2C-marge (bloquant E2E)
+
+> Le job B4 filtre sur `IsB2cReportingDeclaration` (via `B2cMarginDeclaration.Matches`). **Aucun code prod
+> ne pose ce flag** (vérifié : l'agent ne le porte jamais ; CHECK/SEND/PivotEmitterEnricher ne font que le
+> passer). Sans ce maillon, B4 n'a aucune entrée → pas de marge observable. Branche `feat/ereporting-b2c`.
+
+## P2.0 — Sourçage (FAIT)
+- [x] Critère sourcé F03 : **régime de la marge** (mapping VALIDÉ → catégorie E + VATEX-EU-F/I/J, §2.2/§2.3 ;
+  jamais déduit mécaniquement du code régime — §3, table validée régime-par-régime) **+ B2C** (acheteur non
+  professionnel, §2.4 commettant non assujetti / acquéreur particulier) **+ frais** (commission, §2.4)
+  **+ 297 E** (aucune TVA distincte, §2.3). Fail-closed : signal manquant/ambigu → non marqué.
+
+## P2.1 — Architecture (read-time, pattern émetteur/TVA — JAMAIS persisté)
+- Le marqueur suit le pattern d'enrichissement read-time (PivotEmitterEnricher / mapping TVA) : **dérivé**
+  au moment où le pivot enrichi (catégorie+VATEX du mapping validé) est disponible, **jamais** stagé (le
+  staging garde le pivot SOURCE, hashé F06). Un seul point de dérivation.
+- [x] **`B2cMarginMarking.IsMarginDeclaration(PivotDocumentDto enrichedPivot)`** (Domain.B2cReporting, PUR) :
+  frais présents + toutes les lignes mappées E + VATEX∈{EU-F,EU-I,EU-J} + `Totals.TotalTax==0` + acheteur
+  non pro (`Customer==null` ou Siren/Siret/VatNumber vides && !IsCompanyHint). Champs Contracts uniquement (PAS de
+  référence à `Validation.Domain.CompanyHintDetector` — frontière P1).
+- [x] **`CheckTvaMapping.Evaluate`** : après construction du pivot enrichi, dériver+poser le marqueur (Rebuild
+  avec `isB2cReportingDeclaration: true` si `IsMarginDeclaration`, guard `!déjà marqué` pour ne pas effacer le
+  marqueur B2C taxable B2C-01). → **SEND récupère le pivot marqué gratuitement** (ReadStagedPivotAsync utilise
+  `evaluation.EnrichedDocument`) → `Matches` ligne 517 aiguille. **Zéro changement SEND.** CHECK l'obtient aussi.
+- [x] **`B2cMarginAggregatorTenantJob` (B4)** : dans la découverte, pré-filtre cheap (`HasMarginFees`) →
+  enrichir via `CheckTvaMapping.BuildPlan/MapAsync/Evaluate` (`EnrichForMarginMarkingAsync`) → `Matches(enriched)`
+  → `ResolveMarginAsync(enriched)`. (Avant : `Matches(rawPivot)` toujours faux.)
+
+## P2.2 — Tests + vérif
+- [x] Unit `B2cMarginMarking` (16 tests) : marge (E+VATEX-EU-J/F/I + frais + B2C + TVA=0) → true ; taxable (S,
+  TVA>0) → false ; B2B (SIREN/Siret/VAT/companyHint) → false ; sans frais → false ; E sans VATEX marge
+  (hors-champ) → false ; VATEX non-marge → false ; lignes mixtes → false ; acheteur anonyme → true (B2C).
+- [x] Unit `CheckTvaMapping` (2 tests) : pivot marge enrichi porte le marqueur ; cas taxable ne le porte pas.
+- [x] Intégration B4 (15 verts) : fixture RÉALISTE (pas de pré-marquage — l'agent ne marque jamais ; la plateforme
+  dérive), table seedée (MARGE, Part.Autre)→E+VATEX-EU-J ; doc marge découvert/agrégé/transmis ; adjudication
+  taxable → non marqué/ignoré ; fail-closed (frais non mappé) ; D1/D2/D3 préservés.
+- [x] verify-fast (3 sols) PASS + build Release (StyleCop) PASS + run-tests 6810 PASS.
+
+## P2.4 — codex-review round 1 : 0 P1, 3 P2 → CORRIGÉS
+- [x] **P2 #1 (fail-closed)** : un doc à la FORME d'une marge (frais + TVA=0) non classé marge (exonéré non-marge,
+  ou acheteur pro) filait par la voie document → honoraires perdus. **Fix** : `B2cMarginMarking.LooksLikeUnclassifiedMargin`
+  + garde CHECK (`DocumentCheckEvaluator`) qui BLOQUE avec message opérateur FR (n°12), symétrique au pré-filtre B4.
+  Un doc taxable (TVA>0) garde sa voie nominale (représentation commission→ligne taxable = item adaptateur Part 1, noté).
+- [x] **P2 #2 (trou de test)** : ajout test intégration B4 « acheteur SIREN → non marqué, non agrégé » (anti-régression B2B).
+- [x] **P2 #3 (dette)** : 2 `MapAsync`/doc candidat — laissé tel quel (build), commentaire de dette tracé dans le job.
+- [x] Tests ajoutés : +6 unit `LooksLikeUnclassifiedMargin`, +1 intégration B4 (B2B), +1 intégration CHECK (garde fail-closed).
+
+## P2.3 — Dépendance E2E (Partie 4, noter)
+- ⚠️ La table validée du déploiement doit mapper le régime marge **en Part.Autre** (= `CheckTvaMapping.LinePart`)
+  → E + VATEX-EU-J. Le seed `config/exemples/tenant-seed/encheres/mapping-tva.json` actuel utilise
+  `NORMAL/MARGE` + `Adjudication/Frais` (désaligné avec l'adaptateur qui extrait 5/6 et le Check qui mappe en
+  Autre). **À aligner en Partie 4** (orchestration démo), hors périmètre du maillon de marquage.

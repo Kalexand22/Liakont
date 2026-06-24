@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.Mandats.Contracts;
+using Liakont.Modules.Pipeline.Domain.B2cReporting;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Liakont.Modules.Transmission.Contracts;
@@ -60,6 +61,21 @@ internal static class DocumentCheckEvaluator
         "La nature d'opération (livraison de biens / prestation de services / mixte) n'est pas paramétrée pour ce " +
         "tenant : document bloqué (aucune nature n'est devinée). Action opérateur : renseignez la nature " +
         "d'opération dans la console (Paramétrage › Fiscal).";
+
+    /// <summary>
+    /// Motif de blocage d'un document à la FORME d'une marge B2C (honoraires + aucune TVA distincte) que la
+    /// table validée NE classe PAS au régime de la marge (CLAUDE.md n°2/3, F03 §6 décision #1). Transmis par la
+    /// voie document, ses honoraires (DONNÉE DE CALCUL, hors lignes) seraient perdus — « bloquer plutôt qu'envoyer
+    /// faux ». NE PAS affaiblir : la cause est un mapping ambigu (exonéré non reconnu marge) ou un acheteur
+    /// professionnel sous régime exonéré, jamais devinée.
+    /// </summary>
+    private const string UnclassifiedMarginReason =
+        "ce bordereau d'enchères porte des honoraires (commission acheteur/vendeur) et aucune TVA distincte, mais " +
+        "la table de mapping validée ne le classe PAS au régime de la marge (adjudication exonérée sans code de " +
+        "marge VATEX-EU-F/I/J, ou acheteur professionnel sous régime exonéré). Transmis tel quel, les honoraires " +
+        "seraient perdus (marge sous-déclarée). Document bloqué. Action opérateur : faites valider par " +
+        "l'expert-comptable le mapping du régime de cette adjudication (régime de la marge → catégorie E + " +
+        "VATEX-EU-F/I/J), ou vérifiez la donnée source (acheteur professionnel → facture B2B).";
 
     /// <summary>
     /// Évalue un document : mapping TVA → garde-fou production → validation. Les services (mapping,
@@ -135,6 +151,17 @@ internal static class DocumentCheckEvaluator
             // découvre toutes les causes corrigeables d'un coup, plus une par une à coups de « Revérifier ».
             return await BlockedWithIndependentIssuesAsync(
                 services, companyId, documentNumber, evaluation.BlockReason!, pivot, buyerConfirmedB2C, cancellationToken);
+        }
+
+        // GARDE FAIL-CLOSED « marge non classée » (CLAUDE.md n°3) : un document à la FORME d'une marge B2C
+        // (honoraires + aucune TVA distincte) que le mapping validé NE reconnaît PAS marge (exonéré non-marge,
+        // ou acheteur professionnel sous régime exonéré) ne doit JAMAIS filer par la voie document — ses
+        // honoraires (hors lignes) y seraient PERDUS, marge sous-déclarée sans message opérateur. On BLOQUE,
+        // symétrique au pré-filtre du job agrégé B4. Une vraie marge B2C est marquée (déférée vers B4) ; un
+        // document taxable (TVA distincte) garde sa voie nominale. Le marqueur est dérivé dans CheckTvaMapping.
+        if (B2cMarginMarking.LooksLikeUnclassifiedMargin(evaluation.EnrichedDocument!))
+        {
+            return CheckDecision.Blocked(WithDocumentNumber(documentNumber, UnclassifiedMarginReason));
         }
 
         var validation = services.GetRequiredService<IValidationService>();

@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Liakont.Agent.Contracts.Pivot;
+using Liakont.Modules.Pipeline.Domain.B2cReporting;
 using Liakont.Modules.Pipeline.Domain.Ventilation;
 using Liakont.Modules.TvaMapping.Contracts.Services;
 
@@ -123,7 +124,19 @@ internal static class CheckTvaMapping
             enrichedLines[lineIndex] = EnrichLine(pivot.Lines[lineIndex], mapping.Lines[i]);
         }
 
-        var enriched = Rebuild(pivot, enrichedLines);
+        var enriched = Rebuild(pivot, enrichedLines, pivot.IsB2cReportingDeclaration);
+
+        // Marqueur de DÉCLARATION DE MARGE B2C (flux 10.3) DÉRIVÉ ICI, au read-time : le pivot est désormais
+        // enrichi par le mapping VALIDÉ (catégorie + VATEX par ligne), seul moment où le régime de la marge est
+        // lisible SANS heuristique (F03 §3 : jamais déduit du code source). Posé sur l'enrichi (jamais porté par
+        // l'agent ni persisté — pattern émetteur/TVA) : SEND (ReadStagedPivotAsync) et le job B4 obtiennent le
+        // pivot marqué via CETTE évaluation, et B2cMarginDeclaration.Matches l'aiguille vers le job agrégé.
+        // Critère sourcé : voir B2cMarginMarking. Idempotent (re-CHECK redérive le même résultat).
+        if (!enriched.IsB2cReportingDeclaration && B2cMarginMarking.IsMarginDeclaration(enriched))
+        {
+            enriched = Rebuild(pivot, enrichedLines, isB2cReportingDeclaration: true);
+        }
+
         var ventilation = BuildVentilation(enrichedLines, plan, mapping);
         return CheckEvaluation.Ready(enriched, mapping.MappingVersion, ventilation);
     }
@@ -188,7 +201,7 @@ internal static class CheckTvaMapping
             sourceData: line.SourceData);
     }
 
-    private static PivotDocumentDto Rebuild(PivotDocumentDto pivot, IReadOnlyList<PivotLineDto> lines)
+    private static PivotDocumentDto Rebuild(PivotDocumentDto pivot, IReadOnlyList<PivotLineDto> lines, bool isB2cReportingDeclaration)
     {
         return new PivotDocumentDto(
             sourceDocumentKind: pivot.SourceDocumentKind,
@@ -210,7 +223,7 @@ internal static class CheckTvaMapping
             prepaidAmount: pivot.PrepaidAmount,
             sourceData: pivot.SourceData,
             paymentDueDate: pivot.PaymentDueDate,
-            isB2cReportingDeclaration: pivot.IsB2cReportingDeclaration,
+            isB2cReportingDeclaration: isB2cReportingDeclaration,
             sellerFees: pivot.SellerFees,
             buyerFees: pivot.BuyerFees);
     }

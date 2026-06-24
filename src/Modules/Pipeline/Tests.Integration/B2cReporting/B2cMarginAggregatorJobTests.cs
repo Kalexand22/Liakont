@@ -4,6 +4,8 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using FluentAssertions;
+using Liakont.Agent.Contracts.Pivot;
+using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Tests.Integration.Check;
 using Liakont.Modules.Pipeline.Tests.Integration.Send;
 using Xunit;
@@ -140,5 +142,80 @@ public sealed class B2cMarginAggregatorJobTests : IAsyncLifetime
             .Be(0, "un honoraire à taux non mappé bloque la marge — jamais transmise.");
         (await _harness.GetB2cMarginEmissionsAsync(documentId)).Should()
             .BeEmpty("un document bloqué n'écrit aucune entrée d'émission (jamais Pending sur du non-transmis).");
+    }
+
+    [Fact]
+    public async Task Taxable_Auction_With_Fees_Is_Not_Marked_Nor_Aggregated()
+    {
+        // Discrimination sourcée (F03 §3) : un bordereau d'enchères TAXABLE RÉALISTE (adjudication S 20 %, TVA
+        // distincte > 0) porteur de frais N'EST PAS une déclaration de marge — la plateforme ne le marque pas
+        // (le régime de la marge vient du mapping VALIDÉ, jamais d'un « TVA = 0 » deviné). Il atteint ReadyToSend
+        // (TVA > 0 ⇒ hors garde « marge non classée ») et le job B4 l'IGNORE (catégorie S ≠ E).
+        await _harness.UsePublishedFakeAsync();
+
+        var documentId = Guid.NewGuid();
+        var declaration = CheckIntegrationFixtures.BuildTaxableAuctionWithFees("ba-" + documentId.ToString("N"));
+        await _harness.SeedDetectedAndStageAsync(documentId, declaration);
+        await _harness.MarkReadyToSendAsync(documentId);
+
+        await _harness.RunB2cMarginAsync();
+
+        _harness.PaCallCount(SendB2cTransaction, MarginTxDetail).Should()
+            .Be(0, "une adjudication taxable (S, TVA distincte) n'est pas un régime de marge → document non marqué, jamais agrégé.");
+        (await _harness.GetB2cMarginEmissionsAsync(documentId)).Should()
+            .BeEmpty("un document non marqué n'écrit aucune entrée d'émission B2C marge.");
+    }
+
+    [Fact]
+    public async Task Margin_Fees_But_Adjudication_Not_Mappable_Is_Traced_Not_Silently_Skipped()
+    {
+        // Traçabilité (review P2) : un bordereau porteur de frais dont l'adjudication n'est plus mappable depuis
+        // le CHECK (régime décroché de la table validée) n'est PAS agrégé MAIS est TRACÉ dans le journal du run
+        // B4 (jamais un skip muet), miroir du HOLD TvaUnresolved de SendTenantJob. Le document reste ReadyToSend.
+        await _harness.UsePublishedFakeAsync();
+
+        var documentId = Guid.NewGuid();
+        var declaration = CheckIntegrationFixtures.BuildB2cMarginDeclaration(
+            "ba-" + documentId.ToString("N"), "NORMAL", adjudicationRegimeCode: "REGIME_ABSENT");
+        await _harness.SeedDetectedAndStageAsync(documentId, declaration);
+        await _harness.MarkReadyToSendAsync(documentId);
+
+        await _harness.RunB2cMarginAsync();
+
+        _harness.PaCallCount(SendB2cTransaction, MarginTxDetail).Should()
+            .Be(0, "une adjudication non mappable → document jamais agrégé.");
+        (await _harness.GetB2cMarginEmissionsAsync(documentId)).Should()
+            .BeEmpty("aucune émission sur un document non agrégé.");
+
+        var runs = await _harness.GetRunsAsync();
+        var run = runs.First(r => r.RunType == PipelineRunType.B2cMarginAggregate);
+        run.Detail.Should().Contain(
+            "AdjudicationNotMapped",
+            "le document dégradé est TRACÉ dans le journal du run B4 (jamais un skip muet) — miroir du HOLD SEND.");
+        (await _harness.GetDocumentStateAsync(documentId)).Should()
+            .Be("ReadyToSend", "le document reste prêt à l'envoi — repris quand la table de mapping est rétablie.");
+    }
+
+    [Fact]
+    public async Task Document_With_Margin_Fees_But_Professional_Buyer_Is_Not_Marked_Nor_Aggregated()
+    {
+        // B2B (acheteur identifié par un SIREN) : e-invoicing B2B, JAMAIS un e-reporting B2C de la marge
+        // (F03 §2.4). La plateforme ne marque pas → B4 l'ignore. Anti-régression du scénario historique (le B2B
+        // cassé par le lot B2C, cf. mémoire) : un acheteur SIREN à une vente marge ne file pas dans l'agrégat.
+        await _harness.UsePublishedFakeAsync();
+
+        var documentId = Guid.NewGuid();
+        var buyer = new PivotPartyDto("Galerie Pro SARL", siren: "945678902");
+        var declaration = CheckIntegrationFixtures.BuildB2cMarginDeclaration(
+            "ba-" + documentId.ToString("N"), "NORMAL", customer: buyer);
+        await _harness.SeedDetectedAndStageAsync(documentId, declaration);
+        await _harness.MarkReadyToSendAsync(documentId);
+
+        await _harness.RunB2cMarginAsync();
+
+        _harness.PaCallCount(SendB2cTransaction, MarginTxDetail).Should()
+            .Be(0, "un acheteur professionnel (SIREN) relève de l'e-invoicing B2B, jamais de l'e-reporting B2C marge.");
+        (await _harness.GetB2cMarginEmissionsAsync(documentId)).Should()
+            .BeEmpty("un document B2B n'écrit aucune entrée d'émission B2C marge.");
     }
 }
