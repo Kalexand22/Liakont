@@ -2,6 +2,7 @@ namespace Liakont.Host.Startup;
 
 using Liakont.Modules.Pipeline.Contracts.Jobs;
 using Liakont.Modules.Pipeline.Infrastructure.Aggregation;
+using Liakont.Modules.Pipeline.Infrastructure.B2cReporting;
 using Liakont.Modules.Pipeline.Infrastructure.Rectification;
 using Liakont.Modules.Pipeline.Infrastructure.Send;
 using Liakont.Modules.Pipeline.Infrastructure.Sync;
@@ -43,6 +44,10 @@ internal static class PipelineSystemJobHandlers
         // RECTIFICATIFS (PIP04) : e-reporting annule-et-remplace.
         services.AddJobHandler<RectifyReportsAllTrigger, RectifyReportsAllFanOutHandler>(
             "Rectificatifs e-reporting (tous les tenants)");
+
+        // E-REPORTING B2C MARGE (B4, flux 10.3) : agrégation N→1 jour×devise×taux + transmission PA (TMA1/SE).
+        services.AddJobHandler<AggregateB2cMarginAllTrigger, AggregateB2cMarginAllFanOutHandler>(
+            "E-reporting B2C de la marge (tous les tenants)");
 
         return services;
     }

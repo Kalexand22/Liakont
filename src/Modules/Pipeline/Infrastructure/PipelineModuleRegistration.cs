@@ -62,6 +62,11 @@ public static class PipelineModuleRegistration
         services.AddScoped<IReportRectificationLedger, PostgresReportRectificationLedger>();
         services.AddScoped<ReportRectificationService>();
 
+        // B4 — E-REPORTING B2C MARGE (flux 10.3) : journal d'émission APPEND-ONLY portant l'anti-doublon côté
+        // produit AU GRAIN DOCUMENT (attempt-once — l'API SuperPDP n'a aucune clé d'idempotence). Distinct de
+        // la projection payment_aggregations (recalculée) : c'est une piste d'audit immuable des transmissions.
+        services.AddScoped<IB2cMarginEmissionStore, PostgresB2cMarginEmissionStore>();
+
         // RDL06 — les 4 déclencheurs de fan-out SYSTÈME du pipeline (SendAll / SyncAll / AggregatePaymentsAll /
         // RectifyReportsAll) sont enregistrés par le HOST via AddJobHandler (AddPipelineSystemJobHandlers,
         // l'extension AddJobHandler vit dans Stratum.Modules.Job.Infrastructure, hors frontière Contracts de ce

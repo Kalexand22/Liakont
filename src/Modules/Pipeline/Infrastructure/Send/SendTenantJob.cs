@@ -17,6 +17,7 @@ using Liakont.Modules.Mandats.Contracts.Queries;
 using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Domain;
+using Liakont.Modules.Pipeline.Domain.B2cReporting;
 using Liakont.Modules.Pipeline.Infrastructure.Check;
 using Liakont.Modules.Pipeline.Infrastructure.Serialization;
 using Liakont.Modules.Staging.Contracts;
@@ -505,6 +506,17 @@ public sealed partial class SendTenantJob : ITenantJob
         if (IsUnsendableCreditNote(staged.Pivot!, paClient))
         {
             LogCreditNoteCapabilityMissing(logger, documentId, paClient.Capabilities.PaName);
+            return SendOutcome.Skipped;
+        }
+
+        // Garde D1 (B4) : une déclaration de MARGE (frais acheteur/vendeur, art. 297 E) est transmise
+        // EXCLUSIVEMENT par le job agrégé B2C (b2c_transactions, jour×devise×taux) — jamais par cette voie
+        // document (SendDocumentAsync la rejetterait : pas de destinataire identifié). On la DIFFÈRE ici (reste
+        // ReadyToSend ; jamais émise par-document, jamais Sending). Placée AVANT la garde de capacité 10.3 :
+        // une marge est déférée quelle que soit la capacité (la capacité marge est gardée DANS le job agrégé).
+        if (B2cMarginDeclaration.Matches(staged.Pivot!))
+        {
+            LogB2cMarginDeclarationDeferred(logger, documentId);
             return SendOutcome.Skipped;
         }
 
@@ -1269,6 +1281,10 @@ public sealed partial class SendTenantJob : ITenantJob
     [LoggerMessage(EventId = 7217, Level = LogLevel.Information,
         Message = "SEND : document {DocumentId} déjà transmis (journalisé) à un cycle précédent — finalisé Issued sans renvoi (anti double-envoi FX07).")]
     private static partial void LogAntiDuplicateJournalFinalized(ILogger logger, Guid documentId);
+
+    [LoggerMessage(EventId = 7224, Level = LogLevel.Information,
+        Message = "SEND : déclaration de marge e-reporting B2C {DocumentId} non transmise par la voie document — différée vers le job agrégé B2C (b2c_transactions, agrégation jour×devise). Comportement nominal (D1, B4).")]
+    private static partial void LogB2cMarginDeclarationDeferred(ILogger logger, Guid documentId);
 
     /// <summary>Issue de la résolution self-billed (MND07) : émettre (avec/sans projection) ou maintenir (hold).</summary>
     private readonly struct SelfBilledSend

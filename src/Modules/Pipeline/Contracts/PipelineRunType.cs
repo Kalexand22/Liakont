@@ -21,4 +21,7 @@ public enum PipelineRunType
 
     /// <summary>Rectification d'e-reporting (flux RE annule-et-remplace) d'une période déjà déclarée (PIP04).</summary>
     Rectify = 4,
+
+    /// <summary>E-reporting B2C de la marge (flux 10.3, enchères) : agrégation N→1 jour×devise×taux + transmission PA (B4).</summary>
+    B2cMarginAggregate = 5,
 }

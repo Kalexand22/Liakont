@@ -7,6 +7,7 @@ using FluentAssertions;
 using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.Transmission.Contracts;
 using Xunit;
+using Xunit.Abstractions;
 
 /// <summary>
 /// Suite SANDBOX (réelle) du plug-in Super PDP — envois RÉELS vers la sandbox Super PDP
@@ -34,6 +35,12 @@ public sealed class SuperPdpSandboxTests
     /// <summary>Variable d'environnement portant le secret client OAuth de la sandbox (jamais committée).</summary>
     private const string ClientSecretEnvVar = "SUPERPDP_SANDBOX_CLIENT_SECRET";
 
+    private readonly ITestOutputHelper _output;
+
+    /// <summary>Capture la sortie de test : ids serveur des lignes sandbox créées (visibilité recette).</summary>
+    /// <param name="output">Collecteur de sortie xUnit.</param>
+    public SuperPdpSandboxTests(ITestOutputHelper output) => _output = output;
+
     [Fact]
     public async Task Sends_A_Pivot_Invoice_For_Real_And_It_Is_Accepted()
     {
@@ -54,6 +61,32 @@ public sealed class SuperPdpSandboxTests
             http, tokenProvider, paymentDueDate: DateTime.UtcNow.Date.AddDays(30));
 
         await SendAndAssertAcceptedAsync(client, document);
+    }
+
+    [Fact]
+    public async Task Posts_A_Margin_b2c_transaction_For_Real_And_Server_Assigns_Id()
+    {
+        // RECETTE e-reporting B2C de la MARGE (enchères, flux 10.3 — B2C09c). Preuve d'envoi RÉEL d'une
+        // transaction TMA1 / rôle SE vers POST /v1.beta/b2c_transactions (forme ancrée F03 §2.5/§2.6).
+        // ⚠️ Crée une VRAIE ligne en sandbox : l'API n'expose AUCUN DELETE ni clé d'idempotence (2 POST =
+        // 2 lignes — ✅ constaté 2026-06-22, id 585/586). La suite Sandbox n'est JAMAIS lancée en CI
+        // (Category=Sandbox exclue par filtre — testing-strategy §8). EXIGE le SUCCÈS (jamais RejectedByPa) :
+        // un test qui n'exclut que l'erreur technique laisserait passer un payload rejeté (leçon gate 12/06).
+        var (client, _, _) = CreateSandboxClient();
+
+        var sent = await client.SendB2cTransactionAsync(MarginTransactionFixture());
+
+        _output.WriteLine(
+            $"Transaction B2C marge créée — id serveur = {sent.PaDocumentId} ; état = {sent.State} ; réponse = {sent.RawResponse}");
+
+        sent.Errors.Should().BeEmpty(
+            "un envoi B2C sandbox réussi ne porte aucune erreur (message Super PDP : {0})",
+            string.Join(" | ", sent.Errors.Select(e => $"[{e.Code}] {e.Message}")));
+        sent.State.Should().Be(
+            PaSendState.Issued,
+            "le POST b2c_transactions CRÉE la transaction → succès terminal ; l'agrégation PPF par période se fait côté serveur (GET /ereportings reste vide juste après le POST)");
+        sent.PaDocumentId.Should().NotBeNullOrWhiteSpace("la transaction créée porte l'id serveur assigné par Super PDP (ex. 585)");
+        sent.RawResponse.Should().NotBeNullOrEmpty();
     }
 
     // Envoi RÉEL + relecture du cycle de vie, avec les assertions de SUCCÈS EXIGÉ (critère de gate, F14 §8) :
@@ -105,6 +138,20 @@ public sealed class SuperPdpSandboxTests
         var tokenProvider = new SuperPdpTokenProvider(http, tokenEndpoint, clientId, clientSecret);
         return (new SuperPdpClient(http, tokenProvider, new SuperPdpClientOptions("SUPERPDP-SANDBOX")), http, tokenProvider);
     }
+
+    // Fixture marge minimale et COHÉRENTE (Σ sous-totaux = totaux — la réconciliation du builder l'exige) :
+    // marge TTC 120 € à 20 % → HT 100,00 / TVA 20,00 (TTC = HT + TVA). Un seul taux → un seul sous-total,
+    // la forme ancrée F03 §2.5 (TMA1 / rôle SE / decimal half-up). Date du jour (UTC), devise EUR.
+    private static B2cReportingTransaction MarginTransactionFixture() => new()
+    {
+        Category = EReportingTransactionCategory.Tma1,
+        Role = EReportingDeclarantRole.Seller,
+        CurrencyCode = "EUR",
+        Date = DateOnly.FromDateTime(DateTime.UtcNow.Date),
+        TaxExclusiveAmount = 100.00m,
+        TaxTotal = 20.00m,
+        Subtotals = [new B2cReportingTransactionSubtotal { TaxPercent = 20.0m, TaxableAmount = 100.00m, TaxTotal = 20.00m }],
+    };
 
     // Construit le pivot fixture depuis les companies sandbox RÉELLES : le vendeur DOIT être l'entreprise
     // du compte (contrôle serveur — F14 §3.2) et l'acheteur doit être adressable dans l'annuaire sandbox.

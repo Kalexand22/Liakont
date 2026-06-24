@@ -72,6 +72,12 @@ internal static class SystemJobDefinitions
             Label: "Rectificatifs e-reporting annule-et-remplace (PIP04)",
             Class: SystemJobClass.DeploymentCadence),
         new SystemJobDefinition(
+            JobType: typeof(AggregateB2cMarginAllTrigger).FullName!,
+            ScheduleName: "E-reporting B2C de la marge (tous les tenants)",
+            CronExpression: null,
+            Label: "E-reporting B2C de la marge, agrégation jour×devise×taux + transmission (B4)",
+            Class: SystemJobClass.DeploymentCadence),
+        new SystemJobDefinition(
             JobType: typeof(ReconciliationFanOutJobPayload).FullName!,
             ScheduleName: "Rapprochement des PDF (réconciliation)",
             CronExpression: null,

@@ -244,6 +244,28 @@ public sealed class PipelineSendHarness : IAsyncLifetime
         await job.ExecuteAsync(new Stratum.Common.Abstractions.Jobs.TenantJobContext(TenantSlug, scope.ServiceProvider));
     }
 
+    /// <summary>Exécute le job e-reporting B2C de la marge (B4) pour le tenant (agrégation + transmission).</summary>
+    public async Task RunB2cMarginAsync()
+    {
+        await using var scope = _provider!.CreateAsyncScope();
+        var job = new Liakont.Modules.Pipeline.Infrastructure.B2cReporting.B2cMarginAggregatorTenantJob(PipelineRunTrigger.Scheduled);
+        await job.ExecuteAsync(new Stratum.Common.Abstractions.Jobs.TenantJobContext(TenantSlug, scope.ServiceProvider));
+    }
+
+    /// <summary>
+    /// Entrées du journal d'émission B2C marge (<c>pipeline.b2c_margin_emissions</c>) pour un document, dans
+    /// l'ordre d'insertion (seq). Prouve l'attempt-once (Pending écrit avant le POST) et l'issue (Issued + id PA).
+    /// </summary>
+    public async Task<IReadOnlyList<(string Status, string? PaEmissionId)>> GetB2cMarginEmissionsAsync(Guid documentId)
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync();
+        var rows = await connection.QueryAsync(
+            "SELECT status, pa_emission_id FROM pipeline.b2c_margin_emissions WHERE document_id = @Id ORDER BY seq",
+            new { Id = documentId });
+        return rows.Select(r => ((string)r.status, (string?)r.pa_emission_id)).ToList();
+    }
+
     /// <summary>Nombre d'entrées de coffre (paquet initial + addenda) scellées pour un document.</summary>
     public async Task<int> ArchiveEntryCountAsync(Guid documentId)
     {
@@ -430,13 +452,26 @@ public sealed class PipelineSendHarness : IAsyncLifetime
             RateValue = 20m,
         };
 
+        // Règle PART FRAIS (B4) : le job e-reporting B2C de la marge mappe les honoraires acheteur/vendeur avec
+        // Part.Frais (F03 §2.4). Le CHECK générique ne consulte QUE Part.Autre (ConsultedMappingParts) — cette
+        // règle additive n'affecte donc PAS le mapping des lignes des tests SEND. Clé (code, part) distincte → INV-TVAMAPPING-003 respectée.
+        var feeRule = new MappingRule
+        {
+            SourceRegimeCode = "NORMAL",
+            Label = "Frais 20 %",
+            Part = MappingPart.Frais,
+            Category = VatCategory.S,
+            RateMode = RateMode.Fixed,
+            RateValue = 20m,
+        };
+
         var table = MappingTable.Create(
             CompanyId,
             MappingVersion,
             "Expert-comptable CMP",
             new DateOnly(2026, 7, 15),
             MappingDefaultBehavior.Block,
-            new[] { rule });
+            new[] { rule, feeRule });
 
         await using var scope = _provider!.CreateAsyncScope();
         var factory = scope.ServiceProvider.GetRequiredService<ITvaMappingUnitOfWorkFactory>();
