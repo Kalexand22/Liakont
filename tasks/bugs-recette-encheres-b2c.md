@@ -5,6 +5,28 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
 
 ---
 
+## ÉTAT — run autonome nuit 24→25/06/2026
+
+**Mergés sur `feat/ereporting-b2c` (verify-fast complet VERT)** — 6 fixes en agents parallèles + 1 réappliqué :
+- ✅ **BUG-1** heartbeat câblé (vrai bug : `HeartbeatReporter` jamais relié à l'hôte)
+- ✅ **BUG-2** purge de la file locale à la désinstallation
+- ✅ **BUG-3** UI composante (Frais reconnue consultée par B4 ; message « Adjudication » vrai)
+- ✅ **BUG-4a** échec de save rendu visible (socle `DeclaredFormPage`, 9 formulaires)
+- ✅ **BUG-6 / BUG-7 / BUG-10-message** messages opérateur (sans expert-comptable, diagnostiquables, sans « évolution ultérieure »)
+- ✅ **BUG-9** pays non-ISO ENG/SCO/WAL/NIR → GB (réappliqué à la main : branche agent basée sur un commit périmé)
+
+**Décisions Karl actées** :
+- **SIREN → facture B2B, JAMAIS e-reporting.** L'e-reporting B2C = **particuliers uniquement** (évidence — ne plus poser la question).
+- **BUG-4b** = « société porteuse » + l'opérateur global doit pouvoir paramétrer **FACILEMENT** des jobs sur **tous** les tenants (maintenance qui ne doit pas exploser avec le nb de clients).
+
+**Ouverts / découverts cette nuit** :
+- **BUG-10-EXTRACTION (MAJEUR, NOUVEAU)** — voir en bas. Remplace l'ancien « BUG-10b ». Karl avait RAISON : le régime existe.
+- **BUG-11 (100152)** — voir en bas. Faux blocage marge ; code correct → Host déployé périmé (à confirmer par rebuild).
+- **BUG-5** (lignes avant transmission) — lot persistance, options A/B documentées — DÉCISION.
+- **BUG-8** (e-reporting B2C taxable) — sourçage F03 + design — DÉCISION.
+
+---
+
 ## BUG-1 — Heartbeat agent figé
 
 - **Symptôme** : sur la console (Flotte / agents), « Dernier contact » ne change **jamais** après le tout premier
@@ -193,4 +215,46 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
   VATEX du mapping vers la ligne au CHECK** (à creuser : `TvaMapper` renvoie-t-il `Vatex` ? `EnrichLine` le pose).
   ⚠️ **Piège UX (BUG-3 confirmé)** : pour mapper l'**adjudication**, il faut la composante **« Hors Enchères »**
   (= `Autre`), PAS la composante « Adjudication » (qui existe mais n'est JAMAIS consultée) — contre-intuitif.
-- **100264** : régime NULL en source (BUG-10) + pays ENG (BUG-9) — deux causes distinctes cumulées sur le doc.
+- **100264** : pays ENG (BUG-9 ✅) + **régime PRÉSENT mais raté à l'extraction** (BUG-10-EXTRACTION ci-dessous —
+  PAS « régime absent » comme écrit initialement : Karl avait raison).
+
+---
+
+## BUG-10-EXTRACTION (MAJEUR) — l'agent rate le code régime quand il vit sur le PV, pas sur `ligne_pv.no_ba`
+
+- **Symptôme** : doc n°100264 bloqué « 0 code régime » alors qu'il **est** en régime 6 (marge). Karl : « quand on
+  regarde en bdd, on a des codes régime ». **Vérifié en base, il a raison.**
+- **Fait (base `EncheresV6_Demo`)** :
+  - `entete_ba[100264].no_pv = 77` ; `entete_pv[77].code_regime_tva = 6` ; toutes les `ligne_pv WHERE no_pv=77`
+    sont **régime 6**. Le régime EXISTE, au niveau du **PV de vente**.
+  - `ligne_pv WHERE no_ba=100264` = **VIDE** → l'extracteur (jointure du régime via `ligne_pv.no_ba` + `no_ligne_pv`,
+    cf. `EncheresV6Schema` Q1) ne ramène **rien** → l'agent émet `sourceRegimeCodes = []` → CHECK bloque « 0 régime ».
+  - **`170` bordereaux** (`entete_ba`) sont SANS `ligne_pv` par `no_ba` → tous bloqués à tort par ce chemin.
+  - Le `no_ligne_pv` côté `lignes_ba` (29/30) ≠ ceux de `ligne_pv` du PV 77 (1..13) ⇒ le modèle de liaison est
+    plus riche que `no_ba`+`no_ligne_pv` : le régime se rattache via le **PV** (`entete_ba.no_pv` → `entete_pv` /
+    `ligne_pv.no_pv`).
+- **Diagnostic** : la résolution du régime de l'adjudication doit passer par le **PV** (`no_pv`), pas par
+  `ligne_pv.no_ba`. À cadrer précisément sur le modèle réel (régime au grain PV `entete_pv.code_regime_tva`, ou au
+  grain ligne `ligne_pv` via `no_pv` + correspondance lot) — **avec accès à la base pour valider la jointure, ne
+  rien deviner** (CLAUDE.md n°2 ; lecture seule stricte). ⚠️ NE PAS retomber sur « régime absent » : c'est un
+  rattachement à corriger, pas une donnée manquante.
+- **Fichiers (pistes)** : `agent/src/Liakont.Agent.Adapters.EncheresV6/Source/EncheresV6Schema.cs` (Q1 + jointure
+  `ligne_pv`), l'extracteur EncheresV6, modèles source (`entete_pv` à exposer ?).
+- **Critère d'acceptation** : le doc 100264 (et les 170) sort avec son **régime 6** ; tests sur un BA sans `ligne_pv`
+  par `no_ba` mais avec un `no_pv` portant le régime. Lecture seule stricte préservée.
+
+## BUG-11 — 100152 faux blocage marge : config + code CORRECTS → Host déployé périmé (à confirmer)
+
+- **Symptôme** : doc n°100152 (régime 6, acheteur **particulier** GARCIA BERNARD : ni société, ni SIREN, ni n° TVA,
+  ni code pays) reste bloqué « marge non classée » **même après re-vérification** (Karl l'avait déjà refaite).
+- **Tout est correct, vérifié** : règle `6/Autre → E(=cat 5) + VATEX-EU-F` **validée en base** (`tvamapping.mapping_rules`,
+  table `validated_by=encheres`) ; `6/Frais → S(=cat 1) 20%` ; `VatCategory.E = 5` ; acheteur particulier
+  (`IsBuyerNonProfessional = true`) ; **1 seule** ligne d'adjudication régime 6 ; `TvaMapper.Map` matche exactement
+  `(régime, part)` → renvoie E + VATEX-F. Le test `Evaluate_MarginDocument_Derives_..._Marker` est **vert** sur le
+  code mergé. → Statiquement, le 100152 **doit** être marqué marge.
+- **Diagnostic** : le code à jour dérive correctement la marge. Le blocage persistant chez Karl vient très
+  probablement d'une **image Host périmée** (conteneur `bucodi-host` buildé avant la dérivation correcte / une
+  version buggée de `B2cMarginMarking`). **Action** : rebuild du Host avec `feat/ereporting-b2c` à jour, puis
+  re-vérifier le 100152 → doit passer en marge. **Si TOUJOURS bloqué après rebuild** → vrai bug runtime à creuser
+  (reproduire avec un test E2E portant exactement ces données : régime « 6 », règle Autre E+VATEX-F, frais, particulier).
+- **Critère d'acceptation** : 100152 marqué `IsB2cReportingDeclaration` (marge), non bloqué, après Host à jour.
