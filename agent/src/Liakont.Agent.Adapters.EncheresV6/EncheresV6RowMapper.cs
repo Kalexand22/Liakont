@@ -357,7 +357,37 @@ internal static class EncheresV6RowMapper
             line1: NullIfBlank(line1),
             postalCode: NullIfBlank(postalCode),
             city: NullIfBlank(city),
-            countryCode: NullIfBlank(countryCode));
+            countryCode: NullIfBlank(NormalizeCountryCode(countryCode)));
+    }
+
+    /// <summary>
+    /// Normalise un code pays BRUT de la source EncheresV6 (<c>code_pays</c>) vers ISO 3166-1 alpha-2 pour les
+    /// SEULS cas non-ISO connus et sûrs de la base réelle : les nations du Royaume-Uni (<c>ENG</c>/<c>SCO</c>/
+    /// <c>WAL</c>/<c>NIR</c> — codes de subdivision ISO 3166-2, pas des pays alpha-2) relèvent toutes de
+    /// <c>GB</c> (ISO 3166-1). Normalisation de DONNÉE legacy (miroir du nettoyage devise « EURO » → « EUR »),
+    /// jamais une règle fiscale (aucune catégorie TVA / VATEX / seuil inventé — CLAUDE.md n°2). Tout code NON
+    /// listé est laissé STRICTEMENT BRUT : l'adaptateur ne devine jamais un pays — un code inconnu remonte tel
+    /// quel à la plateforme, qui tranche en validation (BT-55, BuyerIdentityRule).
+    /// </summary>
+    /// <param name="raw">Le code pays brut tel que stocké en source (<c>code_pays</c>), éventuellement <c>null</c>.</param>
+    /// <returns><c>GB</c> pour <c>ENG</c>/<c>SCO</c>/<c>WAL</c>/<c>NIR</c> ; sinon la valeur d'origine inchangée.</returns>
+    private static string? NormalizeCountryCode(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return raw;
+        }
+
+        switch (raw!.Trim().ToUpperInvariant())
+        {
+            case "ENG":
+            case "SCO":
+            case "WAL":
+            case "NIR":
+                return "GB";
+            default:
+                return raw;
+        }
     }
 
     private static PivotDocumentRefDto[] MapBaCreditNoteRefs(EncheresV6Bordereau bordereau, string kind, EncheresV6Bordereau? origin)

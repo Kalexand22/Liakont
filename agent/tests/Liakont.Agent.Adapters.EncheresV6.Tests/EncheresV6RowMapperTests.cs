@@ -99,6 +99,29 @@ public class EncheresV6RowMapperTests
     }
 
     [Fact]
+    public void MapBaDocument_normalizes_non_iso_country_code_UK_nations_to_GB()
+    {
+        // La source EncheresV6 étiquette certaines nations du Royaume-Uni par un code non-ISO (« ENG »/« SCO »/
+        // « WAL »/« NIR » — codes de subdivision ISO 3166-2, pas des pays alpha-2) : l'agent les normalise vers
+        // « GB » (ISO 3166-1, sinon la plateforme BLOQUE — code pays invalide). Donnée legacy, pas fiscale.
+        EncheresV6Bordereau eng = MargeBa();
+        eng.CodePays = "ENG";
+        EncheresV6RowMapper.MapBaDocument(eng, null).Customer!.Address!.CountryCode.Should().Be("GB");
+
+        EncheresV6Bordereau sco = MargeBa();
+        sco.CodePays = " sco ";
+        EncheresV6RowMapper.MapBaDocument(sco, null).Customer!.Address!.CountryCode.Should().Be("GB", "casse et espaces tolérés");
+
+        EncheresV6Bordereau isoPays = MargeBa();
+        isoPays.CodePays = "FR";
+        EncheresV6RowMapper.MapBaDocument(isoPays, null).Customer!.Address!.CountryCode.Should().Be("FR", "un code ISO valide est transporté tel quel");
+
+        EncheresV6Bordereau inconnu = MargeBa();
+        inconnu.CodePays = "ZZ";
+        EncheresV6RowMapper.MapBaDocument(inconnu, null).Customer!.Address!.CountryCode.Should().Be("ZZ", "un code non listé reste strictement brut — l'adaptateur ne devine jamais un pays");
+    }
+
+    [Fact]
     public void MapBaDocument_sets_company_hint_and_siren_raw_without_heuristic()
     {
         PivotDocumentDto particulier = EncheresV6RowMapper.MapBaDocument(MargeBa(), null);
