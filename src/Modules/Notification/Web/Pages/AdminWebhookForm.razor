@@ -193,17 +193,16 @@
         return valid;
     }
 
-    private void HandleDomainError(string errorCode)
+    // Aucun champ dédié : l'erreur (reformulée) est surfacée en bannière globale par le socle
+    // (le socle possède l'affichage global — BUG-4 volet A).
+    private string? HandleDomainError(string errorCode) => errorCode switch
     {
-        _globalError = errorCode switch
-        {
-            "INV-WH-001" => "URL cible invalide (HTTPS requis)",
-            "INV-WH-002" => "Secret trop court (min 32 car.)",
-            "INV-WH-003" => "Type d'événement requis",
-            "INV-WH-004" => "Nom requis",
-            _ => errorCode,
-        };
-    }
+        "INV-WH-001" => "URL cible invalide (HTTPS requis)",
+        "INV-WH-002" => "Secret trop court (min 32 car.)",
+        "INV-WH-003" => "Type d'événement requis",
+        "INV-WH-004" => "Nom requis",
+        _ => errorCode,
+    };
 
     private async Task<Guid> CreateAsync()
     {
