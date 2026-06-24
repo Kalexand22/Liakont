@@ -35,6 +35,7 @@ internal static class AgentJsonBuilder
         ProfileFieldKeys.OdbcConnection,
         ProfileFieldKeys.PdfPoolPath,
         ProfileFieldKeys.Schedule,
+        ProfileFieldKeys.ExtractFromUtc,
     };
 
     /// <summary>
@@ -78,6 +79,15 @@ internal static class AgentJsonBuilder
 
         extraction["schedule"] = BuildScheduleArray(scheduleRaw);
         extraction["catchUpOnStart"] = false;
+
+        // Borne « extraire depuis » (factures à partir de cette date) : OPTIONNELLE. Vide = aucun rattrapage
+        // d'historique (fenêtre depuis maintenant, uniquement les nouveaux documents — ADR-0031). Transmise
+        // telle quelle ; le format date/heure est validé par le chargeur du cœur agent (re-validation ci-dessous).
+        string? extractFromClear = config.Get(ProfileFieldKeys.ExtractFromUtc);
+        if (!string.IsNullOrWhiteSpace(extractFromClear))
+        {
+            extraction["extractFromUtc"] = extractFromClear!.Trim();
+        }
 
         var root = new JObject
         {

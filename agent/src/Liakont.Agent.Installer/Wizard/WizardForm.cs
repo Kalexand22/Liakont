@@ -27,6 +27,7 @@ internal sealed class WizardForm : Form
     internal static readonly (string Key, string Label)[] OptionFields =
     {
         (ProfileFieldKeys.Schedule, "Planification (HH:mm, séparées par des virgules)"),
+        (ProfileFieldKeys.ExtractFromUtc, "Factures à partir du (AAAA-MM-JJ ; vide = uniquement les nouvelles)"),
         (ProfileFieldKeys.PdfPoolPath, "Dossier du pool de PDF"),
     };
 

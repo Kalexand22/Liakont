@@ -32,6 +32,13 @@ internal static class ProfileFieldKeys
     /// <summary>Planification d'extraction.</summary>
     public const string Schedule = "schedule";
 
+    /// <summary>
+    /// Date de début d'extraction — factures à prendre en compte À PARTIR de cette date (borne « extraire
+    /// depuis », ADR-0031). VIDE = aucun rattrapage d'historique : uniquement les NOUVEAUX documents (fenêtre
+    /// depuis maintenant). Format date/heure (ex. <c>2026-01-01</c>) validé par le chargeur du cœur agent.
+    /// </summary>
+    public const string ExtractFromUtc = "extractFromUtc";
+
     /// <summary>Dossier du pool de PDF.</summary>
     public const string PdfPoolPath = "pdfPoolPath";
 
@@ -61,6 +68,7 @@ internal static class ProfileFieldKeys
         OdbcConnection,
         OdbcAdvanced,
         Schedule,
+        ExtractFromUtc,
         PdfPoolPath,
         Logging,
         AutoUpdate,

@@ -74,6 +74,33 @@ public class AgentJsonBuilderTests
         json.Should().NotContain("odbcConnectionString");
     }
 
+    [Fact]
+    public void Build_ecrit_la_date_de_debut_quand_renseignee()
+    {
+        ResolvedConfiguration config = ResolvedConfig(
+            (ProfileFieldKeys.PlatformUrl, "https://liakont.exemple.fr"),
+            (ProfileFieldKeys.ApiKey, "pk"),
+            (ProfileFieldKeys.Adapter, "EncheresV6"),
+            (ProfileFieldKeys.ExtractFromUtc, "2026-01-01"));
+
+        string json = AgentJsonBuilder.Build(config, new FakeSecretProtector());
+
+        json.Should().Contain("extractFromUtc").And.Contain("2026-01-01");
+    }
+
+    [Fact]
+    public void Build_omet_la_date_de_debut_quand_absente()
+    {
+        ResolvedConfiguration config = ResolvedConfig(
+            (ProfileFieldKeys.PlatformUrl, "https://liakont.exemple.fr"),
+            (ProfileFieldKeys.ApiKey, "pk"),
+            (ProfileFieldKeys.Adapter, "EncheresV6"));
+
+        string json = AgentJsonBuilder.Build(config, new FakeSecretProtector());
+
+        json.Should().NotContain("extractFromUtc", "vide → uniquement les nouveaux documents, aucune borne d'historique");
+    }
+
     private static ResolvedConfiguration ResolvedConfig(params (string Key, string? Value)[] values)
     {
         var dict = new Dictionary<string, string?>(StringComparer.Ordinal);
