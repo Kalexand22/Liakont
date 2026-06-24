@@ -412,8 +412,21 @@ internal static class EncheresV6RowMapper
         return p.Length == 0 ? n : (n.Length == 0 ? p : n + " " + p);
     }
 
-    private static string NormalizeCurrency(string? code) =>
-        string.IsNullOrWhiteSpace(code) ? DeviseDomestique : code!.Trim();
+    private static string NormalizeCurrency(string? code)
+    {
+        var trimmed = code?.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+        {
+            return DeviseDomestique;
+        }
+
+        // Le système source étiquette l'euro « EURO » (libellé Magic/Zen, non-ISO) : normalisé vers l'ISO 4217
+        // « EUR ». C'est une normalisation de FORMAT du code devise (pas une interprétation fiscale, R3) : la
+        // plateforme exige un code ISO 4217 valide, sinon elle bloque le document. Tout autre code est transporté
+        // tel quel (la plateforme tranchera) — seul l'alias connu « EURO » de la source est rapproché de l'ISO.
+        // trimmed est non-null ici (retour anticipé ci-dessus) ; net48 n'annote pas IsNullOrEmpty → « ! » explicite.
+        return string.Equals(trimmed, "EURO", StringComparison.OrdinalIgnoreCase) ? DeviseDomestique : trimmed!;
+    }
 
     private static string? NullIfBlank(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value!.Trim();

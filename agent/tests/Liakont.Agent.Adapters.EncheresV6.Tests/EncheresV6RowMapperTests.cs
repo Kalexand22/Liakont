@@ -81,6 +81,24 @@ public class EncheresV6RowMapperTests
     }
 
     [Fact]
+    public void MapBaDocument_normalizes_source_currency_label_EURO_to_iso_EUR()
+    {
+        // La source EncheresV6 étiquette l'euro « EURO » (libellé non-ISO) : l'agent le normalise vers l'ISO 4217
+        // « EUR » (sinon la plateforme BLOQUE le document — code devise invalide). Normalisation de FORMAT, pas fiscale.
+        EncheresV6Bordereau euro = MargeBa();
+        euro.CodeDevise = "EURO";
+        EncheresV6RowMapper.MapBaDocument(euro, null).CurrencyCode.Should().Be("EUR");
+
+        EncheresV6Bordereau vide = MargeBa();
+        vide.CodeDevise = string.Empty;
+        EncheresV6RowMapper.MapBaDocument(vide, null).CurrencyCode.Should().Be("EUR", "devise absente → EUR domestique");
+
+        EncheresV6Bordereau iso = MargeBa();
+        iso.CodeDevise = "USD";
+        EncheresV6RowMapper.MapBaDocument(iso, null).CurrencyCode.Should().Be("USD", "un code ISO valide est transporté tel quel");
+    }
+
+    [Fact]
     public void MapBaDocument_sets_company_hint_and_siren_raw_without_heuristic()
     {
         PivotDocumentDto particulier = EncheresV6RowMapper.MapBaDocument(MargeBa(), null);
