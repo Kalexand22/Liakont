@@ -239,6 +239,7 @@ public sealed class PervasiveExtractor : IExtractor
             TypeLigne = OdbcCellReader.GetString(reader, EncheresV6Schema.ColTypeLigne),
             CodeLigne = OdbcCellReader.GetString(reader, EncheresV6Schema.ColCodeLigne),
             NoLignePv = OdbcCellReader.GetString(reader, EncheresV6Schema.ColNoLignePv),
+            NoLigneToutPv = OdbcCellReader.GetString(reader, EncheresV6Schema.ColNoLigneToutPv),
             Designation = OdbcCellReader.GetString(reader, EncheresV6Schema.ColLibelleLigne),
             MontantAdjHt = OdbcCellReader.GetNullableDouble(reader, EncheresV6Schema.ColMontantAdjHt) ?? 0d,
             MttTvaInclusAdj = OdbcCellReader.GetNullableDouble(reader, EncheresV6Schema.ColMttTvaInclusAdj) ?? 0d,

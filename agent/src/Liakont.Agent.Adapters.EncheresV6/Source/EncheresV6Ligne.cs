@@ -5,7 +5,7 @@ using Newtonsoft.Json;
 
 /// <summary>
 /// Reflet BRUT d'une ligne de la table <c>lignes_ba</c> (bordereau acheteur) du système EncheresV6,
-/// enrichie du code régime TVA du lot (jointure <c>ligne_pv</c> sur <c>no_ligne_pv</c>). Le
+/// enrichie du code régime TVA du lot (jointure <c>ligne_pv</c> sur <c>no_ligne_tout_pv</c>). Le
 /// <c>type_ligne</c> distingue (vérifié sur la donnée) : <b>type 1</b> = ligne de lot (adjudication
 /// <c>montant_adj_ht</c> + commission acheteur <c>montant_frais_ht</c>/<c>montant_tva_frais</c>) ;
 /// <b>type 2</b> = débours/annexes acheteur (hors marge) ; <b>type 3</b> = règlement (<c>montant_ligne</c>) ;
@@ -23,9 +23,13 @@ internal sealed class EncheresV6Ligne
     [JsonProperty("code_ligne")]
     public string? CodeLigne { get; set; }
 
-    /// <summary>Référence de la ligne de PV (lot) — clé de jointure vers <c>ligne_pv</c> et traçabilité.</summary>
+    /// <summary>Référence de la ligne de PV (lot), relative au PV — traçabilité (n'est PAS la clé de jointure du régime).</summary>
     [JsonProperty("no_ligne_pv")]
     public string? NoLignePv { get; set; }
+
+    /// <summary>Identifiant GLOBAL de ligne de PV (<c>no_ligne_tout_pv</c>) — VRAIE clé de jointure vers <c>ligne_pv</c> pour le code régime du lot (<c>ligne_pv.no_ba</c> vaut souvent 0).</summary>
+    [JsonProperty("no_ligne_tout_pv")]
+    public string? NoLigneToutPv { get; set; }
 
     /// <summary>Libellé de la ligne (<c>libelle_ligne</c>) → <c>PivotLineDto.Description</c> / fee Description.</summary>
     [JsonProperty("libelle_ligne")]

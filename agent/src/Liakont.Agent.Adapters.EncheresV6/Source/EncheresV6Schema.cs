@@ -18,8 +18,11 @@ using System.Text.RegularExpressions;
 /// MODÈLE (vérifié sur la donnée + dictionnaire Magic XPA) : le document ACHETEUR (BA) porte la
 /// commission acheteur (lignes <c>type_ligne='1'</c>, <c>montant_frais_ht</c>) ; le document VENDEUR
 /// (BV) porte la commission vendeur (lignes <c>type_ligne='2'</c>, <c>mtt_frais_ht</c>). Le code régime
-/// vit sur <c>ligne_pv</c> (joint sur <c>no_ba</c>+<c>no_ligne_pv</c>). Filtre tenant par
-/// <c>No_dossier</c> (BA <c>No_dossier_comptable</c>, BV <c>dossier_comptable</c>).
+/// vit sur <c>ligne_pv</c>, joint depuis la ligne acheteur par l'identifiant GLOBAL de ligne de PV
+/// (<c>lignes_ba.no_ligne_tout_pv</c> = <c>ligne_pv.no_ligne_tout_pv</c>) : <c>ligne_pv.no_ba</c> vaut
+/// très souvent 0 (le lien acheteur n'est pas porté sur la ligne de PV), si bien que l'ancienne jointure
+/// par <c>no_ba</c>+<c>no_ligne_pv</c> ratait et laissait l'adjudication sans code régime. Filtre tenant
+/// par <c>No_dossier</c> (BA <c>No_dossier_comptable</c>, BV <c>dossier_comptable</c>).
 /// </para>
 /// </summary>
 internal sealed class EncheresV6Schema
@@ -53,6 +56,7 @@ internal sealed class EncheresV6Schema
     internal const string ColTypeLigne = "type_ligne";
     internal const string ColCodeLigne = "code_ligne";
     internal const string ColNoLignePv = "no_ligne_pv";
+    internal const string ColNoLigneToutPv = "no_ligne_tout_pv";
     internal const string ColLibelleLigne = "libelle_ligne";
     internal const string ColMontantAdjHt = "montant_adj_ht";
     internal const string ColMttTvaInclusAdj = "mtt_tva_inclus_adj";
@@ -73,8 +77,7 @@ internal sealed class EncheresV6Schema
     internal const string ColMttTvaFrais = "mtt_tva_frais";
 
     // ── ligne_pv ────────────────────────────────────────────────────
-    internal const string ColPvNoBa = "no_ba";
-    internal const string ColPvNoLignePv = "no_ligne_pv";
+    internal const string ColPvNoLigneToutPv = "no_ligne_tout_pv";
 
     // ── Régimes ─────────────────────────────────────────────────────
     internal const string ColRegimeLibelle = "libelle_descriptif";
@@ -156,13 +159,13 @@ internal sealed class EncheresV6Schema
         + ", e." + ColAdresse + ", e." + ColCodePostal + ", e." + ColVille + ", e." + ColCodePays
         + ", e." + ColTotalBordereau
         + ", o." + ColNoBa + " AS " + ColOriginNoBa + ", o." + ColDateVente + " AS " + ColOriginDateVente
-        + ", l." + ColTypeLigne + ", l." + ColCodeLigne + ", l." + ColNoLignePv + ", l." + ColLibelleLigne
+        + ", l." + ColTypeLigne + ", l." + ColCodeLigne + ", l." + ColNoLignePv + ", l." + ColNoLigneToutPv + ", l." + ColLibelleLigne
         + ", l." + ColMontantAdjHt + ", l." + ColMttTvaInclusAdj + ", l." + ColMttTvaEnPlusAdj
         + ", l." + ColMontantFraisHt + ", l." + ColMontantTvaFrais + ", l." + ColCodeDevise
         + ", lp." + ColCodeRegimeTva + " AS " + ColCodeRegime
         + " FROM " + _enteteBa + " e"
         + " LEFT JOIN " + _lignesBa + " l ON l." + ColNoBa + " = e." + ColNoBa + " AND l." + ColTypeLigne + " = '" + LigneLotBa + "'"
-        + " LEFT JOIN " + _lignePv + " lp ON lp." + ColPvNoBa + " = e." + ColNoBa + " AND lp." + ColPvNoLignePv + " = l." + ColNoLignePv
+        + " LEFT JOIN " + _lignePv + " lp ON lp." + ColPvNoLigneToutPv + " = l." + ColNoLigneToutPv
         + " LEFT JOIN " + _enteteBa + " o ON e." + ColBordereauOuAvoir + " = '" + PieceAvoir + "' AND o." + ColNoBa + " = e." + ColNoBaLettrage
         + " WHERE e." + ColNoDossierBa + " = ? AND e." + ColBordereauOuAvoir + " IN ('" + PieceVente + "', '" + PieceAvoir + "')"
         + " AND e." + ColDateVente + " >= ? AND e." + ColDateVente + " < ?"
