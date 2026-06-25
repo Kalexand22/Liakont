@@ -287,7 +287,7 @@ réversibilité GED par ADR-0035.
 | D1 | Valeur **probante** d'une attestation tierce (Arkhineo / NF Z42-013) et format de **vérification autonome** | ❓ NON TRANCHÉ — tant que non spécifié : statut `SealClaimedNotVerifiable` ; jamais « conforme NF Z42-013 » ; ceinture + bretelles (ancrage produit souverain toujours actif) | EC + juridique |
 | D2 | Liakont peut-il **revendiquer** NF Z42-013 via un SAE tiers, ou seulement « scellé chez un tiers certifié » ? | ❓ NON TRANCHÉ — ne revendiquer que ce que le fournisseur **atteste** (notice « scellé chez un tiers déclarant », non re-vérifié par Liakont) | Juridique |
 | D3 | **Rétention / cycle de vie d'un document GED NON fiscal** sous WORM inaltérable ↔ droit à l'effacement RGPD (art. 17) | ❓ NON TRANCHÉ — `retention_class` par document (`legal_hold`/`tenant_bounded`/`erasable`) ; le **crypto-shredding** **suppose une couche de chiffrement-au-repos du contenu QUI N'EXISTE PAS** (`IArchiveStore` écrit des octets BRUTS, RL-06) → c'est un **prérequis (D9)**, pas un mécanisme V1 ; par défaut sûr = **pas de purge auto** | DPO + juridique |
-| D4 | **Périmètre V1** : MVP strict (coffre Liakont seul) ou coffre tiers dès V1 ? | **MVP strict V1** (coffre WORM Liakont seul, recommandé) ; coffre tiers en fast-follow GED20 (dépend de D1) | Karl |
+| D4 | **Périmètre V1** : MVP strict (coffre Liakont seul) ou coffre tiers dès V1 ? | ✅ **TRANCHÉ (Karl, 2026-06-25) — MVP strict V1** (coffre WORM Liakont seul) ; coffre tiers en fast-follow GED20 (dépend de D1) | Karl |
 
 Aucun de ces points ne stalle la **tranche V1** : le coffre WORM Liakont (GED07) ne dépend d'aucun d'eux ; seuls les
 items fast-follow GED20+ sont conditionnés (notamment **blocked sur D1**). Le défaut sûr partout = **ne jamais
