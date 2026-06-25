@@ -64,6 +64,59 @@ public class PervasiveExtractorTests
         connection.ExecutedCommandTexts.Should().Contain(sql => sql.Contains(EncheresV6Schema.ColNoDossierBv));
     }
 
+    [Fact]
+    public void Ba_query_joins_ligne_pv_on_global_pv_line_id_not_on_no_ba()
+    {
+        // BUG-10-EXTRACTION : ligne_pv.no_ba vaut très souvent 0 → l'ancienne jointure (no_ba + no_ligne_pv)
+        // ratait et l'adjudication sortait SANS code régime. La VRAIE clé est l'identifiant global de ligne
+        // de PV (lignes_ba.no_ligne_tout_pv = ligne_pv.no_ligne_tout_pv).
+        var connection = new RecordingConnection(readerResolver: RouteBaThenBv(Array.Empty<IReadOnlyDictionary<string, object?>>()));
+        var extractor = new PervasiveExtractor(connection, new EncheresV6Schema("enc"), "2", new RecordingAgentLog());
+
+        _ = extractor.ExtractDocuments(From, To).ToList();
+
+        string baSql = connection.ExecutedCommandTexts.Single(sql => !sql.Contains(EncheresV6Schema.TableEnteteBv));
+        baSql.Should().Contain(
+            "JOIN enc." + EncheresV6Schema.TableLignePv + " lp ON lp." + EncheresV6Schema.ColPvNoLigneToutPv
+            + " = l." + EncheresV6Schema.ColNoLigneToutPv,
+            "le régime se joint par l'identifiant GLOBAL de ligne de PV");
+        baSql.Should().NotContain(
+            "lp." + EncheresV6Schema.ColNoBa,
+            "ligne_pv.no_ba vaut souvent 0 : il ne doit plus servir de clé de jointure du régime");
+    }
+
+    [Fact]
+    public void Bv_query_does_not_join_ligne_pv_to_avoid_double_counting_the_commission()
+    {
+        // Anti-régression (étape 3 du fix) : la résolution du régime VENDEUR reste sur entete_bv.code_regime_tva,
+        // SANS jointure ligne_pv (qui produirait un produit cartésien doublant la commission vendeur).
+        var connection = new RecordingConnection(readerResolver: RouteBaThenBv(Array.Empty<IReadOnlyDictionary<string, object?>>()));
+        var extractor = new PervasiveExtractor(connection, new EncheresV6Schema("enc"), "2", new RecordingAgentLog());
+
+        _ = extractor.ExtractDocuments(From, To).ToList();
+
+        string bvSql = connection.ExecutedCommandTexts.Single(sql => sql.Contains(EncheresV6Schema.TableEnteteBv));
+
+        // « ligne_pv » est un sous-chaîne de « no_ligne_pv » (colonne légitime) : on cible la table QUALIFIÉE.
+        bvSql.Should().NotContain("enc." + EncheresV6Schema.TableLignePv, "la jambe vendeur ne joint jamais ligne_pv (anti double-comptage)");
+        bvSql.Should().Contain("e." + EncheresV6Schema.ColCodeRegimeTva, "le régime vendeur est lu directement sur entete_bv");
+    }
+
+    [Fact]
+    public void Buyer_line_carries_regime_resolved_through_global_pv_line_id_even_when_pv_no_ba_is_zero()
+    {
+        // Cas réel (BA 2000026, lot 22 → no_ligne_tout_pv=287 → ligne_pv code_regime_tva=6, no_ba=0) : le serveur
+        // joint le régime par l'identifiant global, donc le pivot ne sort PAS « 0 code régime » (plus de faux blocage).
+        var connection = new RecordingConnection(readerResolver: RouteBaThenBv(new[] { MargeBaRow() }));
+        var extractor = new PervasiveExtractor(connection, new EncheresV6Schema("enc"), "2", new RecordingAgentLog());
+
+        PivotDocumentDto ba = extractor.ExtractDocuments(From, To).ToList().Should().ContainSingle().Subject;
+
+        ba.Lines.Should().ContainSingle().Which.SourceRegimeCodes.Should().Contain(
+            "6", "le régime du lot est résolu par la jointure no_ligne_tout_pv malgré ligne_pv.no_ba=0");
+        ba.BuyerFees.Should().ContainSingle().Which.SourceRegimeCode.Should().Be("6");
+    }
+
     // Route la requête BA vers les lignes fournies et la requête BV vers un jeu vide (la requête vendeur
     // référence entete_bv ; la requête acheteur ne le fait pas).
     private static Func<string, IReadOnlyList<IReadOnlyDictionary<string, object?>>> RouteBaThenBv(
@@ -93,6 +146,7 @@ public class PervasiveExtractorTests
         [EncheresV6Schema.ColTypeLigne] = "1",
         [EncheresV6Schema.ColCodeLigne] = "6",
         [EncheresV6Schema.ColNoLignePv] = "1",
+        [EncheresV6Schema.ColNoLigneToutPv] = "287",
         [EncheresV6Schema.ColLibelleLigne] = "Adjudication lot 1",
         [EncheresV6Schema.ColMontantAdjHt] = 2000.00d,
         [EncheresV6Schema.ColMttTvaInclusAdj] = 0.0d,

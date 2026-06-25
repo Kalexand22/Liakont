@@ -497,6 +497,7 @@ internal static class EncheresV6RowMapper
         JsonConvert.SerializeObject(new
         {
             no_ligne_pv = ligne.NoLignePv,
+            no_ligne_tout_pv = ligne.NoLigneToutPv,
             montant_adj_ht_brut = ligne.MontantAdjHt,
             mtt_tva_inclus_adj_brut = ligne.MttTvaInclusAdj,
             mtt_tva_en_plus_adj_brut = ligne.MttTvaEnPlusAdj,
