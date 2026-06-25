@@ -240,8 +240,15 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
   rattachement à corriger, pas une donnée manquante.
 - **Fichiers (pistes)** : `agent/src/Liakont.Agent.Adapters.EncheresV6/Source/EncheresV6Schema.cs` (Q1 + jointure
   `ligne_pv`), l'extracteur EncheresV6, modèles source (`entete_pv` à exposer ?).
-- **Critère d'acceptation** : le doc 100264 (et les 170) sort avec son **régime 6** ; tests sur un BA sans `ligne_pv`
-  par `no_ba` mais avec un `no_pv` portant le régime. Lecture seule stricte préservée.
+- **Critère d'acceptation** : le doc 100264/2000026 (et les ~170) sort avec son **régime** ; tests sur un BA dont
+  `ligne_pv.no_ba = 0`. Lecture seule stricte préservée.
+- **✅ RÉSOLU (diagnostic, 25/06, validé PO)** : la vraie clé de liaison ligne-bordereau ↔ ligne-PV est
+  **`no_ligne_tout_pv`** (identifiant GLOBAL de ligne de PV) — `lignes_ba.no_ligne_tout_pv ↔ ligne_pv.no_ligne_tout_pv`.
+  Cause exacte : `ligne_pv.no_ba` vaut souvent **0** → l'ancienne jointure `ON lp.no_ba = e.no_ba AND lp.no_ligne_pv =
+  l.no_ligne_pv` rate. Preuve : BA 2000026 lot 22 → `no_ligne_tout_pv = 287` → `ligne_pv[287].code_regime_tva = 6`
+  (avec `no_ba = 0`). **Grain LOT confirmé** : 43 PV de la base ont des régimes MIXTES par lot (interdit toute
+  simplification au grain vente/`entete_pv`). Fix EN COURS — agent, branche `fix/bug-10-extraction-regime-pv`
+  (Q1 du `EncheresV6Schema` : jointure `ligne_pv` via `no_ligne_tout_pv` ; BV/Q2 inchangé, anti double-comptage).
 
 ## BUG-11 — 100152 : message diagnostiquable OK (BUG-7 ✅) ; mon diag base était FAUX (autre base)
 
