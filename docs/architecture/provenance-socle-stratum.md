@@ -1100,6 +1100,45 @@ ciblé `AdminJobScheduleFormTests.Save_Failure_Without_Current_Company_Shows_A_V
 contrôle négatif confirmé) + suites `Liakont.Host.Tests.Unit` (1071) et `Stratum.Common.UI.Tests.Unit` (802)
 vertes.
 
+### 4.40 BUG-4 volet B — jobs SYSTÈME planifiables/consultables par un opérateur PLATEFORME (société porteuse)
+Recette EncheresV6 : un opérateur PLATEFORME (super-admin cross-tenant, sans `company_id` dans son jeton —
+`ActorContext.Current.CompanyId == null`) ne pouvait planifier AUCUN job (`AdminJobScheduleForm.CreateAsync`
+levait « Aucune société sélectionnée. ») ni VOIR les planifications (`AdminJobSchedules` renvoyait une liste
+vide). Or un job SYSTÈME (fan-out tous tenants : supervision, ancrage, e-reporting B2C…) n'appartient à AUCUN
+tenant. Constat clé (vérifié sur pièce) : `schedule.CompanyId` n'a **aucun effet de portée** à l'exécution
+d'un fan-out — le runner SOL06 (`TenantJobRunner`) itère tous les tenants via `ITenantQueries`, indépendamment
+de cette valeur ; ce n'est qu'une clé d'unicité `(name, company)` et de dé-duplication d'enqueue
+`(type, company)` (ADR-0006). Pas de FK sur `job.schedules.company_id` (migration `V003`), donc une société
+porteuse sentinel s'insère sans contrainte référentielle.
+
+Correctif — une abstraction de **société porteuse système** (`ISystemScheduleHost`) : un job système est porté
+par UNE société porteuse plateforme (sentinel, pas un tenant réel), planifiable et consultable sans société
+courante ; un job tenant-scopé garde le comportement actuel (société courante requise, échec VISIBLE — §4.39).
+La MÊME porteuse sert au formulaire, à la liste cross-tenant ET à l'amorçage de dev, pour qu'une planification
+système soit UNIQUE (sinon un opérateur recréerait des doublons invisibles → double fan-out).
+
+- **Fichiers `Stratum.*` AJOUTÉS** (marqués `// Liakont addition (BUG-4b)` en première ligne → exclus du
+  périmètre épinglé §4.12, comme SOL06/FIX211 ; **PAS** dans le bloc CONSIGNED-DRIFT) :
+  - `src/Modules/Job/Contracts/Services/ISystemScheduleHost.cs` : l'abstraction (résout la société porteuse
+    d'un type de job système ; `null` = tenant-scopé).
+  - `src/Modules/Job/Infrastructure/Services/NullSystemScheduleHost.cs` : défaut no-op (socle auto-suffisant —
+    aucun job « système », comportement du socle nu préservé).
+- **Fichiers `Stratum.*` MODIFIÉS** (additifs ; déjà présents au bloc CONSIGNED-DRIFT depuis FIX211 §4.20 — le
+  baseline n'est PAS régénéré, la dérive est absorbée) :
+  - `src/Modules/Job/Infrastructure/JobModuleRegistration.cs` : `TryAddSingleton<ISystemScheduleHost,
+    NullSystemScheduleHost>()` (défaut écrasable par le Host).
+  - `src/Modules/Job/Web/Pages/AdminJobScheduleForm.razor` (`CreateAsync`) : `companyId =
+    SystemScheduleHost.ResolveHostCompanyId(_jobType) ?? CurrentCompany ?? throw`.
+  - `src/Modules/Job/Web/Pages/AdminJobSchedules.razor` (`LoadSchedulesAsync`) : `companyId = CurrentCompany
+    ?? SystemScheduleHost.CrossTenantHostCompanyId` (liste de la porteuse pour un admin cross-tenant).
+
+Côté Liakont (hors socle, non consigné par le baseline) : `LiakontSystemScheduleHost` (impl backée par la
+source unique `SystemJobDefinitions.All` + sentinel `5c8ed001-…-b000-…0001`), enregistrée dans `AppBootstrap`
+APRÈS `AddJobModule` (gagne la résolution sur le défaut socle) ; `DevJobScheduleSeeder` amorce désormais sur
+cette MÊME porteuse (au lieu de `DevTenantSeed:CompanyId`). **Vérification** : verify-fast (Debug + Release),
+run-tests, tests bUnit `AdminJobScheduleFormTests`/`AdminJobSchedulesTests` (planif + liste d'un opérateur
+plateforme) + `LiakontSystemScheduleHostTests` (résolution + cohérence du sentinel).
+
 ## 5. ADR du socle hérités
 
 Les ADR Stratum pertinents au socle sont copiés dans `docs/adr/socle/` (référence, non re-décidés).

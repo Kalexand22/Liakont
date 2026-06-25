@@ -2,6 +2,7 @@ namespace Stratum.Modules.Job.Infrastructure;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Stratum.Common.Infrastructure.Database;
 using Stratum.Modules.Job.Application;
 using Stratum.Modules.Job.Contracts;
@@ -44,6 +45,11 @@ public static class JobModuleRegistration
         services.AddScoped<IScheduleUnitOfWorkFactory, PostgresScheduleUnitOfWorkFactory>();
         services.AddScoped<IScheduleQueries, PostgresScheduleQueries>();
         services.AddSingleton<ICronPreviewService, CronPreviewService>();
+
+        // Liakont addition (BUG-4b) : défaut no-op de la société porteuse des jobs SYSTÈME (socle
+        // auto-suffisant). TryAdd → le Host produit l'écrase par une implémentation qui connaît les jobs de
+        // fan-out plateforme, rendant les jobs système planifiables/consultables par un opérateur plateforme.
+        services.TryAddSingleton<ISystemScheduleHost, NullSystemScheduleHost>();
 
         // Job scheduler
         services.Configure<JobSchedulerOptions>(configuration.GetSection(JobSchedulerOptions.SectionName));

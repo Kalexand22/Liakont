@@ -41,6 +41,7 @@ public sealed class AdminJobSchedulesTests : BunitContext
         Services.AddScoped<IJobTypeCatalog>(_ => new FakeCatalog(
             new JobTypeDescriptor(SupervisionKey, "Évaluation de la supervision", [])));
         Services.AddScoped<IScheduleQueries>(_ => new FakeScheduleQueries(Schedule(SupervisionKey)));
+        Services.AddScoped<ISystemScheduleHost>(_ => new FakeSystemScheduleHost());
     }
 
     [Fact]
@@ -66,6 +67,26 @@ public sealed class AdminJobSchedulesTests : BunitContext
         var nav = Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
         var expected = $"/admin/jobs/executions?type={Uri.EscapeDataString(SupervisionKey)}";
         nav.Uri.Should().EndWith(expected, "le lien planification → exécutions pré-filtre par le type");
+    }
+
+    // BUG-4b volet B : un super-admin cross-tenant (sans société courante) doit consulter les planifications
+    // SYSTÈME via la société porteuse — au lieu d'une liste vide (avant : CompanyId null ⇒ retour []).
+    [Fact]
+    public void Cross_Tenant_Admin_Without_Company_Lists_The_System_Host_Company_Schedules()
+    {
+        var recording = new RecordingScheduleQueries(Schedule(SupervisionKey));
+        Services.AddScoped<IActorContextAccessor>(_ => new StubActorContextAccessor(null));
+        Services.AddScoped<IScheduleQueries>(_ => recording);
+        Services.AddScoped<ISystemScheduleHost>(_ => new FakeSystemScheduleHost());
+
+        var cut = Render<AdminJobSchedules>();
+
+        cut.WaitForAssertion(
+            () => recording.ListedCompanies.Should().Contain(FakeSystemScheduleHost.HostCompany),
+            TimeSpan.FromSeconds(5));
+        cut.Markup.Should().Contain(
+            "Évaluation de la supervision",
+            "l'opérateur plateforme voit les planifications système (liste non vide)");
     }
 
     private static ScheduleDto Schedule(string jobType) => new()
@@ -94,6 +115,33 @@ public sealed class AdminJobSchedulesTests : BunitContext
 
         public Task<IReadOnlyList<ScheduleDto>> ListByCompanyAsync(Guid companyId, CancellationToken ct = default) =>
             Task.FromResult(_rows);
+    }
+
+    private sealed class RecordingScheduleQueries : IScheduleQueries
+    {
+        private readonly IReadOnlyList<ScheduleDto> _rows;
+
+        public RecordingScheduleQueries(params ScheduleDto[] rows) => _rows = rows;
+
+        public List<Guid> ListedCompanies { get; } = [];
+
+        public Task<ScheduleDto?> GetByIdAsync(Guid scheduleId, CancellationToken ct = default) =>
+            Task.FromResult(_rows.FirstOrDefault(s => s.Id == scheduleId));
+
+        public Task<IReadOnlyList<ScheduleDto>> ListByCompanyAsync(Guid companyId, CancellationToken ct = default)
+        {
+            ListedCompanies.Add(companyId);
+            return Task.FromResult(_rows);
+        }
+    }
+
+    private sealed class FakeSystemScheduleHost : ISystemScheduleHost
+    {
+        public static readonly Guid HostCompany = Guid.Parse("5c8ed001-0000-4000-b000-000000000001");
+
+        public Guid? CrossTenantHostCompanyId => HostCompany;
+
+        public Guid? ResolveHostCompanyId(string jobType) => null;
     }
 
     private sealed class FakeCatalog : IJobTypeCatalog

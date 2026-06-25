@@ -13,6 +13,7 @@
 @inject IToastService ToastService
 @inject IPermissionService PermissionService
 @inject Stratum.Modules.Job.Contracts.Services.IJobTypeCatalog JobTypeCatalog
+@inject Stratum.Modules.Job.Contracts.Services.ISystemScheduleHost SystemScheduleHost
 
 <PermissionGate Permission="@JobPermissions.View">
 @* Export désactivé (FIX211) : l'export de la grille lit la propriété brute JobType (FullName .NET) en ignorant
@@ -138,7 +139,10 @@
 
     private async Task<IReadOnlyList<ScheduleDto>> LoadSchedulesAsync()
     {
-        var companyId = ActorContext.Current.CompanyId;
+        // BUG-4b — un opérateur PLATEFORME (super-admin cross-tenant) n'a pas de société courante : il consulte
+        // les planifications SYSTÈME via la société porteuse, au lieu d'une liste vide. Un opérateur tenant voit
+        // celles de SA société (les jobs système sont portés par la société porteuse, hors de sa vue — normal).
+        var companyId = ActorContext.Current.CompanyId ?? SystemScheduleHost.CrossTenantHostCompanyId;
         if (companyId is null) return [];
         return await ScheduleQueries.ListByCompanyAsync(companyId.Value);
     }

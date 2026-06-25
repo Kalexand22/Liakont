@@ -176,6 +176,12 @@ public static class AppBootstrap
         // Modules
         builder.Services.AddIdentityModule(builder.Configuration);
         builder.Services.AddJobModule(builder.Configuration);
+
+        // Société porteuse des planifications de jobs SYSTÈME (BUG-4b) — remplace le défaut no-op du socle :
+        // permet à un opérateur PLATEFORME (sans société courante) de planifier ET consulter les fan-out
+        // tous-tenants. Enregistré APRÈS AddJobModule (qui pose le défaut via TryAdd) pour gagner la résolution.
+        builder.Services.AddSingleton<Stratum.Modules.Job.Contracts.Services.ISystemScheduleHost, LiakontSystemScheduleHost>();
+
         builder.Services.AddNotificationModule();
 
         // Branding d'INSTANCE (BRD01, marque grise — blueprint.md §3.3, F12 §6.1) lié depuis la section
