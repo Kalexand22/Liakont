@@ -243,18 +243,17 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
 - **Critère d'acceptation** : le doc 100264 (et les 170) sort avec son **régime 6** ; tests sur un BA sans `ligne_pv`
   par `no_ba` mais avec un `no_pv` portant le régime. Lecture seule stricte préservée.
 
-## BUG-11 — 100152 faux blocage marge : config + code CORRECTS → Host déployé périmé (à confirmer)
+## BUG-11 — 100152 : message diagnostiquable OK (BUG-7 ✅) ; mon diag base était FAUX (autre base)
 
-- **Symptôme** : doc n°100152 (régime 6, acheteur **particulier** GARCIA BERNARD : ni société, ni SIREN, ni n° TVA,
-  ni code pays) reste bloqué « marge non classée » **même après re-vérification** (Karl l'avait déjà refaite).
-- **Tout est correct, vérifié** : règle `6/Autre → E(=cat 5) + VATEX-EU-F` **validée en base** (`tvamapping.mapping_rules`,
-  table `validated_by=encheres`) ; `6/Frais → S(=cat 1) 20%` ; `VatCategory.E = 5` ; acheteur particulier
-  (`IsBuyerNonProfessional = true`) ; **1 seule** ligne d'adjudication régime 6 ; `TvaMapper.Map` matche exactement
-  `(régime, part)` → renvoie E + VATEX-F. Le test `Evaluate_MarginDocument_Derives_..._Marker` est **vert** sur le
-  code mergé. → Statiquement, le 100152 **doit** être marqué marge.
-- **Diagnostic** : le code à jour dérive correctement la marge. Le blocage persistant chez Karl vient très
-  probablement d'une **image Host périmée** (conteneur `bucodi-host` buildé avant la dérivation correcte / une
-  version buggée de `B2cMarginMarking`). **Action** : rebuild du Host avec `feat/ereporting-b2c` à jour, puis
-  re-vérifier le 100152 → doit passer en marge. **Si TOUJOURS bloqué après rebuild** → vrai bug runtime à creuser
-  (reproduire avec un test E2E portant exactement ces données : régime « 6 », règle Autre E+VATEX-F, frais, particulier).
-- **Critère d'acceptation** : 100152 marqué `IsB2cReportingDeclaration` (marge), non bloqué, après Host à jour.
+- **Résolu indirectement** : après rebuild du Host (BUG-7 déployé), le message de blocage du 100152 est désormais
+  **diagnostiquable** — il cite le fait : « régime source **5** → catégorie S, taux 20 % ; acheteur particulier ».
+- **⚠️ Mon diagnostic de la nuit était FAUX** : j'avais requêté `EncheresV6_Demo` (localhost), où le 100152 a **1 lot
+  en régime 6**. L'agent de Karl voit **3 lots (8/9/11) en régime 5** → **l'agent lit une AUTRE base** que celle que
+  j'interrogeais. Tous mes diagnostics base de la nuit (100152, 100264, PV 77, etc.) sont sur la **mauvaise base** —
+  À REFAIRE sur la base réelle de l'agent (chaîne ODBC à demander à Karl).
+- **Fond (à trancher par Karl, expert)** : le 100152 (base réelle) est en **régime 5 → S (taxable)**, pas marge.
+  Soit ces lots sont **vraiment taxables** (mais « aucune TVA distincte » sur du S 20 % est incohérent → sent la
+  marge), soit le **régime 5 de ces lots est de la marge** mal classée → mapper `5 → E + VATEX`. NE PAS deviner :
+  c'est une question fiscale/métier (CLAUDE.md n°2).
+- **Action** : (1) obtenir la base/chaîne ODBC réelle de l'agent ; (2) Karl tranche régime 5 = marge ou taxable ;
+  (3) si effet de bord de la garde `LooksLikeUnclassifiedMargin` sur un doc réellement taxable → affiner la garde.
