@@ -40,6 +40,11 @@ voir l'historique des collisions ci-dessous).
 | [ADR-0029](ADR-0029-plugin-yousign-signature-distance.md) | Plug-in de signature à distance Yousign : provider server-side + webhook durable/idempotent | Proposé (2026-06-16) |
 | [ADR-0030](ADR-0030-client-soft-wacom-signature-sur-place.md) | Client soft de signature sur place (Wacom) : capteur desktop hors `agent/` + proxy `OnSiteCapture` | Proposé (2026-06-16) |
 | [ADR-0031](ADR-0031-cablage-cycle-run-agent-et-config-par-adaptateur.md) | Câblage du cycle de run de l'agent (AGT02) et canal de configuration par-adaptateur | Accepté (2026-06-14) |
+| [ADR-0032](ADR-0032-meta-modele-ged-axes-entites-polymorphes.md) | Méta-modèle GED dynamique : axes typés et entités polymorphes append-only (anti-EAV), module unique `Liakont.Modules.Ged` à trois schémas PostgreSQL | Proposé (2026-06-25) |
+| [ADR-0033](ADR-0033-coffre-probant-tiers-sae-5e-axe-option-c.md) | Coffre probant tiers / SAE comme 5ᵉ axe enfichable (`ISealedArchiveProvider`) et archivage WORM des documents GED hors chaîne fiscale (option C ; fast-follow GED20) | Proposé (2026-06-25) |
+| [ADR-0034](ADR-0034-canal-ingestion-generique-ged-managed-document.md) | Canal d'ingestion générique GED par agents : `IngestedDocumentDto` / `ManagedDocumentReceivedV1` add-only, registre dédié en base système, `IManagedExtractor` distinct | Proposé (2026-06-25) |
+| [ADR-0035](ADR-0035-recherche-index-ged-tsvector.md) | Recherche & index GED : `tsvector` PostgreSQL derrière `IDocumentSearchIndex`, projection asynchrone reconstructible, graphe borné bidirectionnel | Proposé (2026-06-25) |
+| [ADR-0036](ADR-0036-journal-consultation-ged-append-only.md) | Journal de consultation GED append-only (`ged_index.consultation_log`, base tenant, WORM) : best-effort par défaut, fail-closed si finalité probante | Proposé (2026-06-25) |
 
 ## Collisions de numéro résolues
 
