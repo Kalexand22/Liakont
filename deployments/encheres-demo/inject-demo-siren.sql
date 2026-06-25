@@ -76,3 +76,65 @@ FROM [enc].[entete_ba]
 WHERE [societe] IS NOT NULL AND LTRIM(RTRIM([societe])) <> '' AND [acheteur_siren] IS NULL
 ORDER BY societe;
 GO
+
+-- ============================================================================
+--  SECTION VENDEUR (ajout 2026-06-25) — SIREN des vendeurs ASSUJETTIS (regime 5).
+--  Un lot « regime du prix total » (code_regime_tva = 5) implique un commettant
+--  ASSUJETTI (livraison ouvrant droit a deduction — BOI-TVA-SECT-90-50). Cote
+--  reforme, l'honoraire vendeur de ces lots = prestation B2B (facture e-invoicing
+--  de l'office vers le vendeur) — par opposition au regime de la marge (regime 6,
+--  vendeur particulier) ou l'honoraire vendeur part en e-reporting B2C. SIREN fictifs
+--  Luhn-valides, distincts du pool acheteur (base demo, CLAUDE.md n°7/15).
+--  NB : donnee preparee POUR LE FUTUR. L'agent ne lit PAS encore vendeur_siren :
+--  l'aiguillage B2B de l'honoraire vendeur exige un document HONORAIRE-SEUL distinct
+--  (le bordereau vendeur porte aussi le bien, qui releve de la jambe vendeur->office
+--  / autofacturation 389) — differe, hors BUG-8 (cf. F03 §2.7).
+-- ============================================================================
+
+-- 5) Colonne vendeur_siren (ajout idempotent).
+IF COL_LENGTH('enc.entete_bv', 'vendeur_siren') IS NULL
+    ALTER TABLE [enc].[entete_bv] ADD [vendeur_siren] nvarchar(20) NULL;
+GO
+
+-- 6) Reinitialisation (idempotence stricte sur re-execution).
+UPDATE [enc].[entete_bv] SET [vendeur_siren] = NULL;
+GO
+
+-- 7) Attribution : chaque vendeur distinct (code_vendeur) ayant au moins un
+--    bordereau regime 5 recoit un SIREN fictif Luhn-valide, deterministe
+--    (ORDER BY code_vendeur), le meme sur tous ses bordereaux assujettis.
+--    Pool cycle si > 6 vendeurs.
+;WITH vendeurs AS (
+    SELECT DISTINCT [code_vendeur]
+    FROM [enc].[entete_bv]
+    WHERE [code_regime_tva] = '5'   -- comparaison litterale (la colonne est lue en string par l'agent ; evite une conversion implicite)
+),
+ranked AS (
+    SELECT [code_vendeur], ROW_NUMBER() OVER (ORDER BY [code_vendeur]) AS rn FROM vendeurs
+),
+sirens (rn, siren) AS (
+    SELECT * FROM (VALUES
+        (1, '812345676'),
+        (2, '823456785'),
+        (3, '834567893'),
+        (4, '845678903'),
+        (5, '856789011'),
+        (6, '867890121')
+    ) v(rn, siren)
+)
+UPDATE bv
+   SET bv.[vendeur_siren] = s.siren
+FROM [enc].[entete_bv] bv
+JOIN ranked r ON bv.[code_vendeur] = r.[code_vendeur]
+JOIN sirens s ON s.rn = ((r.rn - 1) % 6) + 1
+WHERE bv.[code_regime_tva] = '5';
+GO
+
+-- 8) Verification vendeur : vendeurs assujettis (regime 5) AVEC SIREN.
+PRINT '--- Vendeurs assujettis (regime 5) AVEC SIREN (flux B2B) ---';
+SELECT [code_vendeur], MAX([nom_affaire]) AS nom_affaire, [vendeur_siren], COUNT(*) AS nb_bordereaux
+FROM [enc].[entete_bv]
+WHERE [vendeur_siren] IS NOT NULL
+GROUP BY [code_vendeur], [vendeur_siren]
+ORDER BY [code_vendeur];
+GO

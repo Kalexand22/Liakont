@@ -12,9 +12,9 @@
 @inject NavigationManager Nav
 @inject ILogger<B2cMarginEmissions> Logger
 
-<PageTitle>Émissions e-reporting B2C (marge) — Liakont</PageTitle>
+<PageTitle>Émissions e-reporting B2C — Liakont</PageTitle>
 
-<h1 class="visually-hidden">Émissions e-reporting B2C — marge</h1>
+<h1 class="visually-hidden">Émissions e-reporting B2C</h1>
 
 @* ── Filtre période (parité page Encaissements). TOUJOURS visible (même en erreur) pour re-sélectionner
    une période et réessayer. Filtre de DATE pur (« yyyy-MM ») sur le jour de l'agrégat, jamais une règle
@@ -30,7 +30,7 @@
 @if (_loadFailed)
 {
     <LiakontAlert TestId="margin-emissions-error">
-        Impossible de charger les émissions de marge B2C pour le moment. Réessayez plus tard.
+        Impossible de charger les émissions e-reporting B2C pour le moment. Réessayez plus tard.
     </LiakontAlert>
 }
 else if (_model is null)
@@ -44,24 +44,24 @@ else
        effet, comme Encaissements / Traitements). ── *@
     <DeclaredListPage @key="_periodEpoch"
                       TItem="B2cMarginEmissionRow"
-                      Title="Émissions e-reporting B2C — marge"
+                      Title="Émissions e-reporting B2C"
                       TestId="margin-emissions"
                       LoadItems="LoadItemsAsync"
                       DetailUrl="@(_ => Nav.Uri)"
                       ColumnRegistry="_registry"
                       ColumnTemplates="_columnTemplates"
                       GridKey="Liakont.B2cMarginEmissions"
-                      AriaLabel="Agrégats d'émission e-reporting B2C de la marge"
+                      AriaLabel="Agrégats d'émission e-reporting B2C (marge et prix total)"
                       DefaultSortColumn="@nameof(B2cMarginEmissionRow.AggregateDate)"
                       DefaultSortDirection="SortDirection.Descending"
                       SearchPlaceholder="Rechercher un jour, un id plateforme… (raccourci : /)"
                       AllowExport="true"
                       ExportFormats="@(ExportFormat.Csv | ExportFormat.Excel | ExportFormat.Pdf)"
-                      ExportFileName="emissions-marge-b2c">
+                      ExportFileName="emissions-b2c">
         <EmptyContent>
             <p data-testid="margin-emissions-empty">
-                Aucune émission de marge B2C sur cette période. Les agrégats apparaissent ici après l'exécution
-                du traitement « E-reporting B2C de la marge » (job B4).
+                Aucune émission e-reporting B2C sur cette période. Les agrégats (régime de la marge et régime du
+                prix total) apparaissent ici après l'exécution des traitements « E-reporting B2C » (jobs B4).
             </p>
         </EmptyContent>
     </DeclaredListPage>

@@ -7,9 +7,16 @@ using System.Threading.Tasks;
 using Liakont.Modules.Pipeline.Domain.B2cReporting;
 
 /// <summary>
-/// Journal d'émission e-reporting B2C de la marge (flux 10.3) — APPEND-ONLY, base DU TENANT (isolation par la
+/// Journal d'émission e-reporting B2C agrégé (flux 10.3) — APPEND-ONLY, base DU TENANT (isolation par la
 /// connexion). Porte l'anti-doublon côté produit (l'API SuperPDP n'expose aucune clé d'idempotence) au grain
 /// DOCUMENT (décision Karl D3 : attempt-once). AUCUN chemin d'update/delete (CLAUDE.md n°4).
+/// <para>
+/// <b>PARTAGÉ par les DEUX régimes B2C</b> (depuis BUG-8) : la MARGE (<c>TMA1</c>) et le PRIX TOTAL taxable
+/// (<c>TLB1</c>) écrivent dans CE même journal — la colonne <see cref="B2cMarginEmissionEntry.Category"/>
+/// discrimine le régime, et l'attempt-once est volontairement commun (un document est soit marge soit taxable,
+/// jamais les deux). Le nom historique « Margin » est conservé pour ne pas faire churner le store/console/migration
+/// validés ; renommage en « B2cEmission » = dette de clarté différée (non-correctness), pas un faux-vert.
+/// </para>
 /// </summary>
 public interface IB2cMarginEmissionStore
 {

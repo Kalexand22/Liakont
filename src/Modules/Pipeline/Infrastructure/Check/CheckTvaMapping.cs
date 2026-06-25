@@ -121,13 +121,17 @@ internal static class CheckTvaMapping
 
         var enriched = Rebuild(pivot, enrichedLines, pivot.IsB2cReportingDeclaration);
 
-        // Marqueur de DÉCLARATION DE MARGE B2C (flux 10.3) DÉRIVÉ ICI, au read-time : le pivot est désormais
-        // enrichi par le mapping VALIDÉ (catégorie + VATEX par ligne), seul moment où le régime de la marge est
-        // lisible SANS heuristique (F03 §3 : jamais déduit du code source). Posé sur l'enrichi (jamais porté par
-        // l'agent ni persisté — pattern émetteur/TVA) : SEND (ReadStagedPivotAsync) et le job B4 obtiennent le
-        // pivot marqué via CETTE évaluation, et B2cMarginDeclaration.Matches l'aiguille vers le job agrégé.
-        // Critère sourcé : voir B2cMarginMarking. Idempotent (re-CHECK redérive le même résultat).
-        if (!enriched.IsB2cReportingDeclaration && B2cMarginMarking.IsMarginDeclaration(enriched))
+        // Marqueur de DÉCLARATION e-reporting B2C (flux 10.3) DÉRIVÉ ICI, au read-time : le pivot est désormais
+        // enrichi par le mapping VALIDÉ (catégorie + VATEX par ligne), seul moment où le régime est lisible SANS
+        // heuristique (F03 §3 : jamais déduit du code source). Posé sur l'enrichi (jamais porté par l'agent ni
+        // persisté — pattern émetteur/TVA) : SEND (ReadStagedPivotAsync) et les jobs agrégés (B4) obtiennent le
+        // pivot marqué via CETTE évaluation, et B2cAggregatedDeclaration.Matches l'aiguille hors voie document.
+        // DEUX cas symétriques (même flux 10.3, même canal acheteur particulier), mutuellement exclusifs par
+        // TotalTax (== 0 marge / > 0 prix total) : MARGE (B2cMarginMarking, TMA1) et PRIX TOTAL TAXABLE
+        // (B2cTaxableMarking, TLB1, F03 §2.7). Critère sourcé : voir chaque marquage. Idempotent (re-CHECK
+        // redérive le même résultat). Fail-closed : un document ni marge ni taxable n'est jamais marqué.
+        if (!enriched.IsB2cReportingDeclaration
+            && (B2cMarginMarking.IsMarginDeclaration(enriched) || B2cTaxableMarking.IsTaxableB2cDeclaration(enriched)))
         {
             enriched = Rebuild(pivot, enrichedLines, isB2cReportingDeclaration: true);
         }

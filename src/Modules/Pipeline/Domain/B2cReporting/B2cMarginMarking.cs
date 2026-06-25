@@ -76,8 +76,8 @@ public static class B2cMarginMarking
             return false;
         }
 
-        // (4) Acheteur non professionnel (B2C, F03 §2.4).
-        if (!IsBuyerNonProfessional(enrichedPivot.Customer))
+        // (4) Acheteur non professionnel (B2C, F03 §2.4) — prédicat partagé avec le taxable (invariant d'aiguillage).
+        if (!B2cBuyerClassification.IsNonProfessional(enrichedPivot.Customer))
         {
             return false;
         }
@@ -139,17 +139,4 @@ public static class B2cMarginMarking
 
         return true;
     }
-
-    /// <summary>
-    /// Vrai si l'acheteur n'est PAS un professionnel (B2C) : tiers absent, ou aucun indice professionnel BRUT
-    /// (SIREN, n° TVA, indice société). Champs du contrat pivot uniquement (frontière P1 — pas d'appel au
-    /// <c>CompanyHintDetector</c> du module Validation). Conservateur : tout indice → non B2C (jamais agrégé en
-    /// marge à tort ; un tel document relève du B2B ou est bloqué en amont par la validation).
-    /// </summary>
-    private static bool IsBuyerNonProfessional(PivotPartyDto? buyer) =>
-        buyer is null
-        || (string.IsNullOrWhiteSpace(buyer.Siren)
-            && string.IsNullOrWhiteSpace(buyer.Siret)
-            && string.IsNullOrWhiteSpace(buyer.VatNumber)
-            && !buyer.IsCompanyHint);
 }

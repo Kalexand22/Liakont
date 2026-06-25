@@ -335,8 +335,12 @@ internal static class EncheresV6RowMapper
             return null;
         }
 
-        // Sous le régime de la marge, le vendeur (commettant) est un non assujetti : aucun SIREN porté,
-        // aucun indice société (pas de colonne société côté BV) — décision B2B/B2C = plateforme (VAL05).
+        // Le destinataire du BV est le VENDEUR (commettant). Aucun SIREN n'est porté ici, même pour un commettant
+        // ASSUJETTI (régime du prix total) : router le BV en B2B sur ce seul SIREN émettrait le DÉCOMPTE ENTIER
+        // (adjudication = le bien + commission) comme facture office→vendeur, alors que seul l'HONORAIRE vendeur
+        // devrait l'être (le bien relève de la jambe vendeur→office / autofacturation 389, F15). L'aiguillage B2B
+        // de l'honoraire vendeur exige un document HONORAIRE-SEUL distinct — différé (hors BUG-8). Décision B2B/B2C
+        // = plateforme (VAL05) ; ici, lecture BRUTE sans heuristique (CLAUDE.md n°6).
         return new PivotPartyDto(
             name: name,
             address: MapAddress(null, bordereau.CodePostal, bordereau.Ville, bordereau.CodePays),

@@ -4,20 +4,14 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Liakont.Agent.Contracts.Pivot;
-using Liakont.Modules.Archive.Contracts;
-using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Domain;
 using Liakont.Modules.Pipeline.Domain.B2cReporting;
-using Liakont.Modules.Pipeline.Infrastructure.Check;
-using Liakont.Modules.Pipeline.Infrastructure.Serialization;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Liakont.Modules.Transmission.Contracts;
@@ -92,7 +86,7 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
 
         // 2) Gate de capacité AVANT toute écriture d'émission : une PA sans capacité marge ne reçoit RIEN et
         //    AUCUN document n'est marqué tenté (il reste repris au prochain run quand la capacité sera là).
-        var paClient = await ResolveActivePaClientAsync(services, tenantSettings, companyId.Value, tenantId, cancellationToken);
+        var paClient = await B2cReportingEmitter.ResolveActivePaClientAsync(services, tenantSettings, companyId.Value, tenantId, cancellationToken);
         if (paClient is null || !paClient.Capabilities.SupportsB2cReporting || !paClient.Capabilities.SupportsMarginAmountReporting)
         {
             var pendingDetail = Describe(discovery, transactions.Count, issued: 0, rejected: 0, technical: 0, capabilityPending: true);
@@ -101,22 +95,19 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
             return;
         }
 
-        // 3) Émission : par agrégat, Pending (crash-safe) → POST → issue → gel des liens (D2) si Issued.
+        // 3) Émission (TMA1 / SE, enchères F03 §2.5) : par agrégat, Pending (crash-safe) → POST → issue → gel des
+        //    liens (D2) si Issued — orchestration PARTAGÉE (B2cReportingEmitter) ; seuls catégorie/rôle distinguent la marge.
         var emissionStore = services.GetRequiredService<IB2cMarginEmissionStore>();
-        var issued = 0;
-        var rejected = 0;
-        var technical = 0;
-        foreach (var transaction in transactions)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var status = await EmitAsync(services, emissionStore, paClient, companyId.Value, transaction, logger, cancellationToken);
-            switch (status)
-            {
-                case B2cMarginEmissionStatus.Issued: issued++; break;
-                case B2cMarginEmissionStatus.RejectedByPa: rejected++; break;
-                default: technical++; break;
-            }
-        }
+        var (issued, rejected, technical) = await B2cReportingEmitter.EmitAllAsync(
+            services,
+            emissionStore,
+            paClient,
+            companyId.Value,
+            transactions,
+            EReportingTransactionCategory.Tma1,
+            EReportingDeclarantRole.Seller,
+            logger,
+            cancellationToken);
 
         var detail = Describe(discovery, transactions.Count, issued, rejected, technical, capabilityPending: false);
         await WriteRunLogAsync(services, timeProvider, _trigger, startedAt, discovery.Examined, issued, discovery.Blocked.Count + rejected + technical, detail, cancellationToken);
@@ -166,8 +157,8 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
                         continue;
                     }
 
-                    var pivot = await TryReadStagedPivotAsync(staging, tenantId, document, logger, cancellationToken);
-                    if (pivot is null || !HasMarginFees(pivot))
+                    var pivot = await B2cReportingDiscovery.TryReadStagedPivotAsync(staging, tenantId, document, logger, cancellationToken);
+                    if (pivot is null || !B2cReportingDiscovery.HasFees(pivot))
                     {
                         continue; // non stagé/altéré, ou sans frais (jamais une marge) — pré-filtre cheap avant tout mapping.
                     }
@@ -176,7 +167,7 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
                     // CHECK/SEND : le pivot stagé est le pivot SOURCE (régimes bruts, jamais marqué par l'agent).
                     // On l'enrichit ICI par le MÊME moteur (CheckTvaMapping), qui pose le marqueur — une seule
                     // source de la classification, jamais inventée (F03).
-                    var marked = await EnrichForMarginMarkingAsync(tvaMapping, companyId, pivot, cancellationToken);
+                    var marked = await B2cReportingDiscovery.EnrichForB2cMarkingAsync(tvaMapping, companyId, pivot, cancellationToken);
                     if (marked is null)
                     {
                         // Doc PORTEUR DE FRAIS dont l'adjudication n'est plus mappable depuis le CHECK (table
@@ -231,70 +222,6 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
         return new DiscoveryResult(examined, contributions, blocked);
     }
 
-    // Lit le pivot stagé d'un document. NotFound (non/plus stagé) → ignoré ce cycle (transitoire) ; Integrity
-    // (contenu altéré) → ignoré + journalisé (jamais traiter un contenu altéré — CLAUDE.md n°3).
-    private static async Task<PivotDocumentDto?> TryReadStagedPivotAsync(
-        IPayloadStagingStore staging,
-        string tenantId,
-        DocumentDto document,
-        ILogger logger,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            var key = new StagedPayloadKey(tenantId, document.Id, document.PayloadHash);
-            var json = await staging.ReadAsync(key, cancellationToken);
-            return PivotCanonicalJsonReader.Read(json);
-        }
-        catch (StagedPayloadNotFoundException)
-        {
-            return null;
-        }
-        catch (StagedPayloadIntegrityException)
-        {
-            LogStagingIntegrity(logger, document.Id);
-            return null;
-        }
-    }
-
-    // Frais de marge présents (acheteur OU vendeur) : pré-filtre cheap — seuls les documents porteurs de frais
-    // peuvent être une déclaration de marge (B2cMarginDeclaration.Matches l'exige). Inutile de mapper les autres.
-    private static bool HasMarginFees(PivotDocumentDto pivot) =>
-        ((pivot.SellerFees?.Count ?? 0) > 0) || ((pivot.BuyerFees?.Count ?? 0) > 0);
-
-    // Enrichit le pivot SOURCE par le mapping TVA validé (catégorie + VATEX) via le MÊME moteur qu'au CHECK/SEND
-    // (CheckTvaMapping), qui DÉRIVE le marqueur de déclaration de marge B2C sur le pivot enrichi (régime marge +
-    // B2C + frais + 297 E, fail-closed — voir B2cMarginMarking). Retourne null si aucune ligne mappable ou si le
-    // mapping bloque (table absente / régime devenu non couvert depuis le CHECK) : document ignoré ce cycle,
-    // repris au suivant — jamais marqué à l'aveugle (CLAUDE.md n°2/3).
-    //
-    // DETTE (assumée en build) : ce mapping de l'ADJUDICATION (Part.Autre, marquage) est distinct de celui des
-    // HONORAIRES (Part.Frais) fait ensuite par ResolveMarginAsync → 2 allers-retours MapAsync par document
-    // candidat (au grain frais, donc borné aux bordereaux d'enchères). Non fusionnables trivialement
-    // (CheckTvaMapping.Evaluate exige Lines.Count == Requests.Count, plan adjudication-only). À revoir (MapAsync
-    // multi-part unique) SI la découverte ReadyToSend devient un point chaud — pas avant (pré-filtre HasMarginFees).
-    private static async Task<PivotDocumentDto?> EnrichForMarginMarkingAsync(
-        ITvaMappingService tvaMapping,
-        Guid companyId,
-        PivotDocumentDto pivot,
-        CancellationToken cancellationToken)
-    {
-        var plan = CheckTvaMapping.BuildPlan(pivot);
-        if (plan.Requests.Count == 0)
-        {
-            return null; // aucune ligne de forme mappable → aucun signal de régime marge dérivable.
-        }
-
-        var mapping = await tvaMapping.MapAsync(companyId, plan.Requests, cancellationToken);
-        if (!mapping.TableExists)
-        {
-            return null; // aucune table de mapping (supprimée depuis le CHECK) → pas de classification, jamais devinée.
-        }
-
-        var evaluation = CheckTvaMapping.Evaluate(pivot, plan, mapping);
-        return evaluation.IsBlocked ? null : evaluation.EnrichedDocument;
-    }
-
     // Résout la marge d'un document marge : somme des honoraires (TTC) à taux UNIQUE (mapping F03, Part.Frais),
     // ou blocage typé (fail-closed). Le taux vient de la table validée du tenant — jamais inventé (CLAUDE.md n°2).
     private static async Task<B2cMarginResolution> ResolveMarginAsync(
@@ -336,197 +263,6 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
         }
 
         return B2cMarginResolver.Resolve(HasSeparateVat(pivot), honoraires);
-    }
-
-    // Émet UN agrégat : Pending (crash-safe) AVANT le POST, puis l'issue. Si Issued, gèle le lien reporting↔pièce
-    // par contribution (D2, APRÈS confirmation, clé document — export préservé). Isolé : une exception laisse les
-    // entrées Pending → documents exclus du run suivant (jamais 2 POST), opérateur informé.
-    private static async Task<B2cMarginEmissionStatus> EmitAsync(
-        IServiceProvider services,
-        IB2cMarginEmissionStore emissionStore,
-        IPaClient paClient,
-        Guid companyId,
-        B2cAggregatedTransaction transaction,
-        ILogger logger,
-        CancellationToken cancellationToken)
-    {
-        var reportingTx = MapToReportingTransaction(transaction);
-        var categoryCode = reportingTx.Category.ToTransactionCategoryCode();
-        var roleCode = reportingTx.Role.ToDeclarantRoleCode();
-        var contentHash = ComputeContentHash(reportingTx, categoryCode, roleCode);
-
-        // Identité de CETTE transmission (lot d'émission) : une valeur par POST, partagée par les entrées Pending
-        // (avant le POST) et d'issue (après). Distingue deux transmissions d'un MÊME contenu (content_hash
-        // identique — document tardif → nouvel agrégat) à la vue console, jamais fusionnées. Hors du try : les
-        // deux écritures partagent le même lot.
-        var emissionBatchId = Guid.NewGuid();
-
-        try
-        {
-            // Pré-POST : marque chaque document tenté (crash-safe). Un crash après le POST mais avant l'issue
-            // laisse ces Pending → exclusion au run suivant (attempt-once, jamais 2 POST — D3).
-            foreach (var contribution in transaction.Contributions)
-            {
-                await emissionStore.AppendAsync(
-                    BuildEntry(contribution, transaction, categoryCode, roleCode, contentHash, emissionBatchId, B2cMarginEmissionStatus.Pending, paEmissionId: null, paResponse: null, detail: null),
-                    cancellationToken);
-            }
-
-            var result = await paClient.SendB2cTransactionAsync(reportingTx, cancellationToken);
-            var (status, detail) = MapResult(result);
-
-            foreach (var contribution in transaction.Contributions)
-            {
-                await emissionStore.AppendAsync(
-                    BuildEntry(contribution, transaction, categoryCode, roleCode, contentHash, emissionBatchId, status, result.PaDocumentId, result.RawResponse, detail),
-                    cancellationToken);
-            }
-
-            if (status == B2cMarginEmissionStatus.Issued)
-            {
-                foreach (var contribution in transaction.Contributions)
-                {
-                    await FreezeReportingPieceLinkAsync(services, companyId, contribution.DocumentId, contribution.SourceReference, cancellationToken);
-                }
-            }
-
-            return status;
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            LogEmissionFailed(logger, transaction.Date, transaction.CurrencyCode, ex);
-            return B2cMarginEmissionStatus.Technical;
-        }
-    }
-
-    // Gèle le lien reporting↔pièce (B2C04, D2) APRÈS confirmation d'envoi : clé document conservée
-    // (company_id, document_id, source_reference) → l'export fiscal GetByDocumentAsync reste fonctionnel.
-    // APPEND-ONLY + idempotent (un rejeu n'insère rien). Réf source vide → aucun lien (rien d'inventé).
-    private static async Task FreezeReportingPieceLinkAsync(
-        IServiceProvider services,
-        Guid companyId,
-        Guid documentId,
-        string sourceReference,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(sourceReference))
-        {
-            return;
-        }
-
-        await services.GetRequiredService<IReportingPieceLinkStore>().AppendAsync(
-            companyId,
-            documentId,
-            new[] { sourceReference },
-            cancellationToken);
-    }
-
-    // Compte PA actif du tenant, ou null (aucun compte actif / plug-in non déployé) — jamais une exception dure :
-    // sans capacité, le job ne transmet rien et ne marque aucun document (repris au prochain run). Aucun
-    // if (pa is X) (CLAUDE.md n°8) : la décision est pilotée par les capacités déclarées.
-    private static async Task<IPaClient?> ResolveActivePaClientAsync(
-        IServiceProvider services,
-        ITenantSettingsQueries tenantSettings,
-        Guid companyId,
-        string tenantId,
-        CancellationToken cancellationToken)
-    {
-        var accounts = await tenantSettings.GetPaAccounts(companyId, cancellationToken);
-        var active = accounts.FirstOrDefault(account => account.IsActive);
-        if (active is null)
-        {
-            return null;
-        }
-
-        var registry = services.GetRequiredService<IPaClientRegistry>();
-        return registry.IsRegistered(active.PluginType)
-            ? registry.Resolve(new PaAccountDescriptor(active.PluginType, tenantId))
-            : null;
-    }
-
-    private static B2cReportingTransaction MapToReportingTransaction(B2cAggregatedTransaction transaction) => new()
-    {
-        // Enchères, F03 §2.5/§2.6 : catégorie TMA1 (régime de la marge, G1.68), rôle déclarant SE (vendeur, G7.52).
-        Category = EReportingTransactionCategory.Tma1,
-        Role = EReportingDeclarantRole.Seller,
-        CurrencyCode = transaction.CurrencyCode,
-        Date = transaction.Date,
-        TaxExclusiveAmount = transaction.TaxExclusiveAmount,
-        TaxTotal = transaction.TaxTotal,
-        Subtotals = transaction.Subtotals
-            .Select(s => new B2cReportingTransactionSubtotal
-            {
-                TaxPercent = s.RatePercent,
-                TaxableAmount = s.TaxableAmount,
-                TaxTotal = s.TaxTotal,
-            })
-            .ToList(),
-    };
-
-    private static B2cMarginEmissionEntry BuildEntry(
-        B2cContributionRef contribution,
-        B2cAggregatedTransaction transaction,
-        string categoryCode,
-        string roleCode,
-        string contentHash,
-        Guid emissionBatchId,
-        B2cMarginEmissionStatus status,
-        string? paEmissionId,
-        string? paResponse,
-        string? detail) => new()
-        {
-            DocumentId = contribution.DocumentId,
-            SourceReference = contribution.SourceReference,
-            AggregateDate = transaction.Date,
-            CurrencyCode = transaction.CurrencyCode,
-            Category = categoryCode,
-            Role = roleCode,
-            ContentHash = contentHash,
-            EmissionBatchId = emissionBatchId,
-            Status = status,
-            PaEmissionId = paEmissionId,
-            PaResponseSnapshot = paResponse,
-            Detail = detail,
-        };
-
-    // Issue de l'envoi → statut journal. Seul un 200 (Issued) marque le document émis ; tout le reste est non
-    // terminal et signalé (jamais ré-émis en auto — l'API n'a aucun dédoublonnage, CLAUDE.md n°3).
-    private static (B2cMarginEmissionStatus Status, string? Detail) MapResult(PaSendResult result)
-    {
-        var detail = result.Errors.Count > 0
-            ? string.Join(" | ", result.Errors.Select(e => $"[{e.Code}] {e.Message}"))
-            : null;
-
-        return result.State switch
-        {
-            PaSendState.Issued => (B2cMarginEmissionStatus.Issued, null),
-            PaSendState.RejectedByPa => (B2cMarginEmissionStatus.RejectedByPa, detail ?? "Rejet de la Plateforme Agréée."),
-            _ => (B2cMarginEmissionStatus.Technical, detail ?? "Échec technique de transmission B2C (re-vérifier avant toute reprise)."),
-        };
-    }
-
-    // Empreinte déterministe du contenu transmis (audit). Les sous-totaux sont déjà ordonnés par taux (calculateur).
-    private static string ComputeContentHash(B2cReportingTransaction transaction, string categoryCode, string roleCode)
-    {
-        var builder = new StringBuilder();
-        builder.Append(transaction.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
-            .Append('|').Append(transaction.CurrencyCode)
-            .Append('|').Append(categoryCode)
-            .Append('|').Append(roleCode)
-            .Append('|').Append(transaction.TaxExclusiveAmount.ToString("0.00", CultureInfo.InvariantCulture))
-            .Append('|').Append(transaction.TaxTotal.ToString("0.00", CultureInfo.InvariantCulture));
-        foreach (var subtotal in transaction.Subtotals)
-        {
-            builder.Append('|').Append(subtotal.TaxPercent.ToString("0.0###", CultureInfo.InvariantCulture))
-                .Append(':').Append(subtotal.TaxableAmount.ToString("0.00", CultureInfo.InvariantCulture))
-                .Append(':').Append(subtotal.TaxTotal.ToString("0.00", CultureInfo.InvariantCulture));
-        }
-
-        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
     }
 
     // Garde 297 E (miroir de MarginCalculator.EnsureNoSeparateVat) : le montant de marge est une BASE — aucune
@@ -596,14 +332,6 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
     [LoggerMessage(EventId = 7443, Level = LogLevel.Error,
         Message = "E-reporting B2C marge : échec du traitement du document « {DocumentId} » — isolé, le run continue.")]
     private static partial void LogDocumentFailed(ILogger logger, Guid documentId, Exception exception);
-
-    [LoggerMessage(EventId = 7444, Level = LogLevel.Warning,
-        Message = "E-reporting B2C marge : pivot stagé altéré pour le document « {DocumentId} » — ignoré (jamais traiter un contenu altéré).")]
-    private static partial void LogStagingIntegrity(ILogger logger, Guid documentId);
-
-    [LoggerMessage(EventId = 7445, Level = LogLevel.Error,
-        Message = "E-reporting B2C marge : échec d'émission de l'agrégat du {Date} ({Currency}) — entrées Pending conservées (exclues du run suivant, jamais 2 POST).")]
-    private static partial void LogEmissionFailed(ILogger logger, DateOnly date, string currency, Exception exception);
 
     [LoggerMessage(EventId = 7446, Level = LogLevel.Warning,
         Message = "E-reporting B2C marge : document « {DocumentId} » porteur de frais dont l'adjudication n'est plus mappable (table de mapping TVA modifiée depuis le contrôle) — non agrégé, tracé. Le document reste prêt à l'envoi ; action opérateur : faites valider/rétablir le mapping du régime de cette adjudication.")]

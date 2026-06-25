@@ -24,4 +24,7 @@ public enum PipelineRunType
 
     /// <summary>E-reporting B2C de la marge (flux 10.3, enchères) : agrégation N→1 jour×devise×taux + transmission PA (B4).</summary>
     B2cMarginAggregate = 5,
+
+    /// <summary>E-reporting B2C au régime du prix total taxable (flux 10.3, enchères, TLB1) : agrégation N→1 jour×devise×taux + transmission PA (BUG-8).</summary>
+    B2cTaxableAggregate = 6,
 }

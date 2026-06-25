@@ -259,6 +259,138 @@ indépendamment sur les Annexes A AFNOR XP Z12-012 V1.3 / Z12-014 V1.2 (FNFE-MPE
 DGFiP v3.2 (impots.gouv.fr). ⚠️ Codelist mise à jour par la DGFiP les **15 mai / 15 novembre** — tracer la
 version (ici **V1.9**, fichiers datés 2026-04-30) au figeage d'un mapping de prod.
 
+### 2.7 E-reporting B2C TAXABLE (régime du prix total, livraison de biens) — flux 10.3, catégorie TLB1 — 🟧 PROPOSÉ (BUG-8)
+
+> ⚠️ **Statut : PROPOSITION d'ancrage, défauts défendables marqués `[À CONFIRMER EC]`.** Là où §2.4/§2.5
+> sourcent le cas **marge** (vendeur NON assujetti → TMA1), la présente section source le cas **symétrique**
+> du **régime du prix total** (vendeur ASSUJETTI → livraison taxable) en e-reporting B2C. Elle **lève le point
+> ouvert de §2.6** (« dérivation TT-81 non figée tant qu'une `F*.md` ne l'ancre pas ») **pour le seul cas des
+> enchères mobilières** : c'est **cette section** qui ancre la dérivation `TLB1`. Aucun taux ni base n'est
+> **inventé** : chaque élément renvoie à une source primaire (§270, G1.68, G7.52) ou au moteur F03 validé
+> (§3-§4). Le produit reste **agnostique PA** (CLAUDE.md n°8/16). Les résiduels non tranchés par le texte sont
+> marqués `[À CONFIRMER EC]` (décision expert-comptable du tenant au déploiement, §4.1) et **fail-closed** par
+> défaut — jamais devinés (n°2/n°3).
+>
+> **Go/no-go (activation).** Le flux TLB1 est **activé bout-en-bout en build** (marquage CHECK, job agrégé,
+> handler/définition de job enregistrés) sur cet ancrage **sourcé** (¶270/G1.68/G7.52) avec ses résiduels
+> fail-closed — posture build-stage assumée (défaut défendable, données jetables). **Figeage PROD subordonné à
+> la levée explicite du statut « proposition » par l'expert-comptable du tenant** (validation des résiduels :
+> sort du droit de suite, rattachement de la commission acheteur, lots non-biens) — à tracer avant tout
+> déploiement réel, comme `GATE_B2C_SOURCING`/`GATE_B2C_SHAPE_SOURCING` l'ont été pour la marge (§2.4/§2.5).
+
+**Périmètre — les enchères sont TOUJOURS opaques (CGI 256 V).** L'OVV / commissaire-priseur agit **en son nom
+propre** (jamais en intermédiaire transparent — le mode opaque « ne se présume pas » est ici la règle métier
+établie, Livre blanc CNCJ ch. 5.1). L'opération se décompose en **deux livraisons** (commettant→OVV, puis
+OVV→adjudicataire). Le **régime du lot suit le statut du commettant** (§3, « piège confirmé ») :
+- commettant **non assujetti** (particulier) → régime de la **marge** (297 A) → **TMA1**, cf. §2.4/§2.5 ;
+- commettant **assujetti** (livraison ouvrant droit à déduction) → **régime du prix total**, la revente
+  OVV→adjudicataire est une **livraison de biens taxable** au prix total (TVA distincte, art. 297 E **ne
+  s'applique pas**). C'est le périmètre de la présente section.
+
+**Canal = STATUT DU TIERS, jamais la nature du bien.** Pour un lot au régime du prix total, l'aiguillage de la
+revente OVV→adjudicataire suit le **statut de l'adjudicataire** : adjudicataire **professionnel** (SIREN /
+n° TVA / indice société) → **e-invoicing B2B** (facture, hors de cette section) ; adjudicataire **particulier**
+(non assujetti, sans identifiant) → **e-reporting B2C, flux 10.3**, objet de la présente section. *(Le « bordereau
+d'adjudication vaut facture remise à l'acquéreur » — Livre blanc CNCJ ch. 5.1 ; côté B2C il alimente la
+transaction agrégée, pas une facture nominative.)*
+
+**Catégorie TT-81 = `TLB1` — SOURCÉ (lève §2.6 pour ce cas).** La donnée TT-81 (§2.6) vaut **`TLB1`** :
+> G1.68, verbatim : « **TLB1** — Livraisons de **biens** soumises à la taxe sur la valeur ajoutée ».
+
+L'objet d'une **vente aux enchères mobilières** est par nature un **bien meuble corporel** (le lot) ; la revente
+taxable de ce lot par l'OVV est une **livraison de biens soumise à la TVA** → **TLB1**. Ce n'est pas une
+heuristique (interdite par §2.6) mais l'**application directe du libellé normatif G1.68** au fait, **ancrée
+ici** dans une `F*.md` comme §2.6 l'exige. **Rôle déclarant TT-15 = `SE`** (G7.52, cf. §2.5 ⑤) : l'OVV reporte
+ses **ventes** aux particuliers → déclarant = **Vendeur** → `SE`. *(Une prestation de service pure de l'OVV — p.
+ex. honoraire facturé à un assujetti — relèverait de `TPS1` et d'un flux distinct ; hors de cette section.)*
+
+**Base d'imposition = prix total payé par l'adjudicataire — SOURCÉ §270.** Le **BOI-TVA-SECT-90-50 §270**
+(ventes aux enchères publiques, version 2025-05-14) définit verbatim le **prix total payé par l'adjudicataire** :
+> prix d'adjudication + impôts/droits/taxes dus au titre de l'opération + **frais accessoires demandés à
+> l'acquéreur** (commission acheteur).
+
+Au régime du prix total (commettant assujetti), le prix d'adjudication **ne s'annule pas** dans une différence
+(contrairement à la marge §2.4 où achat = vente du bien) : la base de la livraison taxable OVV→adjudicataire est
+l'**intégralité du prix total payé**. La **commission acheteur** est, au sens du §270, un **frais accessoire à la
+livraison** (même opération) → elle entre dans la **base imposable de la même transaction `TLB1`**, **pas** une
+prestation `TPS1` distincte. **C'est le §270 — texte spécifique aux enchères — qui fait foi**, pas une réduction
+faite ici. En données source :
+
+> **base TLB1 = adjudication (HT, par taux) + commission acheteur (ramenée HT, par taux)**
+
+| Élément | Réf. (transaction.xsd) | Contenu (prix total taxable) | Source |
+|---|---|---|---|
+| Catégorie de transaction | `Transactions/CategoryCode` **TT-81** | **`TLB1`** | G1.68 |
+| Rôle déclarant | `Issuer/RoleCode` **TT-15** | **`SE`** | G7.52 |
+| Montant total HT | **TT-82** | somme des bases HT par taux (adjudication + commission acheteur) | §270 |
+| Taux | `TaxSubtotal/TaxPercent` **TT-86** | taux de TVA mappé (moteur F03) | §4.1 |
+| Base d'imposition | `TaxSubtotal/TaxableAmount` **TT-87** | base HT pour ce taux | §270 |
+| Montant TVA | `TaxSubtotal/TaxTotal` **TT-88** | TVA pour ce taux | XSD (TG-32) |
+
+**Conversion des montants (decimal half-up, `PivotRounding`).** Contrairement à la marge (297 E, aucune TVA
+distincte → conversion TTC→HT de toute la marge, §2.5 ③), au régime du prix total la **TVA est distincte au
+grain document** :
+- l'**adjudication** porte déjà sa ventilation `{HT, TVA}` séparée en source (`montant_adj_ht` + TVA) → reprise
+  directe de la ventilation sourcée du CHECK (ADR-0015), **aucun recalcul** ;
+- la **commission acheteur** est portée **TTC** par la source (§2.5 ①) → ramenée HT **par taux** comme la marge :
+  `HT = TTC / (1 + taux)`, `TVA = TTC − HT`, taux = **taux mappé** de la ligne d'honoraire (§4.1), jamais inventé.
+
+Les deux composantes se **somment par taux** ; le découpage `tax_subtotals` est **par taux**, au niveau de
+l'**agrégat du jour** (flux 10.3 = **jour × devise × taux**, §2.5), entre **ventes distinctes** — **jamais** une
+séparation adjudication/commission ni acheteur/vendeur. **En pratique, adjudication et commission d'une même
+vente sont au même taux (S/20 %) → une base, un taux.** **Fail-closed** (n°2/n°3) : régime ou honoraire à code
+TVA non mappé → **bloqué** ; ligne non taxable mêlée (catégorie E/exonérée sur un lot censé taxable) → **bloqué**,
+jamais agrégé en `TLB1` à tort.
+
+**Distinction nette d'avec la marge (§2.4/§2.5).** Même **canal** (acheteur particulier → e-reporting B2C 10.3),
+**catégorie TT-81 différente** :
+
+| | Marge (§2.4/§2.5) | Prix total (§2.7) |
+|---|---|---|
+| Statut commettant | non assujetti | **assujetti** |
+| Régime | marge (297 A) | **prix total (droit commun)** |
+| TVA distincte (297 E) | **non** (`TotalTax == 0`) | **oui** (`TotalTax > 0`) |
+| Catégorie UNCL5305 (lignes) | `E` + VATEX-EU-F/I/J | **`S`** + taux |
+| Catégorie TT-81 | `TMA1` | **`TLB1`** |
+| Base | commission totale (frais acheteur + vendeur) | **prix total payé** (adjudication + commission acheteur) |
+| Rôle déclarant | `SE` | `SE` |
+
+Le **marquage** plateforme distingue les deux par `TotalTax` (== 0 → marge ; > 0 → prix total) : aucune
+ambiguïté, fail-closed des deux côtés.
+
+**Honoraire vendeur d'un lot taxable — HORS de ce flux.** Le commettant étant **assujetti**, la **commission que
+l'OVV lui facture** (honoraire vendeur) est une **prestation de service B2B** de l'OVV au vendeur → **facture
+e-invoicing** (aiguillée par le **SIREN vendeur**), `TPS1` le cas échéant — **jamais** agrégée dans la
+transaction B2C `TLB1` de la revente. *(Au régime de la marge, l'honoraire vendeur d'un commettant non assujetti
+est au contraire une composante de la marge B2C, §2.4 ; cf. mémoire projet « modèle reporting enchères ».)* La
+**livraison commettant assujetti→OVV** (première jambe de l'opaque) est l'obligation **du vendeur** (ou une
+autofacturation 389 sous mandat, nouveauté — cf. F15) ; elle ne fait pas l'objet d'une émission par l'OVV dans ce flux.
+
+**Résiduels `[À CONFIRMER EC]` (décision expert-comptable du tenant, §4.1 ; fail-closed par défaut) :**
+1. **3e terme du §270** — « impôts, droits, prélèvements et taxes dus au titre de l'opération » (p. ex. **droit
+   de suite**) : présent dans le prix total payé côté acheteur. Symétrique au ⚠️ de §2.4 — un implémenteur ne
+   l'agrège **pas** d'office. Par défaut, **seul ce que la table validée mappe taxable** (`S` + taux) entre dans
+   la base `TLB1` ; un poste non mappé **bloque** (jamais une base sur/sous-estimée). À confirmer : traitement
+   du droit de suite (hors base, ou base à taux spécifique).
+2. **Rattachement de la commission acheteur** — ancré ici **`TLB1` accessoire à la livraison** (§270, frais
+   accessoire). Si un déploiement la traite en **prestation `TPS1` distincte**, c'est un **paramétrage tenant**
+   (table validée) — la dérivation TT-81 restant table-pilotée (§2.6), ce cas est représentable sans réécriture.
+3. **Lots non-biens** — un lot qui ne serait pas une livraison de biens (cas non observé en enchères mobilières)
+   ne relève pas de `TLB1` : sa dérivation TT-81 reste **bloquée** tant qu'une règle validée ne l'ancre pas (§2.6).
+
+**Sources primaires citées :**
+- CGI **art. 256 V** (intermédiaire opaque agissant en son nom propre — enchères toujours opaques).
+- CGI **art. 297 A** *a contrario* (commettant assujetti ⇒ **hors** régime de la marge ⇒ prix total) ; **297 E**
+  *a contrario* (TVA distincte au régime du prix total).
+- **BOI-TVA-SECT-90-50 §270** (ventes aux enchères publiques — composition du prix total payé), version 2025-05-14.
+- **DGFiP, Annexe 7 — Règles de gestion V1.9** : **G1.68** (`TLB1` = livraisons de biens taxables ; cf. §2.6) ;
+  **G1.57** (forme du bloc de transaction agrégé, réutilisée) ; **G7.52** (`SE`, Annexe 6, cf. §2.5 ⑤).
+- **DGFiP, XSD e-reporting v3.2**, `transaction.xsd` : `Transactions` **TG-31** (TT-81/82/83) et `TaxSubtotal`
+  **TG-32** (TT-86/87/88) — même porteur que §2.5.
+- **Livre blanc CNCJ — Facturation électronique des ventes judiciaires** ch. 5.1 (opaque/transparent, statut de
+  l'adjudicataire → e-invoicing vs e-reporting, bordereau valant facture). *(Preuve d'appui métier, pas un texte
+  fiscal primaire.)*
+
 ## 3. La subtilité métier (cœur du risque — cf. Analyse-Donnees §5)
 
 **On ne peut pas déduire mécaniquement le bon VATEX du seul code régime du logiciel.** Trois situations produisent une adjudication « sans TVA apparente » pour des raisons juridiques **différentes** :

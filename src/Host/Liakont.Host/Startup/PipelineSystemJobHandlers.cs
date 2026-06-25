@@ -49,6 +49,10 @@ internal static class PipelineSystemJobHandlers
         services.AddJobHandler<AggregateB2cMarginAllTrigger, AggregateB2cMarginAllFanOutHandler>(
             "E-reporting B2C de la marge (tous les tenants)");
 
+        // E-REPORTING B2C PRIX TOTAL TAXABLE (BUG-8, flux 10.3) : agrégation N→1 jour×devise×taux + transmission PA (TLB1/SE).
+        services.AddJobHandler<AggregateB2cTaxableAllTrigger, AggregateB2cTaxableAllFanOutHandler>(
+            "E-reporting B2C au régime du prix total (tous les tenants)");
+
         return services;
     }
 }

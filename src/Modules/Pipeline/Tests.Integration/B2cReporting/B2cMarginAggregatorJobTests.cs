@@ -8,6 +8,8 @@ using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Tests.Integration.Check;
 using Liakont.Modules.Pipeline.Tests.Integration.Send;
+using Liakont.Modules.Transmission.Contracts;
+using Liakont.PaClients.Fake;
 using Xunit;
 
 /// <summary>
@@ -25,6 +27,9 @@ public sealed class B2cMarginAggregatorJobTests : IAsyncLifetime
 
     // Détail journalisé par le plug-in factice pour la transaction agrégée (catégorie/rôle/jour de la fixture).
     private const string MarginTxDetail = "Tma1/Seller/20260120";
+
+    // Idem pour la transaction agrégée au régime du prix total taxable (TLB1/SE, jour de la fixture).
+    private const string TaxableTxDetail = "Tlb1/Seller/20260120";
 
     private readonly PipelineSendHarness _harness = new();
 
@@ -208,12 +213,13 @@ public sealed class B2cMarginAggregatorJobTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Taxable_Auction_With_Fees_Is_Not_Marked_Nor_Aggregated()
+    public async Task Taxable_Auction_With_Fees_Is_Aggregated_By_The_Taxable_Job_Not_The_Margin_Job()
     {
-        // Discrimination sourcée (F03 §3) : un bordereau d'enchères TAXABLE RÉALISTE (adjudication S 20 %, TVA
-        // distincte > 0) porteur de frais N'EST PAS une déclaration de marge — la plateforme ne le marque pas
-        // (le régime de la marge vient du mapping VALIDÉ, jamais d'un « TVA = 0 » deviné). Il atteint ReadyToSend
-        // (TVA > 0 ⇒ hors garde « marge non classée ») et le job B4 l'IGNORE (catégorie S ≠ E).
+        // F03 §2.7 : un bordereau d'enchères TAXABLE (adjudication S 20 %, TVA distincte > 0, acheteur particulier)
+        // porteur de frais est une déclaration B2C au RÉGIME DU PRIX TOTAL (TLB1), pas de la marge. La plateforme
+        // le MARQUE (catégorie S, TotalTax > 0) ; le job MARGE l'IGNORE (TotalTax > 0 ⇒ ce n'est pas 297 E) ; le
+        // job TAXABLE l'agrège en UNE transaction TLB1/SE (base = adjudication HT/TVA sourcée + commission acheteur
+        // ramenée HT) et la transmet, avec journal d'émission attempt-once.
         await _harness.UsePublishedFakeAsync();
 
         var documentId = Guid.NewGuid();
@@ -221,12 +227,46 @@ public sealed class B2cMarginAggregatorJobTests : IAsyncLifetime
         await _harness.SeedDetectedAndStageAsync(documentId, declaration);
         await _harness.MarkReadyToSendAsync(documentId);
 
+        // Le job MARGE ne touche pas un document taxable (TVA distincte ⇒ pas une marge, art. 297 E).
         await _harness.RunB2cMarginAsync();
-
         _harness.PaCallCount(SendB2cTransaction, MarginTxDetail).Should()
-            .Be(0, "une adjudication taxable (S, TVA distincte) n'est pas un régime de marge → document non marqué, jamais agrégé.");
+            .Be(0, "une adjudication taxable (S, TVA distincte) n'est pas un régime de marge → le job marge l'ignore.");
         (await _harness.GetB2cMarginEmissionsAsync(documentId)).Should()
-            .BeEmpty("un document non marqué n'écrit aucune entrée d'émission B2C marge.");
+            .BeEmpty("le job marge n'écrit aucune entrée d'émission pour un document taxable.");
+
+        // Le job TAXABLE l'agrège en TLB1/SE et le transmet ; l'émission est journalisée (Pending → Issued).
+        await _harness.RunB2cTaxableAsync();
+        _harness.PaCallCount(SendB2cTransaction, TaxableTxDetail).Should()
+            .Be(1, "le prix total du jour est transmis en UNE transaction agrégée (TLB1/SE).");
+        var emissions = await _harness.GetB2cMarginEmissionsAsync(documentId);
+        emissions.Select(e => e.Status).Should().Equal("Pending", "Issued");
+        emissions[^1].PaEmissionId.Should().NotBeNullOrWhiteSpace("l'id serveur de la transaction TLB1 est journalisé à l'émission.");
+
+        // Attempt-once (D3) : un 2e run taxable n'émet pas une 2e fois.
+        await _harness.RunB2cTaxableAsync();
+        _harness.PaCallCount(SendB2cTransaction, TaxableTxDetail).Should()
+            .Be(1, "le 2e run exclut le document déjà tenté — jamais 2 POST.");
+    }
+
+    [Fact]
+    public async Task Taxable_Declaration_Is_Held_From_The_Per_Document_Path()
+    {
+        // Aiguillage D1 généralisé (F03 §2.7) : une déclaration B2C TAXABLE (frais + TVA distincte, acheteur
+        // particulier) est elle aussi DIFFÉRÉE de la voie document par SendTenantJob (SendDocumentAsync la
+        // rejetterait — pas de destinataire) ; elle ne part que par le job agrégé taxable.
+        await _harness.UsePublishedFakeAsync();
+
+        var documentId = Guid.NewGuid();
+        var declaration = CheckIntegrationFixtures.BuildTaxableAuctionWithFees("ba-" + documentId.ToString("N"));
+        await _harness.SeedDetectedAndStageAsync(documentId, declaration);
+        await _harness.MarkReadyToSendAsync(documentId);
+
+        await _harness.RunSendAsync();
+
+        (await _harness.GetDocumentStateAsync(documentId)).Should()
+            .Be("ReadyToSend", "une déclaration B2C taxable reste ReadyToSend — différée vers le job agrégé taxable.");
+        _harness.PaCallCount(SendDocument, declaration.Number).Should()
+            .Be(0, "une déclaration B2C taxable ne part JAMAIS par la voie document (jamais SendDocumentAsync).");
     }
 
     [Fact]
@@ -281,4 +321,73 @@ public sealed class B2cMarginAggregatorJobTests : IAsyncLifetime
         (await _harness.GetB2cMarginEmissionsAsync(documentId)).Should()
             .BeEmpty("un document B2B n'écrit aucune entrée d'émission B2C marge.");
     }
+
+    [Fact]
+    public async Task Taxable_To_Pa_Without_B2cReporting_Capability_Stays_ReadyToSend_And_Is_Never_Sent()
+    {
+        // Gate du job TAXABLE : une PA sans SupportsB2cReporting ne reçoit RIEN et aucun document n'est marqué
+        // tenté (repris au prochain run). NB : la gate taxable ne dépend QUE de SupportsB2cReporting (TLB1 est de
+        // l'e-reporting B2C ordinaire) — divergence VOULUE d'avec la marge (qui exige en plus la capacité « montant
+        // de marge »). Anti-régression d'un éventuel copier-coller du double-gate marge.
+        await _harness.UsePublishedFakeAsync(new FakePaClientOptions { Capabilities = WithoutB2cReporting() });
+
+        var documentId = Guid.NewGuid();
+        var declaration = CheckIntegrationFixtures.BuildTaxableAuctionWithFees("ba-" + documentId.ToString("N"));
+        await _harness.SeedDetectedAndStageAsync(documentId, declaration);
+        await _harness.MarkReadyToSendAsync(documentId);
+
+        await _harness.RunB2cTaxableAsync();
+
+        _harness.PaCallCount(SendB2cTransaction, TaxableTxDetail).Should()
+            .Be(0, "sans la capacité e-reporting B2C, le prix total taxable n'est jamais transmis.");
+        (await _harness.GetB2cMarginEmissionsAsync(documentId)).Should()
+            .BeEmpty("aucun document n'est marqué tenté quand la capacité est absente (repris au prochain run).");
+        (await _harness.GetDocumentStateAsync(documentId)).Should()
+            .Be("ReadyToSend", "le document reste prêt à l'envoi (le job ne transitionne pas la machine à états).");
+    }
+
+    [Fact]
+    public async Task Taxable_Fees_But_Adjudication_Not_Mappable_Is_Traced_Not_Silently_Skipped()
+    {
+        // Fail-closed + traçabilité : un bordereau taxable dont l'adjudication n'est pas mappable (régime absent de
+        // la table validée) n'est PAS agrégé MAIS est TRACÉ dans le journal du run taxable (jamais un skip muet),
+        // miroir du chemin marge. Le document reste ReadyToSend.
+        await _harness.UsePublishedFakeAsync();
+
+        var documentId = Guid.NewGuid();
+        var declaration = CheckIntegrationFixtures.BuildTaxableAuctionWithFees("ba-" + documentId.ToString("N"), "REGIME_ABSENT");
+        await _harness.SeedDetectedAndStageAsync(documentId, declaration);
+        await _harness.MarkReadyToSendAsync(documentId);
+
+        await _harness.RunB2cTaxableAsync();
+
+        _harness.PaCallCount(SendB2cTransaction, TaxableTxDetail).Should()
+            .Be(0, "une adjudication non mappable → document jamais agrégé ni transmis.");
+        (await _harness.GetB2cMarginEmissionsAsync(documentId)).Should()
+            .BeEmpty("aucune émission sur un document non agrégé.");
+
+        var runs = await _harness.GetRunsAsync();
+        var run = runs.First(r => r.RunType == PipelineRunType.B2cTaxableAggregate);
+        run.Detail.Should().Contain(
+            "AdjudicationNotMapped",
+            "le document dégradé est TRACÉ dans le journal du run taxable (jamais un skip muet).");
+        (await _harness.GetDocumentStateAsync(documentId)).Should()
+            .Be("ReadyToSend", "le document reste prêt à l'envoi — repris quand la table de mapping est rétablie.");
+    }
+
+    /// <summary>Capacités d'une PA publiée générale MAIS sans la capacité e-reporting B2C (le reste = défaut V1).</summary>
+    private static PaCapabilities WithoutB2cReporting() => new()
+    {
+        PaName = "Fake",
+        SupportsB2cReporting = false,
+        SupportsDomesticPaymentReporting = true,
+        SupportsInternationalPaymentReporting = false,
+        SupportsB2bInvoicing = false,
+        SupportsCreditNotes = true,
+        SupportsTaxReportRetrieval = true,
+        SupportsDocumentRetrieval = true,
+        SupportsReportRectification = true,
+        SupportsSelfBilling = true,
+        MaxDocumentsPerRequest = null,
+    };
 }

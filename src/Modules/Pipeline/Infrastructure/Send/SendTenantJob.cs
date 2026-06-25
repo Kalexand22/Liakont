@@ -509,14 +509,16 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
-        // Garde D1 (B4) : une déclaration de MARGE (frais acheteur/vendeur, art. 297 E) est transmise
-        // EXCLUSIVEMENT par le job agrégé B2C (b2c_transactions, jour×devise×taux) — jamais par cette voie
+        // Garde D1 (B4) : une déclaration e-reporting B2C AGRÉGÉE (frais acheteur/vendeur) — qu'elle soit au
+        // régime de la MARGE (297 E, TMA1) ou au RÉGIME DU PRIX TOTAL taxable (TLB1, F03 §2.7) — est transmise
+        // EXCLUSIVEMENT par un job agrégé B2C (b2c_transactions, jour×devise×taux) — jamais par cette voie
         // document (SendDocumentAsync la rejetterait : pas de destinataire identifié). On la DIFFÈRE ici (reste
-        // ReadyToSend ; jamais émise par-document, jamais Sending). Placée AVANT la garde de capacité 10.3 :
-        // une marge est déférée quelle que soit la capacité (la capacité marge est gardée DANS le job agrégé).
-        if (B2cMarginDeclaration.Matches(staged.Pivot!))
+        // ReadyToSend ; jamais émise par-document, jamais Sending). Placée AVANT la garde de capacité 10.3 : elle
+        // est déférée quelle que soit la capacité (la capacité est gardée DANS le job agrégé). La discrimination
+        // marge ↔ taxable (quel job la ramasse) se fait côté job, par TotalTax (B2cMarginDeclaration / B2cTaxableDeclaration).
+        if (B2cAggregatedDeclaration.Matches(staged.Pivot!))
         {
-            LogB2cMarginDeclarationDeferred(logger, documentId);
+            LogB2cAggregatedDeclarationDeferred(logger, documentId);
             return SendOutcome.Skipped;
         }
 
@@ -1283,8 +1285,8 @@ public sealed partial class SendTenantJob : ITenantJob
     private static partial void LogAntiDuplicateJournalFinalized(ILogger logger, Guid documentId);
 
     [LoggerMessage(EventId = 7224, Level = LogLevel.Information,
-        Message = "SEND : déclaration de marge e-reporting B2C {DocumentId} non transmise par la voie document — différée vers le job agrégé B2C (b2c_transactions, agrégation jour×devise). Comportement nominal (D1, B4).")]
-    private static partial void LogB2cMarginDeclarationDeferred(ILogger logger, Guid documentId);
+        Message = "SEND : déclaration e-reporting B2C agrégée {DocumentId} (marge ou prix total) non transmise par la voie document — différée vers le job agrégé B2C (b2c_transactions, agrégation jour×devise×taux). Comportement nominal (D1, B4).")]
+    private static partial void LogB2cAggregatedDeclarationDeferred(ILogger logger, Guid documentId);
 
     /// <summary>Issue de la résolution self-billed (MND07) : émettre (avec/sans projection) ou maintenir (hold).</summary>
     private readonly struct SelfBilledSend
