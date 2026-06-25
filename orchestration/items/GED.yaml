@@ -1,0 +1,410 @@
+# Lot GED — GED dynamique & coffre-fort documentaire
+# Source de conception : docs/conception/F19-GED-Dynamique-Coffre-Fort.md (+ .REDLINE.md) ;
+#   ADR-0032 (méta-modèle), ADR-0033 (coffre tiers/option C), ADR-0034 (ingestion générique),
+#   ADR-0035 (recherche & index), ADR-0036 (journal de consultation) — rédigés/landés par PR #72.
+# Branche : feat/ged (segment `ged`, base main).
+# depends_on_gate : [GATE_PIPELINE, GATE_CONSOLE_WEB, GATE_AGENT, GATE_DEMO_ISATECH].
+#
+# DÉCISIONS OPÉRATEUR (Karl, 2026-06-25) :
+#   D4 — Périmètre V1 = MVP STRICT : coffre WORM Liakont seul (option C, rangement write-once hors
+#        chaîne de hashes fiscale). Le coffre probant tiers (Arkhineo/SAE) = fast-follow GED20, BLOCKED
+#        sur D1 (valeur probante + format de vérification autonome, owner EC + juridique).
+#   D5 — Positionnement = UPSELL facturé séparément ; activation = CAPACITÉ TENANT en base (jamais
+#        couplée au code, règle 8) ; palier simple « on/off par tenant » en V1 (palier volume/axe
+#        reporté à D10). Coffre tiers = option premium GED20.
+#
+#   GED00/GED01 du plan F19 §10 (« rédiger les ADR ») sont SANS OBJET : ADR-0032→0036 sont livrés par
+#   PR #72. Le lot démarre à GED02 (précédent : « Partie A livrée hors orchestration » du segment
+#   chorus-pro). Restent ouverts (NE bloquent PAS le MVP) : D1 (→ GED20 seul), D2, D3, D6-D12 ;
+#   défauts défendables gravés dans les ADR, ratifiés par leurs owners (EC/juridique/DPO/archi/sécurité/
+#   produit) en parallèle.
+#
+# RÈGLES NON NÉGOCIABLES (rappel CLAUDE.md / F19 §7 — chaque violation = P1 en review) :
+#   - n°1 : axe `number` en decimal (value_number numeric), échelle portée par l'axe (value_scale),
+#     arrondi half-up via ValueNormalizer ; JAMAIS float/double.
+#   - n°2 : aucune règle fiscale/légale/probante inventée. La GED ne porte AUCUNE règle fiscale ; les
+#     axes/entités sont du paramétrage tenant. Valeur probante tiers = ❓ NON TRANCHÉ (D1).
+#   - n°3 : DEFER plutôt que deviner (documentType sans profil / axe requis non résolu → `deferred`,
+#     jamais mappé au hasard ni rejeté en silence) ; jamais « conforme NF Z42-013 » non vérifié.
+#   - n°4 : liens GED (document_axis_links / entity_relations / document_entity_links), change-logs,
+#     consultation_log, sealed_refs = APPEND-ONLY (triggers UPDATE/DELETE/TRUNCATE rejetés, tout rôle) ;
+#     révision par chaînage supersedes_id (aucune colonne mutable sous append-only) ; document GED rangé
+#     write-once via IArchiveStore HORS chaîne fiscale ; JAMAIS d'UPDATE sur archive_entries (option C).
+#   - n°5 : ingestion GED via agent ODBC en lecture seule stricte ; la GED ne réécrit jamais le legacy.
+#   - n°6 : frontières. NetArchTest : Pipeline/Validation/Transmission/Documents NotHaveDependencyOn(Ged.*) ;
+#     Ged.Infrastructure ne lit que des *.Contracts ; agent → Liakont.Agent.* (Core pour IManagedExtractor,
+#     Contracts.Ged pour les DTO), jamais le code plateforme ; l'agent n'a AUCUNE logique métier.
+#   - n°7 : aucune donnée client en dur. AUCUN axe/entité/relation métier (lot/vente/PV/enchères/
+#     adjudication/acheteur/bordereau) codé dans src/Modules/Ged/** ; seeds = exemples FICTIFS en
+#     deployments/<demo>/ ; garde outillée (GED11).
+#   - n°8 : capacités, jamais `if (x is Concret)` (coffre tiers piloté par SealedArchiveCapabilities ;
+#     recherche par IDocumentSearchIndex) ; aucun flag produit doublonnant une capacité.
+#   - n°9 : tout tenant-scopé par la connexion ; aucune requête cross-tenant ; jointure SQL cross-schéma
+#     ged_* → documents./mandats./tvamapping. INTERDITE (soft-link logique ; garde lint GED11).
+#   - n°10 : secret du coffre tiers chiffré par tenant en base (jamais en clair ni en log).
+#   - n°11 : socle vendored (Stratum.*) réutilisé sans modification → rien à consigner ; toute modif
+#     éventuelle → provenance.
+#   - n°12 : messages opérateur en français (n° document + action corrective ; DEFER, échecs scellement).
+#   - n°19 : toute page Blazor sans test (bUnit/Playwright) = P1 ; aucune logique métier en page (handlers
+#     MediatR).
+
+items:
+
+  GED02:
+    title: "Scaffold module Liakont.Modules.Ged (5 couches + MODULE/INVARIANTS/SCENARIOS + schémas ged_catalog/ged_index (tenant) + ged_ingestion (système) vides)"
+    description: |
+      (F19 §2.1.) Créer src/Modules/Ged (Contracts/Domain/Application/Infrastructure/Web). MODULE.md /
+      INVARIANTS.md / SCENARIOS.md obligatoires (module-rules §11). Trois schémas PG créés VIDES par
+      migration : ged_catalog + ged_index (base tenant), ged_ingestion (base système, RL-03). AUCUNE table
+      métier ici (séparé pour ne pas surdimensionner — précédents OPS03/API01/SUP01). NetArchTest : Ged
+      n'accède aux autres modules QUE par leurs *.Contracts.
+    acceptance:
+      - "verify-fast .NET 10 vert ; le module compile ; NetArchTest Ged green."
+      - "MODULE.md/INVARIANTS.md/SCENARIOS.md présents ; jeu INV-GED-NNN consolidé listé (INV-GED-01..12 + INV-ARCH-GED-1..3)."
+      - "Schémas ged_catalog + ged_index (tenant) + ged_ingestion (système) créés par migration, aucune table métier."
+      - "verify-fast passes ; codex-review clean or only accepted P2s."
+
+  GED03a:
+    title: "Migrations ged_catalog (entity_types AVANT axis_definitions, RL-07) + Domain catalogue polymorphe + ValueNormalizer"
+    description: |
+      (F19 §3.3, split RL-12.) Migrations DbUp V### du schéma ged_catalog : entity_types (registre
+      polymorphe), axis_definitions (data_type typé, value_scale, is_searchable/is_facetable/is_confidential,
+      retention_class), axis_values (vocabulaire enum), catalog_change_log (append-only). ORDRE FK (RL-07) :
+      entity_types AVANT axis_definitions (nommage de fichiers garantissant l'ordre OU FK posée en ALTER TABLE
+      séparé). Domain pur : EntityType polymorphe (pas d'enum figé) ; ValueNormalizer (échelle PAR axe, decimal
+      half-up) ; validation valeur d'axe → refus si non conforme au data_type, jamais deviner (n°2). Trigger
+      append-only sur catalog_change_log (calqué reject_archive_entry_mutation).
+    acceptance:
+      - "Migrations sur base vierge dans l'ordre DbUp : FK axis_definitions→entity_types satisfaite (RL-07)."
+      - "value_number = decimal (jamais double/float) ; échelle portée par l'axe (value_scale) ; arrondi half-up (test)."
+      - "catalog_change_log append-only : UPDATE/DELETE/TRUNCATE rejetés (test base réelle)."
+      - "Aucun axe/entité 'lot/vente/PV' en dur ; check anti-littéral vert (n°7)."
+      - "verify-fast passes ; run-tests (intégration) EXÉCUTÉS et verts ; codex-review clean or only accepted P2s."
+
+  GED03b:
+    title: "ged_index documentaire : managed_documents + document_axis_links (append PUR + vue current_axis_links) + triggers + change-log"
+    description: |
+      (F19 §3.4.1/§3.4.3, split RL-12.) Migrations du schéma ged_index : managed_documents (soft-links
+      fiscal_document_id/archive_entry_id SANS FK, content_hash SET-ONCE, status, retention_class ; PAS de
+      colonne search_vector — foyer unique = document_search, GED08), document_axis_links (colonnes de valeur
+      TYPÉES, supersedes_id, is_retraction, contrainte ck_dal_value_or_retraction), vue current_axis_links
+      (exclut rétractations ET superséedées), managed_document_change_log. Triggers append-only (UPDATE/DELETE/
+      TRUNCATE rejetés, tout rôle) sur document_axis_links + le change-log. Anti-EAV : UNE seule colonne typée
+      par lien, jamais un `value text` fourre-tout (INV-GED-01).
+    acceptance:
+      - "document_axis_links append-only PUR : UPDATE/DELETE/TRUNCATE rejetés (test base réelle) ; révision par chaînage supersedes_id, jamais d'UPDATE."
+      - "ck_dal_value_or_retraction : exactement 1 valeur typée (lien normal) OU 0 valeur + supersedes_id (rétractation) ; current_axis_links exclut rétractées/superséedées (test)."
+      - "managed_documents NE porte PAS de search_vector ; value_number = decimal (jamais double) ; INV-GED-01 (anti-EAV) testé."
+      - "verify-fast passes ; run-tests (intégration) EXÉCUTÉS et verts ; codex-review clean or only accepted P2s."
+
+  GED03c:
+    title: "ged_index graphe : entity_instances + entity_relations + document_entity_links (append-only) + vues current_* + triggers"
+    description: |
+      (F19 §3.4.2/§3.4.4/§3.4.5, split RL-12.) Migrations du schéma ged_index : entity_instances
+      (entity_type_id = référence LOGIQUE, identity_value, canonical_id, attributes jsonb PRÉSENTATION-ONLY,
+      search_vector inline), entity_relations (append-only, supersedes_id, is_retraction, ck_er_no_self,
+      ck_er_retraction) + vue current_entity_relations, document_entity_links (append-only, is_retraction) +
+      vue current_document_entity_links, entity_instance_change_log. Triggers append-only sur les 2 tables de
+      liens graphe + le change-log. `attributes` jsonb jamais recherché/facetté/traversé (INV-GED-04 : toute
+      donnée interrogeable est un axe déclaré). Ne réfère les entités fiscales/socle que par soft-link
+      (n'absorbe NI Mandats NI Stratum.Modules.Party — frontière §3.3.2).
+    acceptance:
+      - "entity_relations + document_entity_links append-only (UPDATE/DELETE/TRUNCATE rejetés, test) ; vues current_* excluent rétractées/superséedées."
+      - "ck_er_no_self (pas de relation entité→elle-même) ; rétractation (is_retraction + supersedes_id) retire de current_* sans UPDATE/DELETE (test, y compris multi-valeur, RL-24)."
+      - "attributes jsonb présentation-only (INV-GED-04 testé : jamais recherché/facetté/traversé)."
+      - "Aucun type d'entité métier en dur (n°7) ; n'absorbe pas Mandats/Party (frontière §3.3.2)."
+      - "verify-fast passes ; run-tests (intégration) EXÉCUTÉS et verts ; codex-review clean or only accepted P2s."
+
+  GED04:
+    title: "SetAxisValueCommand + UoW Dapper + garde de concurrence axe mono-valeur (advisory lock / FOR UPDATE, RL-02)"
+    description: |
+      (F19 §3.7.) Ged.Application IGedIndexUnitOfWork (AppendAxisLinkAsync/AppendEntityLinkAsync/
+      AppendRelationAsync, UoW transactionnelle Dapper) + SetAxisValueCommandHandler : (1) IAxisCatalog
+      .ResolveAsync(axisCode) → refus si axe inconnu/inactif (jamais deviner, n°2) ; (2) ValueNormalizer
+      .Normalize(dataType, value_scale, raw) → (colonne typée, normalized_value), refus si mismatch data_type ;
+      (3) SI axe mono-valeur : prendre un pg_advisory_xact_lock(hash(managed_document_id || ':' || axis_id))
+      OU un SELECT … FOR UPDATE sur la ligne managed_documents parente, dans la MÊME transaction, AVANT de
+      superséder la courante (supersedes_id), puis insérer. Tenant-scopé par la connexion.
+    acceptance:
+      - "Test CONCURRENT obligatoire (RL-02) : deux AppendAxisLinkAsync simultanés sur un axe mono ⇒ UNE seule valeur courante (current_axis_links renvoie 1 ligne). Un test SÉQUENTIEL est un faux-vert et ne suffit pas."
+      - "Axe inconnu/inactif → refus (jamais deviner, n°2) ; valeur incompatible avec data_type → refus."
+      - "INV-GED-03 (mono-valeur Domain sous concurrence) prouvé ; tout tenant-scopé (n°9)."
+      - "verify-fast passes ; run-tests (intégration) EXÉCUTÉS et verts ≥ 2 bases ; codex-review clean or only accepted P2s."
+
+  GED05a:
+    title: "Contrat agent GED add-only : IngestedDocumentDto + ManagedExtractorCapabilitiesDto (Agent.Contracts.Ged) + IManagedExtractor (Agent.Core)"
+    description: |
+      (F19 §4.2/§4.6, split RL-12 ; dépend GATE_AGENT — porté par le segment.) IngestedDocumentDto +
+      ManagedExtractorCapabilitiesDto dans Liakont.Agent.Contracts.Ged (netstandard2.0, DTO PURS, disjoints
+      du pivot fiscal) ; IManagedExtractor dans Liakont.Agent.Core (comme IExtractor, RL-15 ; PAS dans
+      Agent.Contracts), séparé d'IExtractor pour préserver les invariants facture R1-R9. L'agent extrait BRUT
+      et déclare ; AUCUNE interprétation/logique métier côté agent (n°6). SourceFields émis TRIÉ PAR CLÉ
+      (ordinal) par GedCanonicalJson (RL-39). Tout est ADDITIF (ADR-0007) : aucun membre existant touché.
+    acceptance:
+      - "Agent.Contracts.Ged + IManagedExtractor add-only ; hash du pivot FACTURE inchangé (test golden contrat-v1)."
+      - "DTO purs (netstandard2.0), disjoints de PivotDocumentDto ; SourceFields trié par clé (ordinal) — golden cross-runtime net48/.NET 10 (RL-39)."
+      - "NetArchTest : agent → Liakont.Agent.* (Core/Contracts.Ged), jamais le code plateforme ; aucune logique métier côté agent (n°6) ; AgentBoundaryTests vert."
+      - "verify-fast passes (agent net48 + plateforme .NET 10) ; codex-review clean or only accepted P2s."
+
+  GED05b:
+    title: "Ingestion plateforme GED : registre ged_ingestion (base SYSTÈME, atomique avec l'outbox) + ManagedDocumentReceivedV1 + handler (RL-03/RL-04)"
+    description: |
+      (F19 §2.4/§4.3, split RL-12.) Endpoint POST /api/agent/v1/managed-documents/batch (≤100). Handler :
+      GedCanonicalJson (bâti sur CanonicalJsonWriter) + PayloadHasher (réutilise la primitive) →
+      GedIngestionDecision.Evaluate (logique pure RE-COPIÉE dans Ged.Domain — 3 cas Duplicate/AcceptedAltered/
+      AcceptedNew — PAS une référence à Ingestion.Domain, RL-01) → staging.WriteAsync(canonicalJson) AVANT la
+      tx (invariant d'ordre ADR-0014) → en BASE SYSTÈME (atomique avec l'outbox, RL-03) : INSERT
+      ged_ingestion.ged_received_documents (canal GED dédié, UNIQUE (tenant_id, payload_hash)) + WriteEvent
+      ManagedDocumentReceivedV1 (dans Ged.Contracts, PAS Ingestion.Contracts, RL-17) + COMMIT. PAS d'appel à
+      IDocumentIntake (aucun Document fiscal créé). Consommateur durable : relit le pivot GED depuis le staging,
+      applique GedMapper (GED12) → MappedDocument OU DEFER (deferred si profil absent / axe requis non résolu),
+      puis UPSERT ManagedDocument (id du handler, ON CONFLICT (id) DO NOTHING) + liens, status→'indexed' dans la
+      MÊME tx (idempotence replay ET concurrence : garde FOR UPDATE sur le parent managed_documents / advisory
+      lock, ou clé déterministe ON CONFLICT, dans la tx status→'indexed', RL-04). Contenu GED via
+      IIngestedContentStore SÉPARÉ (anti path-traversal).
+    acceptance:
+      - "Un document non-facture est ingéré (registre GED + ManagedDocumentReceivedV1 écrits ATOMIQUEMENT en base système) ; réingestion idempotente (Duplicate) ; golden GedIngestionDecision (3 cas, RL-01)."
+      - "L'événement est réellement drainé (OutboxWorker) ; le consommateur crée le ManagedDocument + liens (ON CONFLICT DO NOTHING) ; un replay voit status='indexed' et no-op (RL-04, test)."
+      - "TEST CONCURRENT : deux livraisons simultanées de ManagedDocumentReceivedV1 ⇒ liens écrits UNE SEULE FOIS (garde FOR UPDATE sur managed_documents parent / advisory lock, ou clé déterministe ON CONFLICT, dans la tx status→'indexed') ; un test séquentiel est un faux-vert."
+      - "Aucune ligne documents.documents ; aucun passage par DocumentReceivedConsumer ; aucun état fiscal atteint."
+      - "NetArchTest : événement dans Ged.Contracts ; Ged.Domain ne réf. pas Ingestion.Domain (RL-01) ; agent → Liakont.Agent.*."
+      - "verify-fast passes ; run-tests (intégration) EXÉCUTÉS et verts ≥ 2 bases ; codex-review clean or only accepted P2s."
+
+  GED06:
+    title: "Permissions GED dédiées dans RolePermissionCatalog (liakont.ged.read/.export/.confidential) — ADR-0017"
+    description: |
+      (F19 §6.5.) Amender la matrice RolePermissionCatalog (ADR-0017) avec les permissions Liakont DÉDIÉES
+      liakont.ged.read / liakont.ged.export / liakont.ged.confidential — matérialisation en CODE traçable
+      (Dictionary/const, recompilation) ; PAS du paramétrage tenant en base, PAS une règle inventée. JAMAIS
+      une permission socle accordée à un rôle Liakont (FIX07c/RL-35). Tant que la matrice n'est pas amendée,
+      AUCUNE permission GED n'est accordée (bloquer plutôt qu'inventer).
+    acceptance:
+      - "Les 3 permissions GED sont projetées par RolePermissionCatalog au sign-in OIDC ET JwtBearer (test) ; jamais une permission socle accordée à un rôle Liakont."
+      - "liakont.ged.confidential distincte de .read : un rôle sans elle ne voit ni axe ni entité confidentiels (masquage server-side §6.5)."
+      - "verify-fast passes ; run-tests (intégration) EXÉCUTÉS et verts ; codex-review clean or only accepted P2s."
+
+  GED07:
+    title: "Surface d'archivage générique IGenericArchiveService + rangement WORM _ged/ hors chaîne fiscale (option C, RL-05)"
+    description: |
+      (F19 §5.1.) Archive.Contracts : IGenericArchiveService.ArchiveManagedDocumentAsync(GedArchivePackageRequest)
+      + AddManagedAddendumAsync — additif, hash-neutre pour la facture (ArchiveIssuedDocumentAsync intact).
+      IndexAxes = projection PLATE ArchiveIndexAxis (PAS DocumentAxisLink du module GED) ; pour un axe
+      confidentiel, Value=null (jamais une valeur confidentielle en clair dans le manifest WORM, RL-19).
+      Arborescence _ged/{kind}/{année}/{mois}/{clé}/ ; FiscalControlExportService exclut _ged/ d'un export de
+      CONTRÔLE fiscal. L'implémentation range les octets write-once via IArchiveStore sous _ged/… et N'INSÈRE
+      RIEN dans la chaîne fiscale archive_entries (option C). Le port coffre tiers ISealedArchiveProvider et
+      sa table sealed_refs ne sont PAS posés ici : ils arrivent avec GED20 (premier provider).
+    acceptance:
+      - "Un document GED est rangé write-once dans le coffre du tenant via Archive.Contracts ; re-rangement idempotent."
+      - "Aucune ligne documents.archive_entries créée pour un document GED-seul (option C) ; le coffre fiscal n'est pas touché."
+      - "Hash d'un paquet FACTURE inchangé (test golden) ; _ged/ exclu de l'export de contrôle fiscal ; aucune valeur confidentielle en clair dans le manifest (RL-19)."
+      - "NetArchTest : Ged → Archive.Contracts seulement (jamais Archive.Domain/store concret) ; Archive.Contracts ne réf. pas DocumentAxisLink."
+      - "verify-fast passes ; run-tests (intégration) EXÉCUTÉS et verts ; codex-review clean or only accepted P2s."
+
+  GED08:
+    title: "Recherche : document_search (tsvector + unaccent IMMUTABLE) + facettes + prédicat de confidentialité matérialisé (RL-31) + graphe borné, derrière IDocumentSearchIndex"
+    description: |
+      (F19 §6.1-§6.4.) Abstraction INTERNE IDocumentSearchIndex (PG tsvector ; pas un axe enfichable en V1).
+      Table DÉRIVÉE ged_index.document_search (managed_document_id PK, search_vector, refreshed_utc, index GIN)
+      = foyer UNIQUE, reconstructible (DELETE+rebuild OK car dérivé — documenté, règle 4). Peuplement par
+      PROJECTION ASYNCHRONE (consomme ManagedDocumentReceivedV1 + événements mapping/archivage GED, JAMAIS
+      DocumentReceivedV1). Provisionnement NEUF (RL-13) : CREATE EXTENSION unaccent + wrapper IMMUTABLE.
+      Recherche multi-axes correcte (compter les critères réellement satisfaits, pas un count(DISTINCT code)
+      naïf qui crée un faux positif sur axe multi-valeur) sur current_axis_links ; facettes restreintes aux
+      axes is_facetable. PRÉDICAT (ad.is_confidential = false OR @hasConfidentialRight) MATÉRIALISÉ DANS LE
+      SQL (RL-31, anti-oracle). Traversée de graphe BIDIRECTIONNELLE et BORNÉE (current_entity_relations,
+      borne de profondeur tenant, anti-cycle, pagination keyset, confidentialité héritée des entity_types).
+      Config 'french' (D11). Source du texte explicite (axes V1 garanti ; contenu conditionnel ; OCR = GED23).
+    acceptance:
+      - "document_search = foyer unique (managed_documents sans search_vector) ; projection asynchrone ; reconstructible (DELETE+rebuild documenté, règle 4)."
+      - "Recherche multi-axes correcte (un axe multi-valeur ne crée pas de faux positif) ; prédicat de confidentialité MATÉRIALISÉ dans le SQL (RL-31) — recherche/facette/graphe ne révèlent aucun axe/entité confidentiel sans le droit (anti-oracle)."
+      - "Traversée graphe bidirectionnelle + borne de profondeur dure (anti-DoS) + anti-cycle + pagination keyset (jamais OFFSET/chargement-tout) ; INV-GED-09."
+      - "unaccent provisionné (wrapper IMMUTABLE, RL-13) ; isolation cross-tenant (document du tenant B invisible depuis le tenant A)."
+      - "verify-fast passes ; run-tests (intégration) EXÉCUTÉS et verts ≥ 2 bases ; codex-review clean or only accepted P2s."
+
+  GED09a:
+    title: "Page /ged/recherche (vue-pure bUnit + page mince + IGedQueries internal) — pagination keyset SQL"
+    description: |
+      (F19 §6.7.) Page maître dans Liakont.Host (page mince + vue-pure bUnit + IGedQueries internal via
+      InternalsVisibleTo). AUCUNE logique métier en page (handlers MediatR). Recherche paginée CÔTÉ SQL
+      (IDocumentSearchIndex.SearchAsync, keyset) + facettes ; PAS le mode chargement-tout de DeclaredListPage
+      (RL-20). Masquage confidentiel server-side. Messages FR.
+    acceptance:
+      - "Page /ged/recherche : résultats paginés (keyset SQL) + facettes ; aucun chemin ne matérialise l'intégralité du corpus (RL-20)."
+      - "Tests bUnit et/ou Playwright présents ET EXÉCUTÉS verts (P1 review n°19) ; aucune logique métier en page (handlers MediatR)."
+      - "Masquage confidentiel server-side (axe confidentiel non affiché/facetté sans le droit liakont.ged.confidential)."
+      - "verify-fast passes ; codex-review clean or only accepted P2s."
+
+  GED09b:
+    title: "Page /ged/document/{id} (fiche + aperçu + intégrité GED = re-lecture IArchiveStore vs content_hash)"
+    description: |
+      (F19 §6.7.) Page maître Host (vue-pure bUnit + IGedDocumentQueries.GetAsync). Fiche document + aperçu
+      (ReadableHtml du paquet ; ReadableDocumentRenderer réservé aux docs fiscaux, RL-16). Intégrité GED =
+      re-lecture IArchiveStore.ReadAsync(_ged/…) comparée au content_hash indexé ; IArchiveVerifier (chaîne +
+      ancrage) réservé à un ManagedDocument FISCAL (archive_entry_id non nul). Champs dérivables du fiscal
+      PROJETÉS à la lecture (jamais copiés dans managed_documents, RL-22). Montants decimal ; la fiche ne
+      recalcule rien. Le lien coffre OUVRE/atteste le paquet, ne le modifie jamais.
+    acceptance:
+      - "Fiche /ged/document/{id} : aperçu + intégrité GED (re-lecture IArchiveStore vs content_hash) ; IArchiveVerifier seulement si fiscal-lié (archive_entry_id non nul)."
+      - "Champs fiscaux projetés à la lecture (jamais copiés, RL-22) ; montants decimal, aucun recalcul."
+      - "Tests bUnit et/ou Playwright présents ET EXÉCUTÉS verts (P1 n°19) ; aucune logique métier en page."
+      - "verify-fast passes ; codex-review clean or only accepted P2s."
+
+  GED09c:
+    title: "Page /ged/objet/{entityType}/{id} (exploration de graphe bornée bidirectionnelle)"
+    description: |
+      (F19 §6.7.) Page maître Host (vue-pure bUnit + IGedGraphQueries.ExploreAsync). Exploration via la
+      traversée bornée bidirectionnelle (§6.4, GED08) : page déjà bornée CÔTÉ SQL (keyset + borne de
+      profondeur), confidentialité héritée des entity_types aux extrémités. Aucune logique métier en page.
+    acceptance:
+      - "Page /ged/objet/{type}/{id} : exploration de graphe bornée bidirectionnelle (page bornée côté SQL) ; entité/relation confidentielle non traversée sans le droit."
+      - "Tests bUnit et/ou Playwright présents ET EXÉCUTÉS verts (P1 n°19) ; aucune logique métier en page."
+      - "verify-fast passes ; codex-review clean or only accepted P2s."
+
+  GED10:
+    title: "Backfill rétroactif idempotent (chemin DIRECT hors-outbox, RL-21) + démo enchères/BTP seedée (généricité prouvée par config)"
+    description: |
+      (F19 §10/§11 D12.) Job tenant-scopé itérant documents.archive_entries, clé = archive_entry_id, no-op si
+      déjà indexé ; documents anciens sans profil → deferred (jamais devinés). Geste OPÉRÉ, idempotent, chemin
+      DIRECT (hors-outbox), PAS un effet de bord du flux fiscal (RL-21). Aperçu/texte via ReadableHtml du
+      paquet (ReadableDocumentRenderer réservé aux factures, RL-16). Démo : seed deployments/<demo-encheres>/
+      (axes numero_lot/numero_vente/acheteur, type acheteur) ET deployments/<demo-btp>/ (axes
+      numero_situation/mois/montant_ht_cumule [EUR, scale=2]/avancement_pct [scale=0], type chantier) — le MÊME
+      document_axis_links porte EUR et % sans un seul ALTER TABLE (généricité prouvée par la configuration).
+      Données FICTIVES (n°7).
+    acceptance:
+      - "Backfill DIRECT idempotent (itère archive_entries, clé archive_entry_id, no-op si déjà indexé, RL-21) ; document sans profil → deferred (jamais deviné, n°3)."
+      - "Démo enchères + BTP seedées en deployments/ (exemples FICTIFS, n°7) : indexer un bordereau acheteur → filtrer par numero_lot → tous les documents du lot remontent ; 2e métier (situation de travaux) sur le MÊME schéma sans ALTER TABLE."
+      - "Aucun axe/entité métier en dur dans src/Modules/Ged/** (check anti-littéral vert) ; la démo est intégralement reconstructible depuis deployments/ sans toucher le code."
+      - "verify-fast passes ; run-tests (intégration) EXÉCUTÉS et verts ; codex-review clean or only accepted P2s."
+
+  GED11:
+    title: "Gardes outillées SELF-TESTÉES : lint anti-littéral généricité + lint SQL cross-schéma (RL-27)"
+    description: |
+      (F19 §8.) Deux checks câblés dans verify-fast ET ci.yml, CHACUN avec son self-test (RL-27, anti-faux-vert).
+      (1) Lint anti-littéral généricité : échoue si un littéral de {lot, vente, pv, encheres, adjudication,
+      acheteur, bordereau} apparaît dans src/Modules/Ged/** hors tests/seed (n°7). (2) Lint SQL cross-schéma :
+      échoue si une migration/query Ged référence documents./mandats./tvamapping. hors des schémas ged_*
+      (la jointure cross-schéma est interdite — soft-link logique seulement — et invisible à NetArchTest, n°9).
+      Chaque check porte un self-test prouvant qu'il ÉCHOUE sur une entrée fautive injectée (sinon faux-vert).
+    acceptance:
+      - "Lint anti-littéral : échoue sur un littéral métier injecté dans src/Modules/Ged/** ; vert sur le code réel ; self-test câblé (RL-27)."
+      - "Lint SQL cross-schéma : échoue sur une jointure ged_* → documents./mandats. injectée ; vert sur le code réel ; self-test câblé."
+      - "Les 2 checks tournent dans verify-fast ET ci.yml et échouent réellement le pipeline (pas de continue-on-error / skip silencieux)."
+      - "verify-fast passes ; codex-review clean or only accepted P2s."
+
+  GED12:
+    title: "Moteur de mapping déclaratif GED : GedMappingProfile + AxisMappingRule/EntityMappingRule/RelationMappingRule + GedMapper.Map → MappedDocument ou DEFER + GedMappingChangeLog (généralisation de MappingRule)"
+    description: |
+      (F19 §4.5 ; généralisation du pattern MappingTable/MappingRule/TvaMapper.) Sur la PLATEFORME, tenant-scopé,
+      versionné, validé humainement (jamais côté agent). Entités NEUVES (module Ged) : GedMappingProfile (profil
+      d'un documentType, tenant-scopé/versionné/validé, comme MappingTable) ; AxisMappingRule / EntityMappingRule /
+      RelationMappingRule (source path + condition → axe/entité/relation cible) ; GedMapper.Map(profil tenant
+      VALIDÉ, IngestedDocumentDto) → MappedDocument OU DEFER ; GedMappingChangeLog (append-only, audit immuable des
+      profils). Vocabulaire figé DEFER (jamais BLOCK) : un documentType SANS profil, ou un axe OBLIGATOIRE non
+      résolu, range le document en `deferred` (visible console), jamais mappé au hasard ni rejeté en silence
+      (INV-GED-05, n°3). Le consommateur d'ingestion (GED05b) applique ce mapper. Sélecteur = JSONPath restreint
+      (chemins simples + filtre d'égalité, pas un moteur d'expression) ; parsing des SourceFields bruts déclaré par
+      profil, DEFER si ambigu (jamais deviner). Interprétation d'un axe number en decimal half-up (n°1).
+    acceptance:
+      - "Golden mapping : brut → axes/entités/relations attendus (profil validé) ; cas DEFER testés (documentType sans profil, axe requis non résolu, SourceField ambigu) → statut `deferred`, jamais deviné (INV-GED-05, n°3)."
+      - "GedMappingProfile tenant-scopé, versionné, validé (jamais appliqué non validé) ; GedMappingChangeLog append-only (UPDATE/DELETE/TRUNCATE rejetés, test base réelle)."
+      - "Aucune valeur d'axe inventée (n°2) ; interprétation d'un axe number en decimal half-up (n°1) ; tenant-scopé (n°9)."
+      - "verify-fast passes ; run-tests (intégration) EXÉCUTÉS et verts ; codex-review clean or only accepted P2s."
+
+  GED13:
+    title: "Journal de consultation GED append-only : ged_index.consultation_log (base TENANT) + IConsultationAuditWriter + masquage confidentiel (ADR-0036)"
+    description: |
+      (F19 §6.6 ; ADR-0036.) Table NEUVE ged_index.consultation_log en BASE TENANT (donnée métier tenant-scopée,
+      comme document_events), routée par IConnectionFactory — JAMAIS via ISystemConnectionFactory (qui écrirait
+      dans l'audit socle partagé audit.field_changes = fuite cross-tenant). DISTINCTE de l'audit socle de MUTATIONS :
+      c'est un journal de CONSULTATION/lecture (action ∈ search / view_document / explore_entity / export /
+      open_archive). Triggers append-only (UPDATE/DELETE/TRUNCATE rejetés, tout rôle) calqués sur document_events.
+      Écriture via IConsultationAuditWriter (Ged.Contracts, tenant-scopé), CONSOMMÉ par les pages /ged/* (qui en
+      dépendent) pour journaliser la consultation. MASQUAGE server-side : query_text ET detail masqués/hachés si
+      l'axe ciblé est confidentiel (§6.5, anti-oracle ; le journal n'est pas un canal de contournement). ROBUSTESSE :
+      best-effort + log Warning par défaut (une lecture n'a pas de transaction métier à casser) ; D8 ouvert
+      (fail-closed ou alerte de supervision si finalité PROBANTE confirmée) ; aucune purge auto en attendant
+      (append-only intégral). RGPD : la pseudonymisation IN-PLACE d'actor_id est IMPOSSIBLE sous le WORM gravé
+      (UPDATE rejeté par le trigger append-only, comme la purge) ; mitigation = MINIMISATION À L'ÉCRITURE (ne pas
+      écrire d'identifiant ré-identifiant au-delà du nécessaire) ou crypto-shredding par document (D9, prérequis
+      « chiffrement-au-repos » ABSENT aujourd'hui), JAMAIS une mutation a posteriori du log scellé (D8).
+    acceptance:
+      - "ged_index.consultation_log en BASE TENANT (IConnectionFactory, JAMAIS ISystemConnectionFactory) ; append-only (UPDATE/DELETE/TRUNCATE rejetés, test base réelle) ; INV-GED-11."
+      - "IConsultationAuditWriter (Ged.Contracts) écrit une entrée par action ; query_text ET detail masqués/hachés si l'axe ciblé est confidentiel (test masquage en log, §6.5/§8, anti-oracle)."
+      - "Défaut best-effort + Warning (une trace échouée ne casse pas la lecture) ; aucune purge auto (D8 ouvert) ; tenant-scopé (n°9)."
+      - "verify-fast passes ; run-tests (intégration) EXÉCUTÉS et verts ; codex-review clean or only accepted P2s."
+
+  GATE_GED:
+    type: gate
+    executor: human
+    title: "Gate : GED dynamique MVP — recette de bout en bout (ingestion générique → indexation multidimensionnelle → coffre WORM → recherche), sans toucher le flux fiscal"
+    description: |
+      Recette humaine sur instance de dev. MVP (tranche verticale, F19 §10) : ingérer un document métier
+      NON-facture, l'indexer sur 2-3 axes + 1 entité, le ranger write-once dans le coffre WORM existant
+      (option C, hors chaîne de hashes fiscale), et le RETROUVER par recherche multidimensionnelle + graphe —
+      générique, tenant-scopé. Les démos enchères ET BTP prouvent la généricité PAR CONFIGURATION (le même
+      document_axis_links porte EUR et %, sans ALTER TABLE). Le flux fiscal e-invoicing est INCHANGÉ. Le coffre
+      probant tiers (GED20) et OpenSearch/pgvector/OCR (GED21-23) sont fast-follow HORS gate.
+    acceptance:
+      - "Tous les items GED02→GED13 done."
+      - "Recette MVP : ingestion générique → indexation (axes + entité) → coffre WORM (_ged/, option C) → recherche multidimensionnelle + graphe ; document GED retrouvé ; valeurs confidentielles masquées server-side."
+      - "Généricité prouvée : démos enchères ET BTP reconstructibles depuis deployments/ (aucun vocabulaire métier en dur ; check anti-littéral vert)."
+      - "Flux fiscal INCHANGÉ : hash facture neutre ; NetArchTest — Pipeline/Validation/Transmission/Documents NotHaveDependencyOn(Ged.*) ; tenant-scoping prouvé ≥ 2 bases ; append-only/WORM prouvés."
+      - "PR du segment feat/ged revue et mergée dans main."
+
+  GED20:
+    title: "[fast-follow, HORS gate, BLOCKED sur D1] Coffre probant tiers Arkhineo/SAE : ISealedArchiveProvider + sealed_refs + job de réplication (ADR-0033)"
+    description: |
+      (F19 §5.2-§5.6.) Pose le 5ᵉ axe « coffre probant tiers » AVEC son premier provider (anti code-dormant,
+      RL-26) : Archive.Domain ISealedArchiveProvider + SealedArchiveCapabilities (jamais if(provider is
+      Arkhineo)) ; ged_index.sealed_refs (append-only, réfère l'objet par son archive_path WORM — PAS une FK
+      archive_entries ; état courant = dernière ligne par seq ; idempotence (archive_path, provider)) ;
+      SealedReplicationTenantJob + SealedReplicationService (court-circuit par capacité, idempotence, cycle
+      Seal/Poll/RetrieveProof, preuve rangée write-once à côté du paquet via IArchiveStore) ; vérifieur/export
+      (statuts SealVerified/SealClaimedNotVerifiable/SealMissing). Plug-in SealedProviders.Arkhineo → réfère
+      uniquement Archive.Contracts/Domain. Secret du coffre tiers chiffré par tenant (n°10). BLOCKED tant que
+      D1 (valeur probante + format de vérification autonome — owner EC + juridique) n'est pas tranché.
+    acceptance:
+      - "ISealedArchiveProvider à capacités (jamais if(provider is Arkhineo)) ; le plug-in ne réfère qu'Archive.Contracts/Domain (NetArchTest)."
+      - "sealed_refs append-only (réf. archive_path WORM, PAS de FK archive_entries) ; état courant = dernière ligne par seq ; idempotence (archive_path, provider)."
+      - "Jamais « conforme NF Z42-013 » sans SealVerified + une spécification de vérification autonome ratifiée (D1, INV-ARCH-GED-3) ; secret chiffré par tenant (n°10)."
+      - "BLOCKED sur D1 ; verify-fast passes ; run-tests (intégration) EXÉCUTÉS et verts ; codex-review clean or only accepted P2s."
+
+  GED21:
+    title: "[fast-follow, HORS gate] Backend de recherche OpenSearch derrière IDocumentSearchIndex (montée en charge, seuil D10)"
+    description: |
+      (F19 §10.) Plug-in OpenSearch derrière IDocumentSearchIndex (capacité déclarée, JAMAIS if(index is
+      OpenSearch)). La bascule tsvector→OpenSearch est pilotée par un seuil de volumétrie chiffré (D10). Le
+      contrat de recherche (et les invariants de confidentialité §6.5) restent inchangés.
+    acceptance:
+      - "IDocumentSearchIndex implémenté par OpenSearch (jamais if(index is X)) ; parité de résultats avec tsvector sur le jeu golden ; confidentialité respectée (masquage server-side)."
+      - "verify-fast passes ; run-tests verts ; codex-review clean or only accepted P2s."
+
+  GED22:
+    title: "[fast-follow, HORS gate] Recherche sémantique pgvector derrière IDocumentSearchIndex (option)"
+    description: |
+      (F19 §10.) Plug-in pgvector (embeddings) derrière l'abstraction de recherche, en option (capacité
+      déclarée, jamais if(index is X)). N'altère ni le contrat ni les invariants de confidentialité.
+    acceptance:
+      - "Recherche sémantique optionnelle derrière IDocumentSearchIndex (capacité) ; confidentialité respectée ; jamais if(index is X)."
+      - "verify-fast passes ; run-tests verts ; codex-review clean or only accepted P2s."
+
+  GED23:
+    title: "[fast-follow, HORS gate] OCR du contenu scanné (couche texte) alimentant la recherche plein texte"
+    description: |
+      (F19 §6.3/§10.) Extraction OCR d'un scan image → couche texte indexée par document_search. Un document
+      non-OCRisé reste CLAIREMENT étiqueté « cherché sur métadonnées seulement » (jamais de faux « plein
+      texte » silencieux). En option/capacité.
+    acceptance:
+      - "Scan image OCRisé → indexé en plein texte ; document non-OCR étiqueté « métadonnées seulement » (pas de faux plein texte, n°3)."
+      - "verify-fast passes ; run-tests verts ; codex-review clean or only accepted P2s."
+
+  GED24:
+    title: "[fast-follow, HORS gate] Relations objet-à-objet avancées (inférence/héritage) sur le graphe générique borné"
+    description: |
+      (F19 §10.) Enrichit entity_relations (relation_type 'inferred'/'inherited') avec de l'inférence/héritage
+      BORNÉS, append-only ; reste GÉNÉRIQUE (aucun type métier en dur) et BORNÉ (anti-DoS, comme la traversée).
+    acceptance:
+      - "Relations inférées/héritées append-only sur le graphe générique borné ; aucun type métier en dur (check anti-littéral vert)."
+      - "verify-fast passes ; run-tests verts ; codex-review clean or only accepted P2s."

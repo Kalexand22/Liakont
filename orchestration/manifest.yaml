@@ -251,7 +251,20 @@ meta:
   #   établit des méthodes ») n'est pas remplie → item retiré de manifest+items+state. Réveil seulement si une
   #   F*.md ultérieure ancre la globalisation pour l'OVV. state.yaml déjà à jour (B2C08b retiré ;
   #   B2C05b blocked→pending car le merge origin/main du segment est résolu).
-  version: 37
+  # version 38 (2026-06-25, geste opérateur interactif — Karl) = nouveau segment `ged` + lot GED : GED dynamique
+  #   & coffre-fort documentaire (couche d'indexation métier + recherche multidimensionnelle + graphe + ingestion
+  #   générique, AU-DESSUS du coffre WORM existant, SANS toucher le flux fiscal). Source : F19 + ADR-0032→0036
+  #   (rédigés/landés par PR #72). Bande 110xx (core) / 115xx (fast-follow). DÉCISIONS KARL 2026-06-25 : D4 = MVP
+  #   STRICT V1 (coffre Liakont seul, option C ; coffre tiers = fast-follow GED20, BLOCKED sur D1) ; D5 = upsell,
+  #   capacité tenant en base (jamais couplée au code), palier simple par tenant. GED00/GED01 du plan F19 §10
+  #   (« rédiger les ADR ») = SANS OBJET (ADR livrés PR #72) → le lot démarre à GED02. Segment sur feat/ged (base
+  #   main), depends_on_gate [GATE_PIPELINE, GATE_CONSOLE_WEB, GATE_AGENT, GATE_DEMO_ISATECH] : GATE_DEMO_ISATECH
+  #   (prod e-invoicing réelle d'abord, RL-08) maintient les items DORMANTS tant qu'aucun client n'est en prod —
+  #   c'est voulu (la conformité fiscale passe avant). Fast-follow GED20 (coffre tiers, BLOCKED D1) / GED21
+  #   OpenSearch / GED22 pgvector / GED23 OCR / GED24 relations avancées = items individuels HORS gate. ⚠️ À SEEDER
+  #   dans $ORCH_REPO/state.yaml APRÈS merge : GED02→GED13 + GATE_GED en `pending` ; GED20 en `blocked` (D1) ;
+  #   GED21→GED24 en `pending` (hors gate). Détails : items/GED.yaml.
+  version: 38
   host: multi_agent_v1
 
 segments:
@@ -433,6 +446,14 @@ segments:
     lots: [RD4]
     gate: GATE_REDLINE_ADR4
     depends_on_gate: [GATE_PIPELINE, GATE_AGENT, GATE_CONSOLE_WEB]
+
+  ged:
+    branch: feat/ged
+    base: main
+    lots: [GED]
+    gate: GATE_GED
+    # GATE_DEMO_ISATECH (prod e-invoicing réelle d'abord, RL-08) garde les items DORMANTS jusqu'à un 1er client en prod.
+    depends_on_gate: [GATE_PIPELINE, GATE_CONSOLE_WEB, GATE_AGENT, GATE_DEMO_ISATECH]
 
 items:
   # ── SOL ──
@@ -835,3 +856,32 @@ items:
   - { id: RD408, lot: RD4, priority: 10035, depends_on: [] }
   - { id: RD409, lot: RD4, blueprint: docs-spec-item, priority: 10040, depends_on: [] }
   - { id: GATE_REDLINE_ADR4, type: gate, executor: human, priority: 10090, depends_on: [RD401, RD402, RD403, RD404, RD405, RD406, RD407, RD408, RD409] }
+
+  # ── GED (segment ged — GED dynamique & coffre-fort, manifest v38, F19 + ADR-0032→0036) ──
+  # GED00/GED01 du plan F19 §10 (rédaction des ADR) = SANS OBJET (ADR livrés PR #72) → le lot démarre à GED02.
+  # Segment depends_on_gate inclut GATE_DEMO_ISATECH (prod réelle d'abord, RL-08) → items DORMANTS jusqu'à un 1er
+  # client e-invoicing en prod. Fast-follow GED20-24 = HORS gate (GED20 blocked sur D1). Détails : items/GED.yaml.
+  - { id: GED02, lot: GED, priority: 11000, depends_on: [] }
+  - { id: GED03a, lot: GED, priority: 11010, depends_on: [GED02] }
+  - { id: GED03b, lot: GED, priority: 11020, depends_on: [GED03a] }
+  - { id: GED03c, lot: GED, priority: 11030, depends_on: [GED03a] }
+  - { id: GED04, lot: GED, priority: 11040, depends_on: [GED03b] }
+  - { id: GED05a, lot: GED, priority: 11050, depends_on: [GED02] }
+  - { id: GED12, lot: GED, priority: 11055, depends_on: [GED03b, GED03c, GED05a] }
+  - { id: GED05b, lot: GED, priority: 11060, depends_on: [GED03b, GED05a, GED12] }
+  - { id: GED06, lot: GED, priority: 11070, depends_on: [GED02] }
+  - { id: GED13, lot: GED, priority: 11075, depends_on: [GED03b, GED06] }
+  - { id: GED07, lot: GED, priority: 11080, depends_on: [GED05b] }
+  - { id: GED08, lot: GED, priority: 11090, depends_on: [GED04, GED07] }
+  - { id: GED09a, lot: GED, blueprint: blazor-page-item, priority: 11100, depends_on: [GED08, GED06, GED13] }
+  - { id: GED09b, lot: GED, blueprint: blazor-page-item, priority: 11110, depends_on: [GED08, GED06, GED13] }
+  - { id: GED09c, lot: GED, blueprint: blazor-page-item, priority: 11120, depends_on: [GED08, GED06, GED13] }
+  - { id: GED10, lot: GED, priority: 11130, depends_on: [GED05b, GED07] }
+  - { id: GED11, lot: GED, blueprint: tooling-item, priority: 11140, depends_on: [GED03c, GED08] }
+  - { id: GATE_GED, type: gate, executor: human, priority: 11200, depends_on: [GED09a, GED09b, GED09c, GED10, GED11] }
+  # Fast-follow (HORS gate) — items individuels ; GED20 `blocked` sur D1, GED21-24 `pending`.
+  - { id: GED20, lot: GED, priority: 11500, depends_on: [GED07] }
+  - { id: GED21, lot: GED, priority: 11510, depends_on: [GED08] }
+  - { id: GED22, lot: GED, priority: 11520, depends_on: [GED08] }
+  - { id: GED23, lot: GED, priority: 11530, depends_on: [GED05b] }
+  - { id: GED24, lot: GED, priority: 11540, depends_on: [GED03c] }
