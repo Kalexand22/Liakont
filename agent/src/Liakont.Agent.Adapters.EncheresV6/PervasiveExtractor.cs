@@ -61,7 +61,7 @@ public sealed class PervasiveExtractor : IExtractor
             hasDetailedLines: true,
             hasCreditNoteLink: true,
             exposesPayments: true,
-            regimeKeyShape: RegimeKeyShape.Simple,
+            regimeKeyShape: RegimeKeyShape.Composite,
             emitterIdentitySource: EmitterIdentitySource.FilledByPlatform,
             hasStoredHeaderTotal: true,
             isMutableAfterIssue: false,
@@ -203,6 +203,8 @@ public sealed class PervasiveExtractor : IExtractor
         CodePostal = OdbcCellReader.GetString(reader, EncheresV6Schema.ColCodePostal),
         Ville = OdbcCellReader.GetString(reader, EncheresV6Schema.ColVille),
         CodePays = OdbcCellReader.GetString(reader, EncheresV6Schema.ColCodePays),
+        CodeExport = OdbcCellReader.GetBool(reader, EncheresV6Schema.ColCodeExport),
+        ModeLivraison = OdbcCellReader.GetString(reader, EncheresV6Schema.ColModeLivraison),
         TotalBordereau = OdbcCellReader.GetNullableDouble(reader, EncheresV6Schema.ColTotalBordereau) ?? 0d,
     };
 

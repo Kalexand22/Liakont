@@ -71,6 +71,14 @@ internal sealed class EncheresV6Bordereau
     [JsonProperty("code_pays")]
     public string? CodePays { get; set; }
 
+    /// <summary>Flag d'export du bordereau (<c>entete_ba.code_export</c>, LOGICAL) — vente exonérée à l'export / hors taxe, BRUT (F03 §2.8). Combiné à <see cref="ModeLivraison"/> pour la clé de régime composite ; jamais une dérivation fiscale (CLAUDE.md n°6).</summary>
+    [JsonProperty("code_export")]
+    public bool CodeExport { get; set; }
+
+    /// <summary>Mode de livraison source (<c>entete_ba.mode_livraison</c>) — indice de ZONE (« HORS CEE » / « CEE » / « FRANCE »), BRUT. Normalisé en jeton de zone (export hors UE / intra-UE / franchise) pour la clé composite, jamais interprété fiscalement (F03 §2.8).</summary>
+    [JsonProperty("mode_livraison")]
+    public string? ModeLivraison { get; set; }
+
     /// <summary>Total TTC d'entête stocké par la source (<c>total_bordereau</c>) — porté en contrôle (SourceTotalGross).</summary>
     [JsonProperty("total_bordereau")]
     public double TotalBordereau { get; set; }

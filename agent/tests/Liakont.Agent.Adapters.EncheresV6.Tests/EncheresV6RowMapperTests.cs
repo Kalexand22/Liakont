@@ -81,6 +81,38 @@ public class EncheresV6RowMapperTests
     }
 
     [Fact]
+    public void MapBaDocument_non_export_keeps_the_bare_regime_key()
+    {
+        // code_export=0 (cas nominal) → clé de régime NUE, zéro régression sur le domestique (F03 §2.8).
+        EncheresV6Bordereau domestique = MargeBa();
+        domestique.Lignes[0].CodeRegime = "5";
+        domestique.CodeExport = false;
+
+        PivotDocumentDto doc = EncheresV6RowMapper.MapBaDocument(domestique, null);
+
+        doc.Lines[0].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("5");
+    }
+
+    [Theory]
+    [InlineData("HORS CEE", "5_EXP_HORSUE")] // export hors UE → mappable G/0 % (262 I) si la table le couvre
+    [InlineData("CEE", "5_EXP_CEE")] // intra-UE → fail-closed tant que non mappé
+    [InlineData("FRANCE", "5_EXP_FR")] // zone indéterminée (franchise probable) → fail-closed
+    [InlineData("", "5_EXP_FR")] // mode absent → zone indéterminée
+    public void MapBaDocument_export_emits_composite_regime_key_with_zone(string modeLivraison, string expectedRegime)
+    {
+        // F03 §2.8 : code_export=1 → clé de régime COMPOSITE « {regime}_EXP_{zone} » (RegimeKeyShape.Composite).
+        // Transport de donnée source (régime + export + zone normalisée), AUCUNE dérivation fiscale (CLAUDE.md n°6).
+        EncheresV6Bordereau export = MargeBa();
+        export.Lignes[0].CodeRegime = "5"; // assujetti (prix total) MAIS exporté
+        export.CodeExport = true;
+        export.ModeLivraison = modeLivraison;
+
+        PivotDocumentDto doc = EncheresV6RowMapper.MapBaDocument(export, null);
+
+        doc.Lines[0].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be(expectedRegime);
+    }
+
+    [Fact]
     public void MapBaDocument_normalizes_source_currency_label_EURO_to_iso_EUR()
     {
         // La source EncheresV6 étiquette l'euro « EURO » (libellé non-ISO) : l'agent le normalise vers l'ISO 4217

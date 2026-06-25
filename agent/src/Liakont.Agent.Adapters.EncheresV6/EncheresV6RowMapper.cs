@@ -67,6 +67,12 @@ internal static class EncheresV6RowMapper
         decimal totalNet = 0m;
         decimal totalTax = 0m;
 
+        // Jeton de ZONE d'export (F03 §2.8) : combine le flag source code_export et le mode de livraison en une
+        // clé de régime COMPOSITE (RegimeKeyShape.Composite) — la plateforme distingue ainsi un même code régime
+        // « 5 » domestique d'un « 5_EXP_HORSUE » exonéré. Transport de donnée source (régime + export + zone),
+        // AUCUNE dérivation fiscale ici : la catégorie/VATEX restent décidées par la table validée (CLAUDE.md n°6).
+        string? exportZone = ExportZone(bordereau);
+
         foreach (EncheresV6Ligne ligne in bordereau.Lignes)
         {
             // L'extracteur ne charge que les lignes de LOT (type 1) sur le BA ; on reste défensif.
@@ -89,7 +95,7 @@ internal static class EncheresV6RowMapper
                 netAmount: adjNet,
                 quantity: 1m,
                 unitPriceNet: null,
-                sourceRegimeCodes: RegimeCodes(ligne.CodeRegime),
+                sourceRegimeCodes: RegimeCodes(ComposeRegimeKey(ligne.CodeRegime, exportZone)),
                 taxes: new[] { new PivotLineTaxDto(taxAmount: adjTax, rate: null, categoryCode: null, vatexCode: null) },
                 sourceLineRef: ligne.NoLignePv,
                 sourceData: BuildBaLineSourceData(ligne)));
@@ -299,6 +305,53 @@ internal static class EncheresV6RowMapper
 
     private static string[] RegimeCodes(string? codeRegime) =>
         string.IsNullOrWhiteSpace(codeRegime) ? Array.Empty<string>() : new[] { codeRegime!.Trim() };
+
+    /// <summary>
+    /// Jeton de ZONE d'un bordereau export, ou <c>null</c> si <c>code_export</c> est faux (cas nominal). Normalise
+    /// le mode de livraison legacy (« HORS CEE » / « CEE » / « FRANCE » / autre) en zone — transport d'une donnée
+    /// source (miroir de <see cref="NormalizeCountryCode"/>), JAMAIS une catégorie fiscale. La zone alimente la
+    /// clé de régime composite (F03 §2.8) ; c'est la table validée de la plateforme qui tranche la catégorie.
+    /// <list type="bullet">
+    ///   <item><c>HORSUE</c> — export hors UE (mode « HORS CEE ») → mappé `G`/0 % (262 I) si la table le couvre ;</item>
+    ///   <item><c>CEE</c> — livraison intra-UE (mode « CEE ») → fail-closed tant que la table ne le couvre pas ;</item>
+    ///   <item><c>FR</c> — zone indéterminée (mode « FRANCE »/absent ; franchise probable) → fail-closed.</item>
+    /// </list>
+    /// </summary>
+    private static string? ExportZone(EncheresV6Bordereau bordereau)
+    {
+        if (!bordereau.CodeExport)
+        {
+            return null;
+        }
+
+        string mode = (bordereau.ModeLivraison ?? string.Empty).Trim().ToUpperInvariant();
+        if (mode.IndexOf("HORS", StringComparison.Ordinal) >= 0)
+        {
+            return "HORSUE";
+        }
+
+        if (mode.IndexOf("CEE", StringComparison.Ordinal) >= 0)
+        {
+            return "CEE";
+        }
+
+        return "FR";
+    }
+
+    /// <summary>
+    /// Clé de régime COMPOSITE (RegimeKeyShape.Composite, F03 §2.8) : <c>code_regime</c> seul hors export, sinon
+    /// <c>{code_regime}_EXP_{zone}</c> (ex. <c>5_EXP_HORSUE</c>). La plateforme mappe cette clé via la table validée
+    /// — un régime composite non couvert BLOQUE (fail-closed), jamais deviné.
+    /// </summary>
+    private static string? ComposeRegimeKey(string? codeRegime, string? exportZone)
+    {
+        if (string.IsNullOrWhiteSpace(codeRegime) || exportZone is null)
+        {
+            return codeRegime;
+        }
+
+        return codeRegime!.Trim() + "_EXP_" + exportZone;
+    }
 
     private static string LineDescription(string? libelle, string fallback, string? noLignePv)
     {
@@ -524,6 +577,8 @@ internal static class EncheresV6RowMapper
         {
             no_ba = bordereau.NoBa,
             total_bordereau_brut = bordereau.TotalBordereau,
+            code_export_brut = bordereau.CodeExport,
+            mode_livraison_brut = bordereau.ModeLivraison,
         });
 
     private static string BuildBvDocumentSourceData(EncheresV6BordereauVendeur bordereau) =>

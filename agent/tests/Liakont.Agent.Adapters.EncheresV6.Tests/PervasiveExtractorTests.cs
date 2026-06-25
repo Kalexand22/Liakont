@@ -140,6 +140,8 @@ public class PervasiveExtractorTests
         [EncheresV6Schema.ColCodePostal] = "35000",
         [EncheresV6Schema.ColVille] = "Rennes",
         [EncheresV6Schema.ColCodePays] = "FR",
+        [EncheresV6Schema.ColCodeExport] = false,
+        [EncheresV6Schema.ColModeLivraison] = null,
         [EncheresV6Schema.ColTotalBordereau] = 2401.28d,
         [EncheresV6Schema.ColOriginNoBa] = null,
         [EncheresV6Schema.ColOriginDateVente] = null,

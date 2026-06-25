@@ -39,7 +39,7 @@ public sealed class EncheresV6FixtureExtractor : IExtractor
             hasDetailedLines: true,
             hasCreditNoteLink: true,
             exposesPayments: true,
-            regimeKeyShape: RegimeKeyShape.Simple,
+            regimeKeyShape: RegimeKeyShape.Composite,
             emitterIdentitySource: EmitterIdentitySource.FilledByPlatform,
             hasStoredHeaderTotal: true,
             isMutableAfterIssue: false,

@@ -391,6 +391,112 @@ autofacturation 389 sous mandat, nouveauté — cf. F15) ; elle ne fait pas l'ob
   l'adjudicataire → e-invoicing vs e-reporting, bordereau valant facture). *(Preuve d'appui métier, pas un texte
   fiscal primaire.)*
 
+### 2.8 Cartographie générique « régime fiscal → e-reporting B2C » (flux 10.3) — total / marge / export / intracom / franchise / caution — 🟧 PROPOSÉ (BUG-11)
+
+> ⚠️ **Statut : PROPOSITION d'ancrage ARCHITECTURAL, défauts défendables `[À CONFIRMER EC]` fail-closed.** §2.4/§2.5
+> (marge → `TMA1`) et §2.7 (prix total → `TLB1`) sourcent deux régimes. La présente section les **généralise** en
+> une **cartographie unique** *régime fiscal → catégorie de transaction `TT-81`*, étendue aux régimes **exonérés**
+> (export, intracommunautaire, franchise) et au **mécanisme de caution**. **Principe** : la plateforme mappe un
+> **régime fiscal GÉNÉRIQUE** fourni par l'adaptateur source — jamais un signal propre à un logiciel (généricité,
+> blueprint.md). Aucune TT-81/catégorie inventée (n°2) : chaque case renvoie à une source primaire ou est marquée
+> `[À CONFIRMER EC]` fail-closed (n°2/n°3).
+>
+> **Taxonomie cible (modèle autoritaire d'un système d'enchères de production).** Un système réel (VPAuto /
+> `open-auction`) classe chaque bordereau par un **groupe de TVA métier** dérivé de `pays acheteur + société/
+> particulier` : `ASS` (assujetti, prix total), `NASS` (non assujetti, marge), `INTRA` (intracommunautaire),
+> `EXP` (export hors UE), `EXO` (franchise) + variantes *caution*. C'est un **régime de premier rang**, pas une
+> heuristique. Liakont mappe cette taxonomie ; l'adaptateur la **fournit** (proprement pour un système qui la
+> porte ; **dérivée au mieux**, fail-closed, pour un legacy comme EncheresV6).
+
+**La réalité du flux 10.3 (Dossier général DGFiP v3.2 §3.7, vérifié sur pièce).** Toute opération **B2C** —
+domestique **comme internationale** — se transmet via le **bloc de données de transaction AGRÉGÉ (10.3)** (footnote
+118 : « Les opérations auprès de non-assujettis (B2C) doivent être transmises via le bloc de données de transaction
+(10.3) »). Le **10.1** (par-facture, **pays acheteur OBLIGATOIRE** TT-39) est réservé au **B2B international**. Le
+bloc 10.3 (`transaction.xsd` TG-31/TG-32) ne porte **NI catégorie UNCL5305, NI VATEX** — uniquement :
+`TT-77 Date · TT-78 Devise · TT-81 Catégorie de transaction · TT-82 HT · TT-83 TVA · TG-32{ TT-86 Taux · TT-87 Base · TT-88 TVA }`,
+agrégé **jour × devise × type de transaction (TT-81)**. **Conséquence majeure** : en e-reporting B2C, seuls **TT-81
++ taux + base** sont transmis ; **aucun pays acheteur requis**. Les catégories **UNCL5305 (S/G/K/E) et les VATEX**
+ne servent qu'(a) **en interne** au marquage/classification Liakont et (b) à la représentation **e-invoicing/
+Factur-X** (par ligne) — **jamais dans le flux 10.3**.
+
+**La cartographie (régime fiscal → UNCL5305 interne → `TT-81` → taux) :**
+
+| Régime fiscal (groupe TVA) | Mention légale | UNCL5305 (interne / e-invoicing) | **`TT-81` (flux 10.3)** | Taux | Statut |
+|---|---|---|---|---|---|
+| **Prix total** (`ASS`) | — | `S` (+ taux) | **`TLB1`** | plein | ✅ §2.7 |
+| **Marge** (`NASS`) | Art. 297-A | `E` + VATEX-EU-F/I/J | **`TMA1`** | 0 | ✅ §2.4/§2.5 |
+| **Export hors UE** (`EXP`) | Art. 262-1 | `G` + VATEX-EU-G | **`TLB1`** | 0 | ✅ sourcé (ci-dessous) |
+| **Intracommunautaire** (`INTRA`) | Art. 262 Ter-1 | `K` + VATEX-EU-IC | **`TNT1`** | 0 | 🟧 `[À CONFIRMER EC]` (OSS) |
+| **Franchise** (`EXO`) | Art. 275 | `E` (motif franchise) | **`[À CONFIRMER EC]`** | 0 | 🟧 résiduel ③ |
+| **Caution** (étape 1) | 262-1 / 262 Ter-1 | `S` (+ taux) | **`TLB1`** | **plein** | 🟧 cycle de vie, résiduel ④ |
+
+Rôle déclarant **`SE`** pour tous (G7.52 — l'OVV reporte ses ventes ; cf. §2.5 ⑤). Le marquage plateforme dérive
+la `TT-81` de la catégorie UNCL5305 interne (S→`TLB1`, E+VATEX marge→`TMA1`, `G`→`TLB1`@0, `K`→`TNT1`@0) — ce qui
+**lève §2.6** pour chaque cas sourcé ci-dessous. Chaque régime exonéré exige son **propre marquage** (le marquage
+taxable §2.7, `S` + `TotalTax>0`, n'attrape pas un exonéré à `TotalTax==0` ; ni le marquage marge `E`+VATEX-F/I/J) ;
+fail-closed (ni marge, ni taxable, ni exonéré reconnu → bloqué).
+
+**Export hors UE (`EXP`) → `TLB1` à 0 % — SOURCÉ.** La livraison de biens destinée à l'export reste **dans le champ**
+de la TVA française (« soumise », G1.68 `TLB1`), **exonérée avec droit à déduction** (CGI **art. 262 I** — « TVA
+récupérable ») : l'exonération annule la TVA **sans changer la nature** (livraison de biens) → `TLB1`, taux 0, base
+= prix total HT (§270, comme §2.7 mais TVA 0 ; commission acheteur exonérée comme accessoire — `montant_tva_frais=0`
+en source). UNCL5305 interne `G` + VATEX-EU-G, mention **Art. 262-1** (confirmé par le système de référence VPAuto).
+
+**Intracommunautaire (`INTRA`) → `TNT1` — 🟧 `[À CONFIRMER EC]`.** G1.68 nomme explicitement les **ventes à distance
+intracommunautaires (art. 258 A)** dans `TNT1` (« non soumises **en France** », taxées au pays de destination,
+guichet **OSS**). Mention **Art. 262 Ter-1**. Résiduel ② : la représentation OSS (taxe à destination) d'un VAD-IC
+B2C dépasse le simple `K` → catégorie/taux destination à confirmer ; **fail-closed**.
+
+**Franchise (`EXO`, art. 275) → 🟧 `[À CONFIRMER EC]`.** « Achat en franchise » (CGI **art. 275**) : l'acheteur
+achète **hors TVA** sous attestation/franchise (souvent en vue d'un export ultérieur — « acheteur en France qui
+exporte lui-même »). Opération **située en France** mais exonérée → distincte de l'export 262 I et de l'intracom
+262 ter. Sa `TT-81` (TLB1 à 0 ? autre ?) **et** son canal (B2B si l'acheteur est un assujetti à franchise, vs B2C)
+ne sont **pas tranchés** → **fail-closed** (résiduel ③). *(C'est très probablement le cas des bordereaux EncheresV6
+« `code_export=1` + `mode_livraison=FRANCE` » — 100132/100263 — à confirmer.)*
+
+**Caution de TVA (export/intracom en 2 temps) → 🟧 future, `[À CONFIRMER EC]`.** Un système de production peut, quand
+l'acheteur doit **prouver la sortie de territoire**, **encaisser la TVA en caution** (étape 1 : bordereau **taxable**
+au taux plein → e-reporting **`TLB1` taux plein**) puis, **preuve reçue**, émettre un **avoir** (remboursement) + un
+**bordereau final exonéré** (étape 2 → `TLB1`/`TNT1` à 0). L'e-reporting d'une caution = donc **une transaction
+taxable PUIS un correctif** (avoir + final exonéré), net TVA = 0 (résiduel ④). **Hors périmètre immédiat** : les 6
+exports EncheresV6 sont en **exonération DIRECTE** (0 % d'emblée, pas de caution) → cas simple. Le cycle
+caution/avoir est à traiter quand l'adaptateur source le porte (VPAuto, entité `CountryExit`).
+
+**Signal & dérivation du régime — par ADAPTATEUR (l'agent transporte le brut, aucune logique fiscale — n°6).**
+- **Système portant la taxonomie (VPAuto)** : le **groupe de TVA** est un champ de premier rang → mappé directement
+  (`EXP`→export, `INTRA`→intracom, `EXO`→franchise, `NASS`→marge, `ASS`→prix total).
+- **Legacy EncheresV6** : pas de groupe TVA structuré → régime **dérivé au mieux** de `code_regime_tva` (assujetti/
+  non) + `code_export` (LOGICAL, autoritaire pour « export-type » — corrélation parfaite 6/6 vérifiée) + zone via
+  `mode_livraison`/`code_pays`/`tva_cee`. **Zone ambiguë** (`mode_livraison=FRANCE` + `code_export=1` = franchise
+  probable) → **fail-closed** (jamais une TT-81 devinée).
+
+**Mécanique de clé composite (mapping).** Le mapping est clé `(code régime, part)`, **une règle par couple** (§4.1,
+TvaMapper) → un même `code_regime_tva` ne peut pas porter plusieurs traitements. La clé soumise au mapping devient
+donc **composite** (`5` domestique → `S`/plein ; `5_EXPORT` → `G`/0 ; etc.), alimentée par les champs source
+transportés. Le domestique `5 → S` reste inchangé (zéro régression). La catégorie/VATEX restent décidées par la
+**table validée** (plateforme), jamais par l'agent.
+
+**Résiduels `[À CONFIRMER EC]` (fail-closed) :** ① **zone** (hors UE/intra-UE/franchise) indéterminable depuis
+EncheresV6 quand `mode_livraison=FRANCE` ; ② **intracom OSS** (catégorie/taux destination d'un VAD-IC B2C au-delà de
+`K`) ; ③ **franchise 275** (TT-81 + canal B2B/B2C) ; ④ **caution** (cycle taxable→avoir→exonéré, e-reporting
+multi-étapes) ; ⑤ **preuve de sortie** (transportée, non vérifiée — charge à l'OVV) ; ⑥ **commission acheteur d'un
+exonéré** (ancrée exonérée, accessoire — à confirmer si prestation distincte).
+
+**Go/no-go (activation).** ✅ Déjà actifs : prix total (§2.7), marge (§2.4/§2.5). ✅ **Activable en build** : **export
+hors UE direct-exonéré → `TLB1` à 0** (sourcé 262 I / G1.68). 🟧 **Fail-closed** (reconnu, message juste, **non
+transmis**) : intracom OSS, franchise 275, caution, zone ambiguë. Figeage PROD subordonné à la levée du statut
+« proposition » par l'EC du tenant, comme §2.4/§2.5/§2.7.
+
+**Sources primaires :**
+- CGI **262 I** (export), **262 ter I** / **258 A** (intracom / VAD-IC), **275** (franchise), **297 A** (marge),
+  **256 V** (opaque, §2.7).
+- **DGFiP Dossier général v3.2 §3.7** (flux 10.x ; footnote 118 : B2C → 10.3 ; 10.1 = B2B international) ;
+  `transaction.xsd` **TG-31/TG-32** (10.3 sans UNCL5305/VATEX) ; **Annexe 7** **G1.68** (`TT-81`), **G7.52** (`SE`).
+- **F03 §2.1/§2.2** (UNCL5305 `G`/`K` + VATEX-EU-G/IC), **§2.4/§2.5** (marge/`TMA1`), **§2.7** (prix total/`TLB1`).
+- **Systèmes d'enchères** : EncheresV6 (`entete_ba.code_export` LOGICAL, `mode_livraison`, `Analyse-Donnees-V1-
+  Mapping-TVA.md`) ; **VPAuto / open-auction** (groupes TVA `ASS/NASS/INTRA/EXP/EXO`, mentions 297-A/262-1/262 Ter-1/
+  275, mécanisme de caution `CountryExit`) — **taxonomie cible**.
+
 ## 3. La subtilité métier (cœur du risque — cf. Analyse-Donnees §5)
 
 **On ne peut pas déduire mécaniquement le bon VATEX du seul code régime du logiciel.** Trois situations produisent une adjudication « sans TVA apparente » pour des raisons juridiques **différentes** :

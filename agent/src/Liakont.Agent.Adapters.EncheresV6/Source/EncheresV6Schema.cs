@@ -50,6 +50,8 @@ internal sealed class EncheresV6Schema
     internal const string ColCodePostal = "code_postal";
     internal const string ColVille = "ville";
     internal const string ColCodePays = "code_pays";
+    internal const string ColCodeExport = "code_export";
+    internal const string ColModeLivraison = "mode_livraison";
     internal const string ColTotalBordereau = "total_bordereau";
 
     // ── Lignes BA ───────────────────────────────────────────────────
@@ -157,6 +159,7 @@ internal sealed class EncheresV6Schema
         "SELECT e." + ColNoBa + ", e." + ColBordereauOuAvoir + ", e." + ColDateVente + ", e." + ColNoBaLettrage
         + ", e." + ColNom + ", e." + ColPrenom + ", e." + ColSociete + ", e." + ColAcheteurSiren + ", e." + ColTvaCee
         + ", e." + ColAdresse + ", e." + ColCodePostal + ", e." + ColVille + ", e." + ColCodePays
+        + ", e." + ColCodeExport + ", e." + ColModeLivraison
         + ", e." + ColTotalBordereau
         + ", o." + ColNoBa + " AS " + ColOriginNoBa + ", o." + ColDateVente + " AS " + ColOriginDateVente
         + ", l." + ColTypeLigne + ", l." + ColCodeLigne + ", l." + ColNoLignePv + ", l." + ColNoLigneToutPv + ", l." + ColLibelleLigne
