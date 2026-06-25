@@ -491,7 +491,9 @@ hors UE direct-exonéré → `TLB1` à 0** (sourcé 262 I / G1.68) — marquage 
 et **e-reporting UNITAIRE** (`B2cExportReportingTenantJob` : une transaction `TLB1`/`SE` au taux 0 PAR opération, base
 HT = adjudication + commission acheteur — jamais agrégé, à la différence du domestique). 🟧 **Fail-closed** (reconnu,
 message juste, **non transmis**) : intracom OSS, franchise 275, caution, zone ambiguë. Figeage PROD subordonné à la
-levée du statut « proposition » par l'EC du tenant, comme §2.4/§2.5/§2.7.
+levée du statut « proposition » par l'EC du tenant, comme §2.4/§2.5/§2.7. **Périmètre fail-closed VALIDÉ PO
+(2026-06-26)** : bloquer CEE (intracom) et FRANCE (franchise 275) tant que l'EC n'a pas tranché leur traitement
+est la décision de build retenue (jamais une TT-81 devinée — n°2/n°3) ; seul l'export hors UE 262 I est actif.
 
 **Sources primaires :**
 - CGI **262 I** (export), **262 ter I** / **258 A** (intracom / VAD-IC), **275** (franchise), **297 A** (marge),
