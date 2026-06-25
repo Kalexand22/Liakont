@@ -18,6 +18,12 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
 **Décisions Karl actées** :
 - **SIREN → facture B2B, JAMAIS e-reporting.** L'e-reporting B2C = **particuliers uniquement** (évidence — ne plus poser la question).
 - **BUG-4b** = « société porteuse » + l'opérateur global doit pouvoir paramétrer **FACILEMENT** des jobs sur **tous** les tenants (maintenance qui ne doit pas exploser avec le nb de clients).
+  **✅ LIVRÉ (25/06, commit `f4835c9b`)** : abstraction `ISystemScheduleHost` (société porteuse système = sentinel
+  plateforme ; `schedule.CompanyId` n'a aucun effet de portée au fan-out, juste une clé d'unicité/dé-dup). Un job
+  système est planifiable ET consultable par un opérateur plateforme (sans société courante) — UNE planification
+  couvre tous les tenants. Seeder dev unifié sur la même porteuse (anti double-exécution). Reste hors lot
+  (pré-existant) : filtrer les types de fan-out système hors du `<select>` pour un éventuel opérateur tenant
+  (aujourd'hui la page est super-admin only via `job.view`).
 
 **Ouverts / découverts cette nuit** :
 - **BUG-10-EXTRACTION (MAJEUR, NOUVEAU)** — voir en bas. Remplace l'ancien « BUG-10b ». Karl avait RAISON : le régime existe.
