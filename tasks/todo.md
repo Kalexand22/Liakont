@@ -150,3 +150,31 @@ fiscale. Calquée sur `/encaissements` + gabarit **DeclaredListPage** (jamais de
 - Reste (hors lot, lean) : provisioning 100 % automatisé
   (bloqué par modèle console-driven : tenants/secrets/clé agent en console par conception) ; flux factures
   clients + notes hono (#7) ; lot PDF GED ; envoi réel SuperPDP (décision Karl).
+
+---
+
+# BUG-5 — Détail des lignes au READ-TIME (rejeu mapping), états Bloqué / Prêt-à-envoyer (Option B)
+
+> Branche `fix/bug-5-lignes-readtime`. Le détail des lignes ne s'affichait qu'APRÈS transmission (projection
+> depuis le `payload_snapshot` de `document_events`). On veut les voir AVANT — c'est là qu'on diagnostique un
+> blocage. Approche read-time replay : relire le pivot SOURCE stagé + rejouer le MÊME moteur de mapping.
+
+## Plan
+- [x] **Pipeline.Contracts** : `IDocumentContentReplayService.ReplayAsync(documentId, ct)` → `DocumentContentReplay`
+  (`{ PivotDocumentDto? MappedPivot; bool Available }`). Tenant-scopé (résolu par la requête). Retourne le pivot
+  ENRICHI si le mapping passe, le pivot SOURCE si le mapping bloque (catégorie/VATEX vides = diagnostic factuel),
+  ou `Available=false` si staging absent/intègre KO (purgé après émission) → fallback Host snapshot.
+- [x] **Pipeline.Infrastructure** : `DocumentContentReplayService` (sibling de `DocumentRecheckService`) : lit
+  `IPayloadStagingStore.ReadAsync(StagedPayloadKey(tenantId, documentId, payloadHash))` + `PivotCanonicalJsonReader`
+  → `CheckTvaMapping.BuildPlan` + `ITvaMappingService.MapAsync(companyId, …)` + `CheckTvaMapping.Evaluate`. Ready →
+  `EnrichedDocument` ; Blocked → pivot source. Aucune valeur inventée (P1 n°2). DI dans `PipelineModuleRegistration`.
+- [x] **Host** : `DocumentLineProjection.FromPivot(PivotDocumentDto)` (corps partagé extrait de `FromTransmittedSnapshot`).
+  `DocumentDetailConsoleQueryService` PRIORISE le snapshot transmis (vérité d'audit, doc émis/refusé) puis, EN
+  L'ABSENCE de snapshot (non transmis), consomme le replay → `FromPivot` (correctif review P2 round 1).
+- [x] **Razor** : placeholder ajusté (« dès que lu et contrôlé »), ne subsiste qu'en l'absence RÉELLE de lignes
+  (`Content.HasLines`). Le tableau existant est réutilisé tel quel.
+- [x] **Tests** : bUnit (doc Bloqué AVEC lignes + régime source, catégorie/VATEX vides ; préséance snapshot ;
+  robustesse rejeu) ; intégration Pipeline (replay : Ready → catégorie S/taux posés, Blocked → régime source sans
+  catégorie, staging absent → Available=false, doc inconnu → Unavailable).
+- [x] verify-fast (3 sols) PASS + Release/StyleCop PASS + run-tests 6854 PASS + codex-review (r1 1 P2 préséance
+  snapshot → r2 1 P2 OCE avalée → r3 CLEAN). Push `fix/bug-5-lignes-readtime`.
