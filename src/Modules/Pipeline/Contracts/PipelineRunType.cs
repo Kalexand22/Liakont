@@ -27,4 +27,7 @@ public enum PipelineRunType
 
     /// <summary>E-reporting B2C au régime du prix total taxable (flux 10.3, enchères, TLB1) : agrégation N→1 jour×devise×taux + transmission PA (BUG-8).</summary>
     B2cTaxableAggregate = 6,
+
+    /// <summary>E-reporting B2C d'export hors UE détaxé (flux 10.3, enchères, TLB1 UNITAIRE, art. 262 I) : une transaction par opération + transmission PA (BUG-11).</summary>
+    B2cExportReporting = 7,
 }

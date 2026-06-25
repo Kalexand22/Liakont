@@ -21,6 +21,16 @@
 // marqueur de déclaration B2C-marge est DÉRIVÉ par la plateforme depuis cette catégorie E+VATEX (jamais
 // posé par l'agent, jamais depuis une heuristique « TVA=0 ») — voir B2cMarginMarking.IsMarginDeclaration.
 //
+// EXPORT HORS UE (clés COMPOSITES « {régime}_EXP_HORSUE », F03 §2.8) : un lot livré HORS CEE est un export
+// détaxé (art. 262 I) QUEL QUE SOIT le régime domestique sous-jacent — l'agent compose la clé depuis
+// code_export + mode_livraison (RegimeKeyShape.Composite). On mappe les régimes RÉELLEMENT présents en HORS
+// CEE dans la base (2, 5, 6) -> catégorie G (export hors UE détaxé) + VATEX-EU-G, taux 0. La plateforme en
+// DÉRIVE le marqueur d'export (B2cExportMarking) et l'émet en e-reporting B2C UNITAIRE (TLB1, taux 0,
+// B2cExportReportingTenantJob), à la différence de la marge/prix total domestiques (agrégés). Les zones
+// « {régime}_EXP_CEE » (livraison intracom, 262 ter / 258 A) et « {régime}_EXP_FR » (franchise art. 275)
+// restent VOLONTAIREMENT NON mappées -> CHECK BLOQUE : leur traitement fiscal n'est pas tranché par
+// l'expert-comptable (F03 §2.8 « [À CONFIRMER EC] »), jamais deviné (CLAUDE.md n°2/3).
+//
 // Données STRICTEMENT FICTIVES (base de démo, CLAUDE.md n°7) : aucun client réel. Table NON VALIDÉE
 // (validatedBy marqueur + validatedDate null) : le garde-fou d'envoi (PIP01) refuse tout envoi RÉEL tant
 // que l'expert-comptable ne l'a pas validée dans la console. Import idempotent (jamais d'écrasement).
@@ -48,6 +58,36 @@
       "rateMode": "Fixed",
       "rateValue": 0,
       "note": "Déclencheur du régime de la marge (décision Karl, F03 §2.3/§3) : adjudication EXONÉRÉE, la TVA porte sur la marge (honoraires acheteur + vendeur TTC), jamais distincte (art. 297 E)."
+    },
+    {
+      "sourceRegimeCode": "2_EXP_HORSUE",
+      "label": "Régime 2 « Non assujetti 19,6 % » livré HORS CEE — export hors UE détaxé (art. 262 I)",
+      "part": "Autre",
+      "category": "G",
+      "vatex": "VATEX-EU-G",
+      "rateMode": "Fixed",
+      "rateValue": 0,
+      "note": "Export hors UE (clé composite, F03 §2.8) : exonéré art. 262 I quel que soit le régime domestique. E-reporting B2C UNITAIRE (TLB1, taux 0)."
+    },
+    {
+      "sourceRegimeCode": "5_EXP_HORSUE",
+      "label": "Régime 5 « Assujetti 20 % » livré HORS CEE — export hors UE détaxé (art. 262 I)",
+      "part": "Autre",
+      "category": "G",
+      "vatex": "VATEX-EU-G",
+      "rateMode": "Fixed",
+      "rateValue": 0,
+      "note": "Export hors UE (clé composite, F03 §2.8) : exonéré art. 262 I quel que soit le régime domestique. E-reporting B2C UNITAIRE (TLB1, taux 0)."
+    },
+    {
+      "sourceRegimeCode": "6_EXP_HORSUE",
+      "label": "Régime 6 « Non assujetti 20 % » livré HORS CEE — export hors UE détaxé (art. 262 I)",
+      "part": "Autre",
+      "category": "G",
+      "vatex": "VATEX-EU-G",
+      "rateMode": "Fixed",
+      "rateValue": 0,
+      "note": "Export hors UE (clé composite, F03 §2.8) : exonéré art. 262 I quel que soit le régime domestique (la marge ne s'applique pas à un export exonéré). E-reporting B2C UNITAIRE (TLB1, taux 0)."
     }
   ]
 }

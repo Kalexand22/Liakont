@@ -391,7 +391,7 @@ autofacturation 389 sous mandat, nouveauté — cf. F15) ; elle ne fait pas l'ob
   l'adjudicataire → e-invoicing vs e-reporting, bordereau valant facture). *(Preuve d'appui métier, pas un texte
   fiscal primaire.)*
 
-### 2.8 Cartographie générique « régime fiscal → e-reporting B2C » (flux 10.3) — total / marge / export / intracom / franchise / caution — 🟧 PROPOSÉ (BUG-11)
+### 2.8 Cartographie générique « régime fiscal → e-reporting B2C » (flux 10.3) — total / marge / export / intracom / franchise / caution — 🟧 PROPOSÉ ; ✅ export hors UE IMPLÉMENTÉ (BUG-11)
 
 > ⚠️ **Statut : PROPOSITION d'ancrage ARCHITECTURAL, défauts défendables `[À CONFIRMER EC]` fail-closed.** §2.4/§2.5
 > (marge → `TMA1`) et §2.7 (prix total → `TLB1`) sourcent deux régimes. La présente section les **généralise** en
@@ -472,9 +472,12 @@ caution/avoir est à traiter quand l'adaptateur source le porte (VPAuto, entité
 
 **Mécanique de clé composite (mapping).** Le mapping est clé `(code régime, part)`, **une règle par couple** (§4.1,
 TvaMapper) → un même `code_regime_tva` ne peut pas porter plusieurs traitements. La clé soumise au mapping devient
-donc **composite** (`5` domestique → `S`/plein ; `5_EXPORT` → `G`/0 ; etc.), alimentée par les champs source
-transportés. Le domestique `5 → S` reste inchangé (zéro régression). La catégorie/VATEX restent décidées par la
-**table validée** (plateforme), jamais par l'agent.
+donc **composite** avec la **zone** (`5` domestique → `S`/plein ; `5_EXP_HORSUE` → `G`/0 ; `5_EXP_CEE`/`5_EXP_FR`
+non mappés → fail-closed ; etc.), alimentée par les champs source transportés (`code_export` + `mode_livraison`,
+`RegimeKeyShape.Composite`). Le domestique `5 → S` reste inchangé (zéro régression). La catégorie/VATEX restent
+décidées par la **table validée** (plateforme), jamais par l'agent. **L'export hors UE étant exonéré quel que soit
+le régime domestique sous-jacent** (262 I prime), la table mappe `{2,5,6}_EXP_HORSUE → G/0` (les régimes présents
+en HORS CEE dans EncheresV6_Demo).
 
 **Résiduels `[À CONFIRMER EC]` (fail-closed) :** ① **zone** (hors UE/intra-UE/franchise) indéterminable depuis
 EncheresV6 quand `mode_livraison=FRANCE` ; ② **intracom OSS** (catégorie/taux destination d'un VAD-IC B2C au-delà de
@@ -482,10 +485,13 @@ EncheresV6 quand `mode_livraison=FRANCE` ; ② **intracom OSS** (catégorie/taux
 multi-étapes) ; ⑤ **preuve de sortie** (transportée, non vérifiée — charge à l'OVV) ; ⑥ **commission acheteur d'un
 exonéré** (ancrée exonérée, accessoire — à confirmer si prestation distincte).
 
-**Go/no-go (activation).** ✅ Déjà actifs : prix total (§2.7), marge (§2.4/§2.5). ✅ **Activable en build** : **export
-hors UE direct-exonéré → `TLB1` à 0** (sourcé 262 I / G1.68). 🟧 **Fail-closed** (reconnu, message juste, **non
-transmis**) : intracom OSS, franchise 275, caution, zone ambiguë. Figeage PROD subordonné à la levée du statut
-« proposition » par l'EC du tenant, comme §2.4/§2.5/§2.7.
+**Go/no-go (activation).** ✅ Déjà actifs : prix total (§2.7), marge (§2.4/§2.5). ✅ **IMPLÉMENTÉ (BUG-11)** : **export
+hors UE direct-exonéré → `TLB1` à 0** (sourcé 262 I / G1.68) — marquage plateforme `B2cExportMarking` (toutes lignes
+`G` + `TotalTax==0` + B2C + frais), aiguillage `B2cExportDeclaration` (exclu de la marge par `!IsExportDeclaration`),
+et **e-reporting UNITAIRE** (`B2cExportReportingTenantJob` : une transaction `TLB1`/`SE` au taux 0 PAR opération, base
+HT = adjudication + commission acheteur — jamais agrégé, à la différence du domestique). 🟧 **Fail-closed** (reconnu,
+message juste, **non transmis**) : intracom OSS, franchise 275, caution, zone ambiguë. Figeage PROD subordonné à la
+levée du statut « proposition » par l'EC du tenant, comme §2.4/§2.5/§2.7.
 
 **Sources primaires :**
 - CGI **262 I** (export), **262 ter I** / **258 A** (intracom / VAD-IC), **275** (franchise), **297 A** (marge),

@@ -97,6 +97,10 @@ public static class B2cMarginMarking
     /// pré-filtre du job agrégé B4.
     /// <para>Un document TAXABLE (TVA distincte &gt; 0) n'est PAS visé : il s'émet par sa voie nominale ; la
     /// représentation de sa commission en ligne taxable relève de l'adaptateur source, hors de ce maillon.</para>
+    /// <para>Un EXPORT HORS UE détaxé (catégorie <c>G</c>, art. 262 I — <see cref="B2cExportMarking"/>) partage la
+    /// forme « frais + TotalTax == 0 » de la marge MAIS est RECONNU (classé export, déféré vers le job unitaire) :
+    /// il est EXCLU ici, sinon un export valide serait faussement bloqué « marge non classée ». Exclusion
+    /// symétrique à celle de <see cref="B2cMarginDeclaration.Matches"/>.</para>
     /// </summary>
     /// <param name="enrichedPivot">Le pivot enrichi par le mapping TVA (lignes portant catégorie/VATEX).</param>
     /// <returns><c>true</c> si le document a la forme d'une marge mais n'est pas classé marge (à bloquer).</returns>
@@ -108,7 +112,10 @@ public static class B2cMarginMarking
         }
 
         bool hasFees = ((enrichedPivot.SellerFees?.Count ?? 0) > 0) || ((enrichedPivot.BuyerFees?.Count ?? 0) > 0);
-        return hasFees && enrichedPivot.Totals.TotalTax == 0m && !IsMarginDeclaration(enrichedPivot);
+        return hasFees
+            && enrichedPivot.Totals.TotalTax == 0m
+            && !IsMarginDeclaration(enrichedPivot)
+            && !B2cExportMarking.IsExportDeclaration(enrichedPivot);
     }
 
     /// <summary>

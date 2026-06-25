@@ -53,6 +53,10 @@ internal static class PipelineSystemJobHandlers
         services.AddJobHandler<AggregateB2cTaxableAllTrigger, AggregateB2cTaxableAllFanOutHandler>(
             "E-reporting B2C au régime du prix total (tous les tenants)");
 
+        // E-REPORTING B2C EXPORT HORS UE (BUG-11, flux 10.3) : une transaction UNITAIRE par opération + transmission PA (TLB1/SE, taux 0).
+        services.AddJobHandler<AggregateB2cExportAllTrigger, AggregateB2cExportAllFanOutHandler>(
+            "E-reporting B2C export hors UE (tous les tenants)");
+
         return services;
     }
 }

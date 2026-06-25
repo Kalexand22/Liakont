@@ -126,12 +126,16 @@ internal static class CheckTvaMapping
         // heuristique (F03 §3 : jamais déduit du code source). Posé sur l'enrichi (jamais porté par l'agent ni
         // persisté — pattern émetteur/TVA) : SEND (ReadStagedPivotAsync) et les jobs agrégés (B4) obtiennent le
         // pivot marqué via CETTE évaluation, et B2cAggregatedDeclaration.Matches l'aiguille hors voie document.
-        // DEUX cas symétriques (même flux 10.3, même canal acheteur particulier), mutuellement exclusifs par
-        // TotalTax (== 0 marge / > 0 prix total) : MARGE (B2cMarginMarking, TMA1) et PRIX TOTAL TAXABLE
-        // (B2cTaxableMarking, TLB1, F03 §2.7). Critère sourcé : voir chaque marquage. Idempotent (re-CHECK
-        // redérive le même résultat). Fail-closed : un document ni marge ni taxable n'est jamais marqué.
+        // TROIS cas symétriques (même flux 10.3, même canal acheteur particulier) : MARGE (B2cMarginMarking,
+        // TMA1, TotalTax == 0), PRIX TOTAL TAXABLE (B2cTaxableMarking, TLB1, TotalTax > 0, F03 §2.7) et EXPORT
+        // HORS UE détaxé (B2cExportMarking, TLB1 unitaire, TotalTax == 0 + catégorie G, art. 262 I, F03 §2.8).
+        // Marge et export partagent TotalTax == 0 : ils se distinguent par la catégorie de ligne (E vs G), d'où
+        // un marquage dédié pour chacun. Critère sourcé : voir chaque marquage. Idempotent (re-CHECK redérive le
+        // même résultat). Fail-closed : un document ni marge ni taxable ni export n'est jamais marqué.
         if (!enriched.IsB2cReportingDeclaration
-            && (B2cMarginMarking.IsMarginDeclaration(enriched) || B2cTaxableMarking.IsTaxableB2cDeclaration(enriched)))
+            && (B2cMarginMarking.IsMarginDeclaration(enriched)
+                || B2cTaxableMarking.IsTaxableB2cDeclaration(enriched)
+                || B2cExportMarking.IsExportDeclaration(enriched)))
         {
             enriched = Rebuild(pivot, enrichedLines, isB2cReportingDeclaration: true);
         }

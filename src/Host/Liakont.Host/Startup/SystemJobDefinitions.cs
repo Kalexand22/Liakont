@@ -84,6 +84,12 @@ internal static class SystemJobDefinitions
             Label: "E-reporting B2C au régime du prix total taxable, agrégation jour×devise×taux + transmission (TLB1, BUG-8)",
             Class: SystemJobClass.DeploymentCadence),
         new SystemJobDefinition(
+            JobType: typeof(AggregateB2cExportAllTrigger).FullName!,
+            ScheduleName: "E-reporting B2C export hors UE (tous les tenants)",
+            CronExpression: null,
+            Label: "E-reporting B2C export hors UE détaxé, une transaction par opération + transmission (TLB1 unitaire, art. 262 I, BUG-11)",
+            Class: SystemJobClass.DeploymentCadence),
+        new SystemJobDefinition(
             JobType: typeof(ReconciliationFanOutJobPayload).FullName!,
             ScheduleName: "Rapprochement des PDF (réconciliation)",
             CronExpression: null,

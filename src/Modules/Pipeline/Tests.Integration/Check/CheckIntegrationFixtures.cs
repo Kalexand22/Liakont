@@ -221,6 +221,37 @@ internal static class CheckIntegrationFixtures
             buyerFees: new[] { new PivotBuyerFeeDto("lot-7", 60.00m, regimeCode, "ba#1") });
     }
 
+    /// <summary>
+    /// Construit un bordereau d'enchères d'EXPORT HORS UE (BUG-11) tel que la SOURCE le produit : l'adjudication
+    /// porte la clé de régime COMPOSITE « {régime}_EXP_HORSUE » (l'agent combine code_export + mode_livraison),
+    /// mappée G + VATEX-EU-G (détaxé, art. 262 I) par la table validée du harnais → la plateforme DÉRIVE l'export
+    /// (B2cExportMarking). Adjudication détaxée (AUCUNE TVA distincte, <c>Totals.TotalTax = 0</c>), commission
+    /// acheteur exonérée elle aussi (montant TTC = HT, le code source ne porte aucune TVA de frais sur un export —
+    /// F03 §2.8). Acheteur anonyme (B2C particulier). Valeurs fictives (CLAUDE.md n°7).
+    /// </summary>
+    public static PivotDocumentDto BuildExportAuctionWithFees(string sourceReference, string regimeCode = "EXPORT_HORSUE")
+    {
+        var adjudication = new PivotLineDto(
+            description: "Adjudication lot (export hors UE — détaxé, art. 262 I)",
+            netAmount: 120.00m,
+            quantity: 1m,
+            unitPriceNet: 120.00m,
+            sourceRegimeCodes: new[] { regimeCode },
+            taxes: new[] { new PivotLineTaxDto(0.00m, 0m) },
+            sourceLineRef: "ligne#1");
+
+        return new PivotDocumentDto(
+            sourceDocumentKind: "F",
+            number: "BAX-2026-" + ((uint)sourceReference.GetHashCode(StringComparison.Ordinal)).ToString("D10", CultureInfo.InvariantCulture),
+            issueDate: new DateTime(2026, 1, 20),
+            sourceReference: sourceReference,
+            supplier: new PivotPartyDto("Étude Fictïve SVV"),
+            totals: new PivotTotalsDto(120.00m, 0.00m, 120.00m, 120.00m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            lines: new[] { adjudication },
+            buyerFees: new[] { new PivotBuyerFeeDto("lot-7", 60.00m, regimeCode, "ba#1") });
+    }
+
     public static IntegrationEvent<DocumentReceivedV1> Event(Guid documentId, string sourceReference, string payloadHash)
     {
         var payload = new DocumentReceivedV1

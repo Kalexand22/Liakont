@@ -1,5 +1,14 @@
 # Plan — e-reporting B2C EXPORT unitaire (BUG-11, suite du checkpoint `2dca6291`)
 
+> ✅ **LIVRÉ.** Lot plateforme complet : `B2cExportMarking` + `B2cExportDeclaration` + `B2cExportBaseCalculator`
+> (Domain, purs) ; `B2cExportReportingTenantJob` (unitaire TLB1 taux 0) + fan-out + `PipelineRunType.B2cExportReporting`
+> + `SystemJobDefinitions` ; CHECK marque l'export, `B2cMarginDeclaration`/`LooksLikeUnclassifiedMargin` l'excluent ;
+> seed `{2,5,6}_EXP_HORSUE → G/0/VATEX-EU-G` (volontaire + judiciaire), CEE/FR fail-closed ; F03 §2.8 statut MAJ.
+> Découverte data : `code_export=1` couvre les régimes 2/5/6/7 sur 3 zones (HORS CEE/CEE/FRANCE) ; `montant_tva_frais=0`
+> sur tous les exports (base HT = somme directe correcte). Vérif : Release 0 warning ; 224 unit + 80 intégration
+> Pipeline + 60 Host + 2 composition verts ; review ciblée « No findings ». **CEE (intracom) et FRANCE (franchise 275)
+> restent volontairement non mappés/bloqués → à trancher EC (hors lot).**
+
 > **Sourçage + décisions FAITS** (F03 §2.8 + conversation) : export = **e-reporting B2C UNITAIRE**
 > (une transaction par opération, PAS agrégé comme le domestique), TT-81 = **TLB1** au **taux 0**,
 > base HT (adjudication + commission acheteur), réutilise `B2cReportingEmitter` (anti-doublon par doc).

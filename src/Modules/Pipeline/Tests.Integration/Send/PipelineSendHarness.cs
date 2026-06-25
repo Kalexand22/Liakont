@@ -260,6 +260,14 @@ public sealed class PipelineSendHarness : IAsyncLifetime
         await job.ExecuteAsync(new Stratum.Common.Abstractions.Jobs.TenantJobContext(TenantSlug, scope.ServiceProvider));
     }
 
+    /// <summary>Exécute le job e-reporting B2C d'export hors UE (TLB1 unitaire, BUG-11) pour le tenant.</summary>
+    public async Task RunB2cExportAsync()
+    {
+        await using var scope = _provider!.CreateAsyncScope();
+        var job = new Liakont.Modules.Pipeline.Infrastructure.B2cReporting.B2cExportReportingTenantJob(PipelineRunTrigger.Scheduled);
+        await job.ExecuteAsync(new Stratum.Common.Abstractions.Jobs.TenantJobContext(TenantSlug, scope.ServiceProvider));
+    }
+
     /// <summary>
     /// Entrées du journal d'émission B2C marge (<c>pipeline.b2c_margin_emissions</c>) pour un document, dans
     /// l'ordre d'insertion (seq). Prouve l'attempt-once (Pending écrit avant le POST) et l'issue (Issued + id PA).
@@ -502,13 +510,28 @@ public sealed class PipelineSendHarness : IAsyncLifetime
             RateValue = 0m,
         };
 
+        // Règle PART AUTRE pour l'EXPORT HORS UE (BUG-11 — marquage 10.3) : l'adjudication d'un lot livré hors UE
+        // est détaxée, mappée G + VATEX-EU-G (art. 262 I, F03 §2.8) sur la clé COMPOSITE « {régime}_EXP_HORSUE »
+        // produite par l'agent. C'est le signal VALIDÉ qui permet à la plateforme de DÉRIVER l'export
+        // (B2cExportMarking) et de l'émettre en e-reporting B2C UNITAIRE (TLB1, taux 0). Clé (EXPORT_HORSUE, Autre).
+        var exportAdjudicationRule = new MappingRule
+        {
+            SourceRegimeCode = "EXPORT_HORSUE",
+            Label = "Export hors UE détaxé (art. 262 I)",
+            Part = MappingPart.Autre,
+            Category = VatCategory.G,
+            Vatex = "VATEX-EU-G",
+            RateMode = RateMode.Fixed,
+            RateValue = 0m,
+        };
+
         var table = MappingTable.Create(
             CompanyId,
             MappingVersion,
             "Expert-comptable CMP",
             new DateOnly(2026, 7, 15),
             MappingDefaultBehavior.Block,
-            new[] { rule, feeRule, marginAdjudicationRule });
+            new[] { rule, feeRule, marginAdjudicationRule, exportAdjudicationRule });
 
         await using var scope = _provider!.CreateAsyncScope();
         var factory = scope.ServiceProvider.GetRequiredService<ITvaMappingUnitOfWorkFactory>();
