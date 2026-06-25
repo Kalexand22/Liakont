@@ -62,6 +62,23 @@ public static class DocumentLineProjection
             return DocumentContentView.Empty;
         }
 
+        return FromPivot(pivot);
+    }
+
+    /// <summary>
+    /// Construit le contenu affichable depuis un pivot DÉJÀ désérialisé (BUG-5) : le pivot relu/mappé au read-time
+    /// (enrichi par le mapping si le document est lu/contrôlé, source si le mapping bloque — régime lu,
+    /// catégorie/VATEX vides). Même projection PURE que <see cref="FromTransmittedSnapshot"/> : aucune règle
+    /// métier, aucun montant recalculé. <c>null</c> → contenu vide (la vue bascule sur sa note).
+    /// </summary>
+    /// <param name="pivot">Le pivot à projeter (relu/mappé), ou <c>null</c> si indisponible.</param>
+    public static DocumentContentView FromPivot(PivotDocumentDto? pivot)
+    {
+        if (pivot is null)
+        {
+            return DocumentContentView.Empty;
+        }
+
         return new DocumentContentView
         {
             Lines = pivot.Lines.Select(ToView).ToList(),

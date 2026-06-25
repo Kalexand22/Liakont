@@ -54,6 +54,11 @@ public static class PipelineModuleRegistration
         // est résolu par la requête HTTP, ITenantContext) — IServiceProvider injecté est celui du scope courant.
         services.AddScoped<Contracts.IDocumentRecheckService, DocumentRecheckService>();
 
+        // BUG-5 — REJEU read-time du contenu d'un document (détail ligne à ligne AVANT transmission) : relit le
+        // pivot source stagé + rejoue le mapping via la même source unique (CheckTvaMapping) pour exposer les
+        // lignes + catégorie/VATEX/taux dès les états Bloqué / Prêt-à-envoyer. Scopé requête (tenant résolu).
+        services.AddScoped<Contracts.IDocumentContentReplayService, DocumentContentReplayService>();
+
         // PIP03a — AGRÉGATION DE PAIEMENT : projection jour×taux (lue par GET /payments + page Encaissements).
         services.AddScoped<IPaymentAggregationStore, PostgresPaymentAggregationStore>();
 

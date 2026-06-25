@@ -166,13 +166,16 @@
                 }
                 else
                 {
-                    @* Document pas encore transmis : aucun pivot mappé n'est exposé — on n'affiche AUCUNE ligne
-                     * inventée. L'en-tête et les totaux résument le document tel que lu ; le détail complet
-                     * apparaîtra ici une fois le document transmis (et reste dans le dossier d'export, onglet Archive). *@
+                    @* Aucune ligne RÉELLEMENT disponible (contenu source indisponible ET aucun pivot transmis) :
+                     * on n'affiche AUCUNE ligne inventée. Le détail ligne à ligne s'affiche normalement dès que le
+                     * document est lu/contrôlé (BUG-5 : rejeu read-time du pivot source) — états Bloqué / Prêt-à-
+                     * envoyer inclus. L'en-tête et les totaux résument le document tel que lu ; le contenu complet
+                     * reste dans le dossier d'export, onglet Archive. *@
                     <p class="liakont-doc-detail__hint" data-testid="document-detail-lines-empty">
-                        Le détail ligne à ligne s'affichera ici une fois le document transmis à la Plateforme Agréée.
-                        En attendant, l'en-tête et les totaux ci-dessus résument le document tel que lu ; le contenu
-                        complet est inclus dans le dossier d'export pour contrôle fiscal (onglet Archive).
+                        Le détail ligne à ligne s'affiche dès que le document est lu et contrôlé. Il n'est pas
+                        disponible pour ce document pour le moment ; l'en-tête et les totaux ci-dessus résument le
+                        document tel que lu, et le contenu complet est inclus dans le dossier d'export pour contrôle
+                        fiscal (onglet Archive).
                     </p>
                 }
             </SectionCard>

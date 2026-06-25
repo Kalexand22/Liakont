@@ -153,6 +153,18 @@ public sealed class PipelineCheckHarness : IAsyncLifetime
         return await queries.GetRecentRunsAsync(200);
     }
 
+    /// <summary>
+    /// Rejeu read-time du contenu d'un document (BUG-5, <see cref="IDocumentContentReplayService"/>) dans un scope
+    /// résolu sur le tenant de test — le chemin EXACT consommé par la console pour afficher les lignes avant
+    /// transmission.
+    /// </summary>
+    public async Task<DocumentContentReplay> ReplayContentAsync(Guid documentId)
+    {
+        await using var scope = _provider!.CreateAsyncScope();
+        var replay = scope.ServiceProvider.GetRequiredService<IDocumentContentReplayService>();
+        return await replay.ReplayAsync(documentId);
+    }
+
     private ServiceProvider BuildProvider()
     {
         _stagingRoot = Path.Combine(Path.GetTempPath(), "liakont-pip01b-" + CompanyId.ToString("N"));
@@ -173,6 +185,11 @@ public sealed class PipelineCheckHarness : IAsyncLifetime
         services.AddSingleton<IConnectionFactory>(new NpgsqlConnectionFactory(databaseOptions));
         services.AddSingleton<ITenantConnectionFactory>(new SingleDatabaseConnectionFactory(ConnectionString));
         services.AddSingleton(TimeProvider.System);
+
+        // Contexte tenant résolu sur le slug de la base de test (BUG-5 : le rejeu read-time lit le pivot stagé
+        // via une clé tenant-scopée). La base unique EST le tenant — le slug fixe suffit.
+        services.AddSingleton<ITenantContext>(new FixedTenantContext(TenantSlug));
+
         services.AddDataProtection();
 
         services.AddDocumentsModule();
@@ -289,6 +306,16 @@ public sealed class PipelineCheckHarness : IAsyncLifetime
             await connection.OpenAsync(cancellationToken);
             return connection;
         }
+    }
+
+    /// <summary>Contexte tenant fixe (la base de test EST le tenant — le slug est constant).</summary>
+    private sealed class FixedTenantContext : ITenantContext
+    {
+        public FixedTenantContext(string tenantId) => TenantId = tenantId;
+
+        public string? TenantId { get; }
+
+        public bool IsResolved => !string.IsNullOrWhiteSpace(TenantId);
     }
 
     private sealed class ProviderTenantScopeFactory : ITenantScopeFactory

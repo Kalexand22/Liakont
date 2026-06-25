@@ -81,9 +81,40 @@ public sealed class DocumentDetailViewTests : BunitContext
     }
 
     [Fact]
-    public void Should_Show_Lines_Note_When_Document_Not_Yet_Transmitted()
+    public void Should_Render_Lines_With_Source_Regime_For_A_Blocked_Document_Even_Without_Mapping()
     {
-        // Document non transmis (contenu vide : aucun pivot mappé exposé) : pas de tableau, une note honnête — jamais de ligne inventée.
+        // BUG-5 : un document BLOQUÉ (mapping non abouti) montre tout de même ses lignes — projetées au read-time
+        // depuis le pivot SOURCE relu — avec le RÉGIME SOURCE lu mais une catégorie/un VATEX VIDES (« — »).
+        // C'est le diagnostic FACTUEL du blocage (on voit ce qui a été lu et que la classification n'a pas abouti),
+        // jamais une catégorie inventée. Légitime pour un Bloqué (≠ Prêt-à-envoyer où le mapping a réussi).
+        var lines = new[]
+        {
+            Line("Adjudication lot 12", netAmount: 500m, category: "—", sourceRegime: "6", vatex: "—", taxAmount: null, rate: null),
+        };
+        var model = BuildModel(doc: Doc("2026-014", "Blocked"), content: Content(lines, totals: Check()));
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        // Les lignes sont visibles dès l'état Bloqué — pas la note d'absence.
+        cut.FindAll("[data-testid='document-detail-lines']").Should().ContainSingle();
+        cut.FindAll("[data-testid='document-detail-line']").Should().ContainSingle();
+        cut.FindAll("[data-testid='document-detail-lines-empty']").Should().BeEmpty();
+
+        var table = cut.Find("[data-testid='document-detail-lines']").TextContent;
+        table.Should().Contain("Adjudication lot 12").And.Contain("500,00")
+            .And.Contain("6", "le régime source lu est restitué pour diagnostiquer le blocage");
+
+        // Aucune catégorie/VATEX inventés : la cellule reste « — » (le mapping n'a pas abouti).
+        var cells = cut.FindAll("[data-testid='document-detail-line'] td");
+        cells[4].TextContent.Trim().Should().Be("—", "catégorie TVA vide tant que le mapping n'a pas abouti");
+        cells[5].TextContent.Trim().Should().Be("—", "VATEX vide tant que le mapping n'a pas abouti");
+    }
+
+    [Fact]
+    public void Should_Show_Lines_Note_When_No_Lines_Are_Available()
+    {
+        // Aucune ligne RÉELLEMENT disponible (contenu source indisponible ET aucun pivot transmis) : pas de
+        // tableau, une note honnête — jamais de ligne inventée. (Le cas nominal, lui, montre les lignes au read-time.)
         var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(doc: Doc("2026-011", "Blocked"))));
 
         cut.FindAll("[data-testid='document-detail-lines-empty']").Should().ContainSingle();

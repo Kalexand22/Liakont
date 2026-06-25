@@ -1,0 +1,35 @@
+namespace Liakont.Modules.Pipeline.Contracts;
+
+using Liakont.Agent.Contracts.Pivot;
+
+/// <summary>
+/// Résultat du rejeu read-time du contenu d'un document (BUG-5, <see cref="IDocumentContentReplayService"/>) :
+/// le pivot relu/mappé qui alimente l'onglet « Contenu » du détail (lignes : libellé, montants, régime source →
+/// catégorie/VATEX résultante du mapping) DÈS que le document est lu/contrôlé (états Bloqué / Prêt-à-envoyer),
+/// sans attendre la transmission.
+/// <para>
+/// <see cref="MappedPivot"/> porte le pivot ENRICHI (catégorie/VATEX/taux posés par le mapping validé) quand le
+/// rejeu PASSE ; à défaut (le mapping BLOQUE — ex. régime non couvert), il porte le pivot SOURCE tel que lu —
+/// régime source présent, catégorie/VATEX VIDES (le diagnostic FACTUEL du blocage, JAMAIS une valeur inventée,
+/// CLAUDE.md n°2). <see cref="Available"/> est <c>false</c> quand le pivot source stagé n'est plus disponible
+/// (purgé après émission, ou intégrité KO) : l'appelant retombe alors sur le snapshot transmis (comportement
+/// historique préservé). AUCUN montant n'est recalculé (le pivot fait foi, F01-F02).
+/// </para>
+/// </summary>
+public sealed record DocumentContentReplay
+{
+    /// <summary>
+    /// Le pivot relu/mappé à afficher (enrichi si le mapping passe, source si le mapping bloque), ou <c>null</c>
+    /// quand le contenu stagé n'est plus disponible (<see cref="Available"/> = <c>false</c>).
+    /// </summary>
+    public PivotDocumentDto? MappedPivot { get; init; }
+
+    /// <summary><c>true</c> si le pivot source stagé a pu être relu (le contenu est restituable), <c>false</c> sinon.</summary>
+    public bool Available => MappedPivot is not null;
+
+    /// <summary>Contenu stagé indisponible (purgé après émission, absent, ou intégrité KO) — l'appelant retombe sur le snapshot transmis.</summary>
+    public static DocumentContentReplay Unavailable { get; } = new();
+
+    /// <summary>Le pivot relu (enrichi si mapping prêt, source si mapping bloqué) à projeter en lignes.</summary>
+    public static DocumentContentReplay From(PivotDocumentDto mappedPivot) => new() { MappedPivot = mappedPivot };
+}
