@@ -54,3 +54,9 @@ voir l'historique des collisions ci-dessous).
   Les renvois historiques « ADR-0023 D1–D5 / amendé » du câblage de l'agent pointent désormais vers
   `ADR-0031`. (La collision `ADR-0010` du socle Stratum est, elle, documentée dans
   [`socle/README.md`](socle/README.md).)
+- **ADR-0031** : deux fichiers portent le numéro `0031` — le **câblage du cycle de run de
+  l'agent** ([`ADR-0031-cablage-cycle-run-agent-et-config-par-adaptateur.md`](ADR-0031-cablage-cycle-run-agent-et-config-par-adaptateur.md),
+  listé dans l'index) et la **licence FluentAssertions : préparation de décision**
+  ([`ADR-0031-licence-fluentassertions-decision-prep.md`](ADR-0031-licence-fluentassertions-decision-prep.md),
+  **non listé** dans l'index). C'est pourquoi la numérotation libre de la GED démarre à
+  `ADR-0032` (le numéro `0031` ayant été attribué deux fois, il n'est pas réutilisé).

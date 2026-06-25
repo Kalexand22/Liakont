@@ -159,10 +159,13 @@ items:
       IDocumentIntake (aucun Document fiscal créé). Consommateur durable : relit le pivot GED depuis le staging,
       applique GedMapper (GED12) → MappedDocument OU DEFER (deferred si profil absent / axe requis non résolu),
       puis UPSERT ManagedDocument (id du handler, ON CONFLICT (id) DO NOTHING) + liens, status→'indexed' dans la
-      MÊME tx (idempotence replay, RL-04). Contenu GED via IIngestedContentStore SÉPARÉ (anti path-traversal).
+      MÊME tx (idempotence replay ET concurrence : garde FOR UPDATE sur le parent managed_documents / advisory
+      lock, ou clé déterministe ON CONFLICT, dans la tx status→'indexed', RL-04). Contenu GED via
+      IIngestedContentStore SÉPARÉ (anti path-traversal).
     acceptance:
       - "Un document non-facture est ingéré (registre GED + ManagedDocumentReceivedV1 écrits ATOMIQUEMENT en base système) ; réingestion idempotente (Duplicate) ; golden GedIngestionDecision (3 cas, RL-01)."
       - "L'événement est réellement drainé (OutboxWorker) ; le consommateur crée le ManagedDocument + liens (ON CONFLICT DO NOTHING) ; un replay voit status='indexed' et no-op (RL-04, test)."
+      - "TEST CONCURRENT : deux livraisons simultanées de ManagedDocumentReceivedV1 ⇒ liens écrits UNE SEULE FOIS (garde FOR UPDATE sur managed_documents parent / advisory lock, ou clé déterministe ON CONFLICT, dans la tx status→'indexed') ; un test séquentiel est un faux-vert."
       - "Aucune ligne documents.documents ; aucun passage par DocumentReceivedConsumer ; aucun état fiscal atteint."
       - "NetArchTest : événement dans Ged.Contracts ; Ged.Domain ne réf. pas Ingestion.Domain (RL-01) ; agent → Liakont.Agent.*."
       - "verify-fast passes ; run-tests (intégration) EXÉCUTÉS et verts ≥ 2 bases ; codex-review clean or only accepted P2s."
@@ -322,7 +325,10 @@ items:
       l'axe ciblé est confidentiel (§6.5, anti-oracle ; le journal n'est pas un canal de contournement). ROBUSTESSE :
       best-effort + log Warning par défaut (une lecture n'a pas de transaction métier à casser) ; D8 ouvert
       (fail-closed ou alerte de supervision si finalité PROBANTE confirmée) ; aucune purge auto en attendant
-      (append-only intégral) ; rétention/pseudonymisation RGPD = D8.
+      (append-only intégral). RGPD : la pseudonymisation IN-PLACE d'actor_id est IMPOSSIBLE sous le WORM gravé
+      (UPDATE rejeté par le trigger append-only, comme la purge) ; mitigation = MINIMISATION À L'ÉCRITURE (ne pas
+      écrire d'identifiant ré-identifiant au-delà du nécessaire) ou crypto-shredding par document (D9, prérequis
+      « chiffrement-au-repos » ABSENT aujourd'hui), JAMAIS une mutation a posteriori du log scellé (D8).
     acceptance:
       - "ged_index.consultation_log en BASE TENANT (IConnectionFactory, JAMAIS ISystemConnectionFactory) ; append-only (UPDATE/DELETE/TRUNCATE rejetés, test base réelle) ; INV-GED-11."
       - "IConsultationAuditWriter (Ged.Contracts) écrit une entrée par action ; query_text ET detail masqués/hachés si l'axe ciblé est confidentiel (test masquage en log, §6.5/§8, anti-oracle)."

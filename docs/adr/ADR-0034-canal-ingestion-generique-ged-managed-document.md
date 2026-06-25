@@ -20,7 +20,7 @@
   deux canaux, `IngestedDocumentDto`, réutilisation exacte, registre GED dédié, contenu, résolution d'identité, mapping
   déclaratif, côté agent), §8 (golden `GedIngestionDecision` RL-01, idempotence RL-04, hash-neutralité facture,
   goldens de mapping) ; sources socle/code réelles citées par F19 :
-  `src/Modules/Ingestion/Migrations/V004__create_received_documents_table.sql` (unique `(tenant_id, payload_hash)`,
+  `src/Modules/Ingestion/Infrastructure/Migrations/V004__create_received_documents_table.sql` (unique `(tenant_id, payload_hash)`,
   `contract_version text NOT NULL`), `PostgresReceivedDocumentUnitOfWork` (registre + outbox dans la **même**
   transaction, base système), `CanonicalJsonWriter` (ordre figé, null omis, ASCII, enums par nom),
   `PayloadHasher.ComputeHash(string)` (SHA-256 des octets), `DocumentIngestionDecision.Evaluate`
@@ -132,7 +132,7 @@ golden) ; aucun invariant extracteur facture n'est modifié.
 
 | Brique existante | Réutilisation GED | Frontière |
 |---|---|---|
-| `PayloadHasher.ComputeHash(string)` | **réutilisé TEL QUEL** (SHA-256 des octets ; ne porte AUCUN déterminisme) | primitive partagée (`Common`) |
+| `PayloadHasher.ComputeHash(string)` | **réutilisé TEL QUEL** (SHA-256 des octets ; ne porte AUCUN déterminisme) | primitive partagée (`Liakont.Agent.Contracts.Serialization`, contrat agent↔plateforme) |
 | `CanonicalJsonWriter` (ordre figé, null omis, ASCII, enums par nom) | **NEUF `GedCanonicalJson.Serialize(IngestedDocumentDto)` bâti SUR `CanonicalJsonWriter`** + `SourceFields` trié par clé (ordinal) | golden **cross-runtime net48/.NET 10** (RL-39) |
 | `DocumentIngestionDecision.Evaluate` (logique pure, `Ingestion.Domain`, 3 cas) | **RE-COPIÉE** dans `Ged.Domain` comme `GedIngestionDecision` (record struct, 3 cas : `Duplicate` / `AcceptedAltered` / `AcceptedNew`) | **PAS** une référence à `Ingestion.Domain` (frontière, RL-01) |
 
@@ -170,8 +170,8 @@ CREATE TABLE IF NOT EXISTS ged_ingestion.ged_received_documents (
     received_at         timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT pk_ged_received_documents PRIMARY KEY (id)
 );
-CREATE UNIQUE INDEX uq_ged_received_tenant_payload ON ged_ingestion.ged_received_documents (tenant_id, payload_hash);
-CREATE INDEX ix_ged_received_tenant_source ON ged_ingestion.ged_received_documents (tenant_id, source_reference, received_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ged_received_tenant_payload ON ged_ingestion.ged_received_documents (tenant_id, payload_hash);
+CREATE INDEX IF NOT EXISTS ix_ged_received_tenant_source ON ged_ingestion.ged_received_documents (tenant_id, source_reference, received_at DESC);
 ```
 
 Cette table est une **exception db-per-tenant documentée** (F19 §3.2(a)) : par défaut la GED n'a aucune colonne
@@ -187,15 +187,19 @@ son **propre** contrat (`Liakont.Agent.Contracts.Ged`) dans `contract_version`, 
 ### 5. Ordre d'écriture (invariant ADR-0014) : staging AVANT la transaction ; contenu via un store SÉPARÉ (F19 §2.4, §4.3.2)
 
 Le contenu pivot GED est écrit **`staging.WriteAsync(canonicalJson)` AVANT la transaction** (dépendance explicite au
-**module `Liakont.Modules.Staging`**, `Staging.Contracts`, **pas** au module Ingestion). Cet ordre respecte l'**invariant
-de staging durable d'ADR-0014** : le blob est posé avant le commit PG ; ce **n'est PAS atomique** (il n'existe pas de 2PC
-blob↔PG), exactement comme le canal fiscal — un blob orphelin sans ligne committée est inerte et toléré.
+**module `Liakont.Modules.Staging`**, `Staging.Contracts`, **pas** au module Ingestion), sous le **`StagedPayloadKey`
+obligatoire** (`DocumentId` non vide, RL-38) : `new StagedPayloadKey(tenantId, managed_document_id, gedPayloadHash)`. Cet
+ordre respecte l'**invariant de staging durable d'ADR-0014** : le blob est posé avant le commit PG ; ce **n'est PAS
+atomique** (il n'existe pas de 2PC blob↔PG), exactement comme le canal fiscal — un blob orphelin sans ligne committée est
+inerte et toléré.
 
 Le **binaire de contenu GED** transite par un **`IIngestedContentStore` SÉPARÉ** (`SaveContentAsync` / `OpenContentAsync`
 / `ExistsAsync`), avec **anti path-traversal conservé** (`SafeTenant` + nom de fichier nu + contrôle sous-racine). On
-**ne fond PAS** `IIngestedPdfStore` (pool de réconciliation, concern **fiscal**, sémantique d'écrasement) : il **reste
-intact**. Le buffer agent peut être écrasable ; le binaire **probant** GED est write-once **au coffre via Archive**
-(ADR-0033, hors chaîne fiscale, option C), pas dans ce store de transit.
+**ne fond PAS** `IIngestedPdfStore` (concern **fiscal**) : il **reste intact**. Sa sémantique est **DUALE** : le **buffer**
+de réconciliation (`SavePooledPdfAsync` = `CreateNew`) **N'ÉCRASE PAS** (un PDF déjà en pool n'est pas réécrit, RL-40) ;
+c'est le **chemin lié** (PDF attaché à un document) qui **écrase** (RL-40). Le buffer agent peut être écrasable ; le binaire
+**probant** GED est write-once **au coffre via Archive** (ADR-0033, hors chaîne fiscale, option C), pas dans ce store de
+transit.
 
 ### 6. Idempotence (F19 §2.4, §3.4.1, §8 ; RL-04)
 
@@ -209,6 +213,17 @@ c'est l'ancre d'idempotence de bout en bout.
    même transaction** que la transition `managed_documents.status → 'indexed'`. Un **replay** voit `status = 'indexed'`
    et **no-op** (pas de liens dupliqués). Le consommateur upsert le `ManagedDocument` (id du handler,
    `ON CONFLICT (id) DO NOTHING`), écrit les liens, puis pose `status='indexed'` — **une seule transaction**.
+   **GARDE DE CONCURRENCE OBLIGATOIRE (RL-04)** : l'`OutboxWorker` est **at-least-once** et **dispatche AVANT** de
+   marquer l'événement traité (pas de `FOR UPDATE SKIP LOCKED`) → **deux livraisons concurrentes** lisent toutes deux
+   `status='draft'` et écrivent toutes deux les liens. Comme la PK des liens est `gen_random_uuid()` **sans clé
+   métier** et que les triggers sont **append-only**, le résultat est des **liens dupliqués PERMANENTS** (pas
+   d'UPDATE/DELETE possible). Le consommateur DOIT donc, **dans la même transaction** que l'écriture des liens et le
+   `status→'indexed'`, prendre soit un **`FOR UPDATE` sur la ligne `managed_documents` parente** (ou un
+   `pg_advisory_xact_lock` sur l'id), soit écrire les liens sous une **clé déterministe `ON CONFLICT`** (pas de
+   `gen_random_uuid()` nu) — la seconde livraison se sérialise alors derrière la première et voit `status='indexed'`.
+   Même classe de course que le précédent rigoureux **INV-GED-03 / ADR-0032 §6**. **Acceptance** : un **TEST CONCURRENT
+   obligatoire** (deux livraisons **simultanées** ⇒ liens écrits **une seule fois**) ; un test **séquentiel** est un
+   **faux-vert** (la course ne se déclenche pas).
 3. Le **pont « facture → GED »** est un **consommateur dédié** (qui crée un `ManagedDocument` soft-linké au
    `documents.documents`), **JAMAIS** un abonnement du module `Ged` à `DocumentReceivedV1` (§1, F19 §2.4 NB).
 
@@ -265,11 +280,11 @@ local) est **déclaré par profil** (format source attendu) et **DEFER si ambigu
   (canal fiscal). Le hash est calculé sur `GedCanonicalJson` (`SourceFields` trié par clé ordinal) + `PayloadHasher`
   réutilisé ; golden cross-runtime net48/.NET 10 (RL-39). `GedIngestionDecision` re-copiée dans `Ged.Domain` (golden de
   non-dérive, RL-01), **jamais** une référence à `Ingestion.Domain`.
-- **INV-GED-08** — **Tenant-scope** : par défaut l'isolation **EST** la connexion (aucune colonne tenant en base
-  tenant). **Exception documentée (F19 §3.2(a))** : le **registre d'ingestion GED vit en BASE SYSTÈME** (schéma
-  `ged_ingestion`, co-localisé avec l'outbox) et porte `tenant_id` — la **seule** façon d'écrire **atomiquement**
-  registre + `ManagedDocumentReceivedV1` (pas de 2PC inter-bases, RL-03). Aucune requête cross-tenant ; l'agent n'écrit
-  que dans SON tenant (clé API scopée). L'index GED de la base tenant est peuplé **en aval** par le consommateur.
+- **INV-GED-08** (home ADR-0032) — **rappel référencé** : tenant-scope par connexion (l'isolation **EST** la connexion ;
+  aucune colonne tenant en base tenant ; aucune requête cross-tenant ; l'agent n'écrit que dans SON tenant, clé API
+  scopée). **Ici l'exception documentée** (F19 §3.2(a)) = le **registre `ged_ingestion` en BASE SYSTÈME** (co-localisé
+  avec l'outbox), qui porte `tenant_id` — la **seule** façon d'écrire **atomiquement** registre + `ManagedDocumentReceivedV1`
+  (pas de 2PC inter-bases, RL-03). L'index GED de la base tenant est peuplé **en aval** par le consommateur.
 
 ## Conséquences
 
@@ -365,7 +380,7 @@ Aucun de ces points ne stalle le dev : ce sont des **défauts paramétrables**, 
   contrat) ; `docs/adr/ADR-0014-staging-durable-contenu-pivot-intake.md` (staging durable, ordre d'écriture) ;
   `docs/adr/ADR-0006-mecanique-jobs-multi-tenant.md` (mécanique des jobs multi-tenant, outbox/drain) ;
   `docs/adr/ADR-0016-job-tenant-scope.md` (job tenant-scopé).
-- Code réel imité : `src/Modules/Ingestion/Migrations/V004__create_received_documents_table.sql` (registre
+- Code réel imité : `src/Modules/Ingestion/Infrastructure/Migrations/V004__create_received_documents_table.sql` (registre
   `(tenant_id, payload_hash)` UNIQUE, `contract_version text NOT NULL`) ; `PostgresReceivedDocumentUnitOfWork` (registre
   + outbox dans la même transaction, base système) ; `CanonicalJsonWriter` (ordre figé, null omis, ASCII, enums par
   nom) ; `PayloadHasher.ComputeHash(string)` (SHA-256 des octets) ; `DocumentIngestionDecision.Evaluate`

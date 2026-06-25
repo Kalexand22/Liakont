@@ -1,4 +1,4 @@
-# ADR-0033 — Coffre probant tiers / SAE comme 5ᵉ axe enfichable (`ISealedArchiveProvider`) et archivage WORM des documents GED hors chaîne fiscale (option C ; fast-follow GED20)
+# ADR-0033 — Coffre probant tiers / SAE comme 5ᵉ axe enfichable (`ISealedArchiveProvider`) et archivage WORM des documents GED hors chaîne fiscale (décision que l'ADR nomme « option C », satisfaisant l'exigence RL-05 ; fast-follow GED20)
 
 - **Statut** : Proposé (2026-06-25).
 - **Date** : 2026-06-25
@@ -56,9 +56,12 @@ faux. Et la valeur **juridique** d'une attestation tierce (NF Z42-013, vérifica
 (F19 §11 D1/D2) : affirmer « conforme NF Z42-013 » sans spécification de vérification autonome ratifiée serait
 **inventer une règle probante** (CLAUDE.md n°2). « Bloquer / déférer plutôt qu'affirmer faux. »
 
-La décision retient donc l'**option C** (F19 redline RL-05) : un document GED-seul est rangé **write-once WORM** via
-`IArchiveStore` dans un espace dédié `_ged/…`, **hors** de la chaîne de hashes fiscale, **sans** ancrage RFC 3161
-en V1 ; la valeur probante renforcée est **déférée** à un fast-follow (GED20). Pour éviter le **code dormant**
+RL-05 a posé l'**exigence** (ne pas mélanger chaîne fiscale et GED / ne pas rendre `archive_entries.document_id`
+nullable) et a laissé **ouverte** une décision entre (A) chaîne GED distincte et (B) `document_id` nullable, **sans
+trancher** (« option C » n'apparaît **pas** dans la redline). La décision retenue ici — que cet ADR **nomme**
+« option C » — est une **variante de (A)** satisfaisant l'exigence RL-05 : un document GED-seul est rangé
+**write-once WORM** via `IArchiveStore` dans un espace dédié `_ged/…`, **hors** de la chaîne de hashes fiscale,
+**sans** ancrage RFC 3161 en V1 ; la valeur probante renforcée est **déférée** à un fast-follow (GED20). Pour éviter le **code dormant**
 (RL-26), l'abstraction de coffre tiers `ISealedArchiveProvider` et sa table de référence ne sont **pas** posées en
 V1 : elles arrivent **avec** GED20 et son premier provider. En V1, les seules abstractions à capacités réellement
 livrées sont `IGenericArchiveService` (rangement WORM hors chaîne fiscale) et `IDocumentSearchIndex` (recherche,
@@ -66,7 +69,7 @@ cf. ADR-0035).
 
 ## Décision
 
-### 1. Option C (RL-05) — un document GED-seul n'entre JAMAIS dans `archive_entries` ; rangement WORM hors chaîne fiscale
+### 1. Décision nommée « option C » (satisfait l'exigence RL-05) — un document GED-seul n'entre JAMAIS dans `archive_entries` ; rangement WORM hors chaîne fiscale
 
 Un document GED **purement métier** n'a **aucune ligne** `documents.documents` ; or `documents.archive_entries.document_id`
 est `NOT NULL` + FK (`V005:11,18-20`), `IArchiveEntryStore.ReserveAsync` est non-nullable, et la chaîne est
@@ -205,13 +208,16 @@ CREATE TABLE IF NOT EXISTS ged_index.sealed_refs (
     CONSTRAINT ck_sealed_refs_status CHECK (seal_status IN ('pending','sealed','failed','unsupported'))
 );
 CREATE INDEX ix_sealed_refs_path ON ged_index.sealed_refs (archive_path, seq DESC);
--- au plus une ligne 'sealed' par objet (idempotence du job, comme archive_anchors par tête) :
-CREATE UNIQUE INDEX uq_sealed_refs_sealed ON ged_index.sealed_refs (archive_path) WHERE seal_status = 'sealed';
+-- au plus une ligne 'sealed' par objet ET par provider (idempotence du job, clé (archive_path, provider)) :
+CREATE UNIQUE INDEX IF NOT EXISTS uq_sealed_refs_sealed ON ged_index.sealed_refs (archive_path, external_provider) WHERE seal_status = 'sealed';
 -- triggers reject_*_mutation (UPDATE/DELETE) + no_truncate : COPIE EXACTE du pattern archive_entries.
 ```
 
 - **État courant** = **dernière ligne** par `archive_path` selon **`seq`** (déterministe, jamais `recorded_utc`).
-  **Idempotence par clé métier** `(archive_path, provider)`, comme `archive_anchors` sur `(head, method)`.
+  **Idempotence par clé métier** `(archive_path, provider)`, sur le modèle des index uniques partiels du repo
+  (`ux_supervision_alerts_active_rule`, `uq_documents_mandant_number_issued_389`,
+  `ux_document_validations_active_attempt`) ; idempotence applicative en complément (read-before-insert + CATCH de la
+  violation d'unicité concurrente).
   `external_provider` est l'**identifiant de capacité résolu via le registre** (jamais une valeur libre saisie) ;
   toute ligne dont le provider n'est plus résolvable est traitée `SealClaimedNotVerifiable`, **jamais ignorée**.
 - **Job `SealedReplicationTenantJob : ITenantJob`** (`Name => "archive.sealed-replication"`, fan-out par tenant

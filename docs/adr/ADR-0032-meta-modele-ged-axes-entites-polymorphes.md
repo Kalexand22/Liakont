@@ -29,10 +29,10 @@
   et exceptions, §3.3 `ged_catalog`, §3.4 `ged_index` instances & liens, §3.5 « pas un EAV », §3.6 triggers
   append-only, §3.7 UoW, §3.8 référence cross-schéma), §7 (frontières & règles non négociables), §8 (tests & DoD ;
   jeu d'invariants `INV-GED-01..12`, `INV-ARCH-GED-1..3`), §11 D6/D7 ; sources socle/code réelles citées par F19 :
-  `src/Modules/Documents/Migrations/V005__create_archive_entries_table.sql` (triggers WORM
-  `reject_archive_entry_mutation` + no-truncate — patron append-only), `src/Modules/Reconciliation/Migrations/V002`
+  `src/Modules/Documents/Infrastructure/Migrations/V005__create_archive_entries_table.sql` (triggers WORM
+  `reject_archive_entry_mutation` + no-truncate — patron append-only), `src/Modules/Reconciliation/Infrastructure/Migrations/V002`
   (soft-link `proposed_document_id` **sans FK**), `src/Modules/TvaMapping/**` (UoW + trigger, `MappingChangeLog`),
-  `src/Modules/Ingestion/Migrations/V004__create_received_documents_table.sql` (registre en base système),
+  `src/Modules/Ingestion/Infrastructure/Migrations/V004__create_received_documents_table.sql` (registre en base système),
   `blueprint.md` §2/§6/§7, `docs/architecture/module-rules.md` ; ADR liés :
   `docs/adr/socle/ADR-0011-database-per-tenant.md` (database-per-tenant), `docs/adr/ADR-0022-mandant-tiers-premiere-classe-module-mandats.md`
   (`Mandats.Mandant`/`Mandat` fiscal), `docs/adr/ADR-0007-serialisation-canonique-pivot.md` (sérialisation canonique).
@@ -156,6 +156,9 @@ CREATE TABLE IF NOT EXISTS ged_catalog.axis_definitions (
     CONSTRAINT ck_axis_def_scale CHECK (value_scale IS NULL OR (value_scale >= 0 AND value_scale <= 9))
 );
 ```
+
+(la FK `fk_axis_def_target_entity` → `ged_catalog.entity_types` est posée séparément en `ALTER TABLE` après les deux
+`CREATE`, cf. RL-07 ; omise de l'extrait).
 
 > **Invariant montant (CLAUDE.md n°1)** : `value_number` (§3.3 ci-dessous) est un `decimal` C#, **jamais**
 > `double`/`float`. L'échelle est **portée par l'axe** (`value_scale`), pas par la colonne polymorphe ; l'arrondi
@@ -331,6 +334,9 @@ ADR (les deux schémas vivent dans la même base tenant).
   `ged_index` (l'isolation EST la connexion, ADR-0011 socle database-per-tenant) ; aucune requête cross-tenant ; jointure SQL cross-schéma
   `ged_* → documents.*`/`mandats.*` **interdite** (soft-link logique seulement). Exception documentée : le registre
   d'ingestion vit en base système (`ged_ingestion`, porte `tenant_id`) — détaillée par ADR-0034.
+- **INV-GED-12** — Généricité produit, TESTÉE : aucun vocabulaire métier (lot/vente/PV/enchères/adjudication/acheteur/bordereau)
+  codé en dur dans src/Modules/Ged/** (hors tests/seed) ; toute configuration métier (axes, types d'entités, profils de mapping)
+  = paramétrage tenant en deployments/ ; garde outillée anti-littéral SELF-TESTÉE (GED11 ; CLAUDE.md n°7).
 
 Invariants connexes posés par les sœurs et rappelés ici parce qu'ils pèsent sur le méta-modèle :
 - **INV-ARCH-GED-1 / INV-ARCH-GED-2** (option C, ADR-0033) — un document GED-seul est rangé **write-once (WORM)** via
@@ -420,8 +426,8 @@ internes au module ; ils n'engagent aucune correctness fiscale ou probante.
 - ADR socle/Liakont : `docs/adr/socle/ADR-0011-database-per-tenant.md` (database-per-tenant) ;
   `docs/adr/ADR-0022-mandant-tiers-premiere-classe-module-mandats.md` (`Mandats.Mandant`/`Mandat`, frontière §4) ;
   `docs/adr/ADR-0007-serialisation-canonique-pivot.md` (sérialisation canonique).
-- Code réel imité : `src/Modules/Documents/Migrations/V005__create_archive_entries_table.sql` (triggers WORM
-  `reject_archive_entry_mutation` + no-truncate) ; `src/Modules/Reconciliation/Migrations/V002` (soft-link
+- Code réel imité : `src/Modules/Documents/Infrastructure/Migrations/V005__create_archive_entries_table.sql` (triggers WORM
+  `reject_archive_entry_mutation` + no-truncate) ; `src/Modules/Reconciliation/Infrastructure/Migrations/V002` (soft-link
   `proposed_document_id` sans FK) ; `src/Modules/TvaMapping/**` (UoW + trigger, `MappingChangeLog`) ;
-  `src/Modules/Ingestion/Migrations/V004__create_received_documents_table.sql` (registre en base système).
+  `src/Modules/Ingestion/Infrastructure/Migrations/V004__create_received_documents_table.sql` (registre en base système).
 - `blueprint.md` §2/§6/§7 ; `docs/architecture/module-rules.md` §6/§11.
