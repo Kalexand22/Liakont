@@ -87,6 +87,24 @@
       "rateMode": "Fixed",
       "rateValue": 0,
       "note": "Franchise export (clé par zone, F03 §2.8, validé PO) : livraison détaxée export-bound, catégorie G -> TT-81 TLB1, taux 0. Défaut défendable, refinable."
+    },
+    {
+      "sourceRegimeCode": "20",
+      "label": "Taux 20 % — document ORDINAIRE (facture client / note d'honoraires) taxable au taux normal",
+      "part": "Autre",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 20,
+      "note": "Documents B2C ORDINAIRES hors enchères (F03 §2.9). La clé de régime est le TAUX effectif (taux_tva des factures ; montant_tva/montant_ht recouvré des notes) -> clé UNIFIÉE factures + notes. 20 % -> catégorie S. TT-81 dérivé de l'operationCategory du tenant (PrestationServices -> TPS1 / LivraisonBiens -> TLB1)."
+    },
+    {
+      "sourceRegimeCode": "5.5",
+      "label": "Taux 5,5 % — document ORDINAIRE taxable au taux réduit",
+      "part": "Autre",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 5.5,
+      "note": "Documents B2C ordinaires (F03 §2.9), taux réduit 5,5 % -> catégorie S (le taux porte la distinction). Clé = taux effectif unifié factures/notes. Un document à taux MIXTES (p. ex. honoraires 20 % + frais 0 %) reste fail-closed (0 % non mappé)."
     }
   ]
 }

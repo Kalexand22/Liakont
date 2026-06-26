@@ -66,11 +66,15 @@ Deux jeux de paramétrage **fictifs** (CLAUDE.md n°7), un par tenant — format
 Chaque dossier porte `tenant-profile.json`, `pa-accounts.json` (compte **`Fake`** Staging, **sans
 secret**) et `mapping-tva.json`.
 
-> **`fiscal.operationCategory` = `"Mixte"`** (et non `null`) : une vente aux enchères mêle livraison de
-> **biens** (l'adjudication) et **honoraires** de service — c'est une nature *déterminable*, distincte de
-> l'arbitrage marge / hors-champ qui, lui, reste à l'expert-comptable. **C'est requis pour que la démo
-> fonctionne** : le CHECK bloque *inconditionnellement* tout document dont la nature d'opération est
-> absente (`DocumentCheckEvaluator`) — sans elle, aucun document n'atteint `ReadyToSend` et B4 agrège 0.
+> **`fiscal.operationCategory` = `"PrestationServices"`** (et non `null`, ni `"Mixte"`) : la nature
+> d'opération est remplie par la plateforme sur CHAQUE document au read-time, et le job des **documents
+> ordinaires** (factures clients / notes d'honoraires) en DÉRIVE le TT-81 — `PrestationServices` → **TPS1**,
+> `LivraisonBiens` → **TLB1** ; `Mixte` → **fail-closed** (TT-81 indéterminable). Un OVV qui facture des
+> honoraires d'inventaire est dominé par le SERVICE → `PrestationServices` ; les **bordereaux** d'enchères
+> (marge/taxable/export), eux, dérivent leur TT-81 de leur PROPRE job (TMA1/TLB1/TNT1, jamais d'`operationCategory`)
+> donc ce réglage ne les affecte pas — il leur suffit d'une nature **non nulle** (le CHECK bloque sinon, voir
+> `DocumentCheckEvaluator`). ⚠️ **Limite tenant-level** : une rare facture de **biens** (« caisse de vins »)
+> serait taguée TPS1 au lieu de TLB1 — l'opérateur la corrige (la nature est par-tenant, pas par-document).
 > La fixer ne lève **aucun** garde-fou d'envoi (PIP01 reste actif tant que la table n'est pas validée).
 > `vatOnDebits` / `reportingFrequency` restent `null` (vraies décisions EC).
 
@@ -82,6 +86,14 @@ de la base en part `Autre` :
 |---|---|---|---|
 | `6` (« Non assujetti 20 % ») | **E + VATEX-EU-J**, 0 % | **régime de la marge** (enchères B2C) | F03 §2.3 / §3 (décision Karl) |
 | `5` (« Assujetti 20 % ») | S, 20 % | adjudication taxable | F03 §2.1 « 20→S » |
+| `20` (**taux** effectif) | S, 20 % | **document ORDINAIRE** (facture client / note d'honoraires) taxable | F03 §2.9 |
+| `5.5` (**taux** effectif) | S, 5,5 % | document ordinaire au taux réduit | F03 §2.9 |
+
+> Les bordereaux d'enchères sont clés par leur **code régime** (`5`/`6` de `ligne_pv`) ; les **documents
+> ordinaires** (factures clients / notes d'honoraires, hors enchères) sont clés par leur **TAUX effectif**
+> (`taux_tva` des factures ; `montant_tva/montant_ht` recouvré des notes) — `code_tva` étant NON fiable.
+> Clé de taux **unifiée** factures + notes. Un document ordinaire à taux MIXTES (honoraires 20 % + frais
+> 0 %) reste **fail-closed** (le `0` n'est pas mappé).
 
 Tous les **autres** régimes (1, 2, 3, 7, 8, 9, 0) restent **non mappés** → le CHECK les **bloque**
 (`defaultBehavior: Block`) avec un verdict opérateur : c'est **voulu** (fail-closed, CLAUDE.md n°2/3 — le
@@ -101,9 +113,11 @@ x64), et `encheresv6-demo-sqlserver.sql` présent (sinon `build-sqlserver-from-s
 3. **Créer les 2 tenants** (console, sysadmin → *Clients* → *Nouveau client*) : `volontaire` et
    `judiciaire` (le provisioning crée base + migrations + `company_id`).
 4. **Paramétrer chaque tenant** (console) — source de vérité = `tenant-seed/<inst>/` :
-   - *Paramétrage fiscal* → renseigner la **nature d'opération = `Mixte`** (sinon le CHECK bloque **tous**
-     les documents — voir l'encadré « Seed des tenants ») ;
-   - *Paramétrage fiscal* → saisir les 2 règles de mapping (`5`→S 20 %, `6`→E+VATEX-EU-J) ;
+   - *Paramétrage fiscal* → renseigner la **nature d'opération = `PrestationServices`** (sinon le CHECK
+     bloque **tous** les documents ; pilote le TT-81 des documents ordinaires → TPS1 — voir l'encadré
+     « Seed des tenants ») ;
+   - *Paramétrage fiscal* → saisir les règles de mapping : `5`→S 20 %, `6`→E+VATEX-EU-J (bordereaux),
+     `20`→S 20 %, `5.5`→S 5,5 % (documents ordinaires factures/notes) ;
    - *Plateforme Agréée* → ajouter le compte **`Fake`** (Staging) ;
    - **publier le SIREN** (action d'onboarding) pour rendre l'envoi exerçable ;
    - **enrôler un agent** → noter sa **clé API**.

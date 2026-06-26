@@ -10,7 +10,7 @@
   "contactEmailAlerte": "alertes.scp@encheres-demo.test",
   "fiscal": {
     "vatOnDebits": null,
-    "operationCategory": "Mixte",
+    "operationCategory": "PrestationServices",
     "reportingFrequency": null
   },
   "schedule": {
