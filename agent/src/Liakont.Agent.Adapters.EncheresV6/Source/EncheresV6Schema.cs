@@ -36,6 +36,8 @@ internal sealed class EncheresV6Schema
     internal const string TableRegimes = "Regime_tva";
     internal const string TableEnteteFactureClient = "entete_facture_clien";
     internal const string TableLigneFactureClient = "ligne_facture_client";
+    internal const string TableEnteteNotesHono = "entete_notes_hono";
+    internal const string TableLignesNotesHono = "lignes_notes_hono";
 
     // ── Colonnes communes / BA ──────────────────────────────────────
     internal const string ColNoBa = "no_ba";
@@ -108,6 +110,23 @@ internal sealed class EncheresV6Schema
     internal const string ColOriginNoFact = "origin_no_fact";
     internal const string ColOriginDateFact = "origin_date_fact";
 
+    // ── Notes d'honoraires (entête entete_notes_hono) ───────────────
+    internal const string ColNoNoteHono = "no_note_hono";
+    internal const string ColDateFacture = "date_facture";
+    internal const string ColNoDossierNh = "No_dossier";
+    internal const string ColNoNoteLettrage = "no_note_lettrage";
+    internal const string ColNhAdresse = "adresse";
+    internal const string ColNhMontantTtc = "montant_ttc";
+
+    // ── Lignes note d'honoraires (lignes_notes_hono) ────────────────
+    internal const string ColLibelle = "libelle";
+    internal const string ColNhMontantHt = "montant_ht";
+    internal const string ColNhMontantTva = "montant_tva";
+
+    // ── Alias d'origine d'un avoir note ─────────────────────────────
+    internal const string ColOriginNoNote = "origin_no_note";
+    internal const string ColOriginDateFacture = "origin_date_facture";
+
     // ── Régimes ─────────────────────────────────────────────────────
     internal const string ColRegimeLibelle = "libelle_descriptif";
     internal const string ColRegimeOccurrences = "occurrences";
@@ -136,6 +155,9 @@ internal sealed class EncheresV6Schema
     internal const string LignePaiementBv = "4";   // lignes_bv : paiement
     internal const string LigneFactureeFc = "1";   // ligne_facture_client : ligne facturée (article/prestation)
     internal const string LigneReglementFc = "2";  // ligne_facture_client : règlement (exclu)
+    internal const string LigneHonoraireNh = "1";  // lignes_notes_hono : honoraires d'inventaire
+    internal const string LigneFraisNh = "2";      // lignes_notes_hono : frais (déplacement, droits fixes…)
+    internal const string LigneReglementNh = "3";  // lignes_notes_hono : règlement (exclu)
 
     private static readonly Regex SchemaPattern = new Regex("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
 
@@ -147,6 +169,8 @@ internal sealed class EncheresV6Schema
     private readonly string _regimes;
     private readonly string _enteteFactureClient;
     private readonly string _ligneFactureClient;
+    private readonly string _enteteNotesHono;
+    private readonly string _lignesNotesHono;
 
     /// <summary>Crée la connaissance du schéma pour un préfixe donné (vide = tables nues Pervasive ; ex. « enc » pour la démo SQL Server).</summary>
     /// <param name="schema">Préfixe de schéma (paramétrage). <c>null</c>/vide = aucun préfixe. Validé contre l'injection.</param>
@@ -178,13 +202,15 @@ internal sealed class EncheresV6Schema
         _regimes = prefix + TableRegimes;
         _enteteFactureClient = prefix + TableEnteteFactureClient;
         _ligneFactureClient = prefix + TableLigneFactureClient;
+        _enteteNotesHono = prefix + TableEnteteNotesHono;
+        _lignesNotesHono = prefix + TableLignesNotesHono;
     }
 
     /// <summary>Tables dont la présence est contrôlée par <c>CheckHealth</c>.</summary>
     public string[] ExpectedTables => new[]
     {
         _enteteBa, _lignesBa, _enteteBv, _lignesBv, _lignePv, _regimes,
-        _enteteFactureClient, _ligneFactureClient,
+        _enteteFactureClient, _ligneFactureClient, _enteteNotesHono, _lignesNotesHono,
     };
 
     /// <summary>
@@ -265,6 +291,30 @@ internal sealed class EncheresV6Schema
         + " WHERE e." + ColDossierCpt + " = ? AND e." + ColFactureOuAvoir + " IN ('" + PieceVente + "', '" + PieceAvoir + "')"
         + " AND e." + ColDateFact + " >= ? AND e." + ColDateFact + " < ?"
         + " ORDER BY e." + ColNoFact + ", l." + ColNoLigne;
+
+    /// <summary>
+    /// Requête des NOTES D'HONORAIRES d'inventaire (notes + avoirs) d'une période, lignes FACTURÉES (honoraires
+    /// type 1 + frais type 2) jointes + entête d'origine d'un avoir (auto-jointure par <c>no_note_lettrage</c>).
+    /// Les règlements (type 3) sont EXCLUS. PAS de jointure régime : la note ne porte pas de <c>code_tva</c> (le
+    /// taux est recouvré par le mapper). <c>type_ligne</c> est un <c>smallint</c> → littéraux NUMÉRIQUES dans le
+    /// IN. Bornes positionnelles ODBC : <c>dossier</c> (<c>No_dossier</c>), <c>from</c>, <c>to</c> (sur
+    /// <c>date_facture</c>). Streaming par <c>no_note_hono</c>.
+    /// </summary>
+    public string SelectNoteHonoDocumentsSql =>
+        "SELECT e." + ColNoNoteHono + ", e." + ColFactureOuAvoir + ", e." + ColDateFacture + ", e." + ColNoNoteLettrage
+        + ", e." + ColNom + ", e." + ColPrenom + ", e." + ColNhAdresse + ", e." + ColCodePostal + ", e." + ColVille + ", e." + ColCodePays
+        + ", e." + ColNhMontantTtc + ", e." + ColCodeDevise
+        + ", o." + ColNoNoteHono + " AS " + ColOriginNoNote + ", o." + ColDateFacture + " AS " + ColOriginDateFacture
+        + ", l." + ColTypeLigne + ", l." + ColCodeLigne + ", l." + ColLibelle + ", l." + ColNhMontantHt + ", l." + ColNhMontantTva
+        + " FROM " + _enteteNotesHono + " e"
+        + " LEFT JOIN " + _lignesNotesHono + " l ON l." + ColNoNoteHono + " = e." + ColNoNoteHono + " AND l." + ColTypeLigne + " IN (" + LigneHonoraireNh + ", " + LigneFraisNh + ")"
+
+        // L'origine d'avoir est SCOPÉE au dossier (tenant) : no_note_hono RENUMÉROTE par dossier (≠ no_ba/no_fact
+        // globaux), un avoir résoudrait sinon l'origine d'un AUTRE dossier (ou dupliquerait ses lignes). CLAUDE.md n°9.
+        + " LEFT JOIN " + _enteteNotesHono + " o ON e." + ColFactureOuAvoir + " = '" + PieceAvoir + "' AND o." + ColNoNoteHono + " = e." + ColNoNoteLettrage + " AND o." + ColNoDossierNh + " = e." + ColNoDossierNh
+        + " WHERE e." + ColNoDossierNh + " = ? AND e." + ColFactureOuAvoir + " IN ('" + PieceVente + "', '" + PieceAvoir + "')"
+        + " AND e." + ColDateFacture + " >= ? AND e." + ColDateFacture + " < ?"
+        + " ORDER BY e." + ColNoNoteHono + ", l." + ColTypeLigne;
 
     /// <summary>
     /// Requête des RÉGIMES de TVA source (catalogue global, code BRUT + libellé) + occurrences observées

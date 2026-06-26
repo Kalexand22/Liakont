@@ -145,6 +145,56 @@ public class PervasiveExtractorTests
             "la requête facture client filtre par dossier_cpt (tenant)");
     }
 
+    [Fact]
+    public void ExtractDocuments_streams_note_hono_filtered_by_dossier()
+    {
+        // Parité ODBC du flux NOTE D'HONORAIRES : la requête (entete_notes_hono) streame une note plate, taux
+        // effectif recouvré en clé de régime, filtrée par No_dossier (tenant).
+        var connection = new RecordingConnection(readerResolver: sql =>
+            sql.Contains(EncheresV6Schema.TableEnteteNotesHono)
+                ? new[] { NoteHonoRow() }
+                : Array.Empty<IReadOnlyDictionary<string, object?>>());
+        var extractor = new PervasiveExtractor(connection, new EncheresV6Schema("enc"), "2", new RecordingAgentLog());
+
+        PivotDocumentDto nh = extractor.ExtractDocuments(From, To).ToList()
+            .Should().ContainSingle(d => d.SourceReference.StartsWith("encheresv6:nh:", StringComparison.Ordinal)).Subject;
+
+        nh.Number.Should().Be("100008");
+        nh.BuyerFees.Should().BeNull("une note d'honoraires ne porte aucun frais d'enchères");
+        nh.SellerFees.Should().BeNull();
+        nh.OperationCategory.Should().BeNull("la nature (TPS1) est plateforme");
+        nh.Lines.Should().ContainSingle().Which.NetAmount.Should().Be(23.00m);
+        nh.Lines[0].Taxes[0].TaxAmount.Should().Be(4.60m);
+        nh.Lines[0].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("20");
+
+        connection.ExecutedCommandTexts.Should().Contain(
+            sql => sql.Contains(EncheresV6Schema.TableEnteteNotesHono) && sql.Contains(EncheresV6Schema.ColNoDossierNh),
+            "la requête note d'honoraires filtre par No_dossier (tenant)");
+    }
+
+    private static Dictionary<string, object?> NoteHonoRow() => new Dictionary<string, object?>(StringComparer.Ordinal)
+    {
+        [EncheresV6Schema.ColNoNoteHono] = "100008",
+        [EncheresV6Schema.ColFactureOuAvoir] = "F",
+        [EncheresV6Schema.ColDateFacture] = new DateTime(2024, 4, 12),
+        [EncheresV6Schema.ColNoNoteLettrage] = null,
+        [EncheresV6Schema.ColNom] = "GLOUX",
+        [EncheresV6Schema.ColPrenom] = null,
+        [EncheresV6Schema.ColNhAdresse] = "1 rue de la Criée",
+        [EncheresV6Schema.ColCodePostal] = "56000",
+        [EncheresV6Schema.ColVille] = "Vannes",
+        [EncheresV6Schema.ColCodePays] = "FR",
+        [EncheresV6Schema.ColNhMontantTtc] = 27.6d,
+        [EncheresV6Schema.ColCodeDevise] = "EUR",
+        [EncheresV6Schema.ColOriginNoNote] = null,
+        [EncheresV6Schema.ColOriginDateFacture] = null,
+        [EncheresV6Schema.ColTypeLigne] = "1",
+        [EncheresV6Schema.ColCodeLigne] = null,
+        [EncheresV6Schema.ColLibelle] = "Honoraires d'inventaire",
+        [EncheresV6Schema.ColNhMontantHt] = 23.0d,
+        [EncheresV6Schema.ColNhMontantTva] = 4.6d,
+    };
+
     private static Dictionary<string, object?> FactureClientRow() => new Dictionary<string, object?>(StringComparer.Ordinal)
     {
         [EncheresV6Schema.ColNoFact] = "00100007",

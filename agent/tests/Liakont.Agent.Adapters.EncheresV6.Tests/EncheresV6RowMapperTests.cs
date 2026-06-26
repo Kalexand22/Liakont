@@ -375,6 +375,133 @@ public class EncheresV6RowMapperTests
         doc.CreditNoteRefs[0].SourceReference.Should().Be("encheresv6:fc:FAC-000");
     }
 
+    [Theory]
+    [InlineData(100.00, 20.00, "20")] // 20 %
+    [InlineData(200.00, 11.00, "5.5")] // 5,5 %
+    [InlineData(72.51, 14.50, "20")] // 19,997 % → arrondi 20,00
+    [InlineData(600.00, 0.00, "0")] // frais sans TVA → exonéré
+    [InlineData(0.00, 0.00, "0")] // base nulle → taux non recouvrable
+    public void RecoverRateToken_reconstructs_effective_source_rate(decimal net, decimal tax, string expected)
+    {
+        // La note ne porte pas de code_tva : la clé de régime est le TAUX effectif recouvré (TVA/HT), arithmétique
+        // de transport sur deux champs source ; la plateforme tranche ensuite la catégorie (arbitrage PO).
+        EncheresV6RowMapper.RecoverRateToken(net, tax).Should().Be(expected);
+    }
+
+    [Fact]
+    public void MapNoteHonoDocument_does_not_carry_emitter_nature_or_fees()
+    {
+        PivotDocumentDto doc = EncheresV6RowMapper.MapNoteHonoDocument(StandardNote(), null);
+
+        doc.Supplier.Should().BeNull("l'émetteur est rempli par la plateforme (FilledByPlatform)");
+        doc.OperationCategory.Should().BeNull("la nature (TPS1 prestation de services) est plateforme, jamais devinée par l'agent (n°6)");
+        doc.BuyerFees.Should().BeNull("une note d'honoraires ne porte AUCUN frais d'enchères (document ordinaire)");
+        doc.SellerFees.Should().BeNull();
+        doc.SourceDocumentKind.Should().Be("F");
+        doc.SourceReference.Should().Be("encheresv6:nh:NH-001");
+        doc.Number.Should().Be("NH-001");
+    }
+
+    [Fact]
+    public void MapNoteHonoDocument_maps_honoraires_and_frais_with_distinct_source_vat_and_recovered_rate()
+    {
+        PivotDocumentDto doc = EncheresV6RowMapper.MapNoteHonoDocument(StandardNote(), null);
+
+        // Honoraires (type 1) + frais (type 2) sont les lignes facturées ; le règlement (type 3) est exclu.
+        doc.Lines.Should().HaveCount(2);
+        doc.Lines[0].NetAmount.Should().Be(100.00m);
+        doc.Lines[0].Taxes[0].TaxAmount.Should().Be(20.00m, "TVA distincte de la ligne (montant_tva), reprise telle quelle (ADR-0015)");
+        doc.Lines[0].Taxes[0].Rate.Should().BeNull("le taux validé est posé par la plateforme (R3)");
+        doc.Lines[0].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("20", "taux effectif recouvré, faute de code_tva en source");
+        doc.Lines[1].NetAmount.Should().Be(50.00m);
+        doc.Lines[1].Taxes[0].TaxAmount.Should().Be(10.00m);
+        doc.Lines[1].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("20");
+
+        doc.Totals.TotalNet.Should().Be(150.00m);
+        doc.Totals.TotalTax.Should().Be(30.00m);
+        doc.Totals.TotalGross.Should().Be(180.00m);
+        doc.Totals.SourceTotalGross.Should().Be(180.00m, "le TTC d'entête source est porté en contrôle");
+    }
+
+    [Fact]
+    public void MapNoteHonoDocument_zero_rate_fee_recovers_exempt_key()
+    {
+        // Un frais à 0 % (frais horaires, affranchissement…) recouvre la clé « 0 » → la plateforme la mappe en
+        // exonéré, ce qui rend une note à taux MIXTES non marquée (fail-closed, F03 §2.9).
+        EncheresV6NoteHono note = StandardNote();
+        note.Lignes[1].MontantHt = 600.00;
+        note.Lignes[1].MontantTva = 0.00;
+
+        PivotDocumentDto doc = EncheresV6RowMapper.MapNoteHonoDocument(note, null);
+
+        doc.Lines[1].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("0");
+    }
+
+    [Fact]
+    public void MapNoteHonoDocument_customer_is_b2c_without_siren()
+    {
+        PivotDocumentDto doc = EncheresV6RowMapper.MapNoteHonoDocument(StandardNote(), null);
+
+        doc.Customer!.Name.Should().Be("GLOUX");
+        doc.Customer.Siren.Should().BeNull("la note ne porte pas de SIREN → B2C par construction (le pro est traité par la plateforme)");
+        doc.Customer.IsCompanyHint.Should().BeFalse();
+        doc.Customer.Address!.PostalCode.Should().Be("56000");
+    }
+
+    [Fact]
+    public void MapNoteHonoDocument_orphan_credit_note_is_blocked_never_guessed()
+    {
+        EncheresV6NoteHono avoir = StandardNote();
+        avoir.FactureOuAvoir = "A";
+        avoir.NoNoteLettrage = "INCONNUE";
+
+        ((Action)(() => EncheresV6RowMapper.MapNoteHonoDocument(avoir, null)))
+            .Should().Throw<SourceSchemaException>("un avoir de note sans note d'origine résoluble est bloqué (ADR-0004 D3-3)");
+    }
+
+    [Fact]
+    public void MapNoteHonoDocument_credit_note_links_to_resolved_origin()
+    {
+        EncheresV6NoteHono origin = StandardNote();
+        origin.NoNoteHono = "NH-000";
+        EncheresV6NoteHono avoir = StandardNote();
+        avoir.NoNoteHono = "AV-NH-001";
+        avoir.FactureOuAvoir = "A";
+        avoir.NoNoteLettrage = "NH-000";
+
+        PivotDocumentDto doc = EncheresV6RowMapper.MapNoteHonoDocument(avoir, origin);
+
+        doc.SourceDocumentKind.Should().Be("A");
+        doc.CreditNoteRefs.Should().ContainSingle();
+        doc.CreditNoteRefs[0].Number.Should().Be("NH-000");
+        doc.CreditNoteRefs[0].SourceReference.Should().Be("encheresv6:nh:NH-000");
+    }
+
+    // Note d'honoraires d'inventaire (prestation de services) : honoraires (type 1, 100 @20 %) + frais (type 2,
+    // déplacement 50 @20 %) + règlement (type 3, exclu). HT 150 / TVA 30 / TTC 180. Toutes lignes à 20 %.
+    private static EncheresV6NoteHono StandardNote()
+    {
+        var n = new EncheresV6NoteHono
+        {
+            NoNoteHono = "NH-001",
+            FactureOuAvoir = "F",
+            DateFacture = new DateTime(2026, 1, 20),
+            Nom = "GLOUX",
+            Adresse = "1 rue de la Criée",
+            CodePostal = "56000",
+            Ville = "Vannes",
+            CodePays = "FR",
+            MontantTtc = 180.00,
+            CodeDevise = "EURO",
+        };
+
+        n.Lignes.Add(new EncheresV6NoteHonoLigne { TypeLigne = "1", CodeLigne = string.Empty, Libelle = "Honoraires d'inventaire", MontantHt = 100.00, MontantTva = 20.00 });
+        n.Lignes.Add(new EncheresV6NoteHonoLigne { TypeLigne = "2", CodeLigne = "2", Libelle = "Déplacement", MontantHt = 50.00, MontantTva = 10.00 });
+        n.Lignes.Add(new EncheresV6NoteHonoLigne { TypeLigne = "3", CodeLigne = "CE", Libelle = "Chèque", MontantHt = 180.00, MontantTva = 0.00 });
+
+        return n;
+    }
+
     // Facture client ORDINAIRE (hors enchères) : 2 lignes facturées (HONO 100 @20 %, caisse de vins 12×12 @20 %)
     // + 1 ligne de commentaire (TXT, écartée) + 1 règlement (type 2, écarté). HT 244 / TVA 48,80 / TTC 292,80.
     private static EncheresV6FactureClient StandardFacture()

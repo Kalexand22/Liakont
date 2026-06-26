@@ -45,6 +45,9 @@ internal static class EncheresV6RowMapper
     /// <summary>Préfixe namespacé de la référence source d'une facture client (document ordinaire hors enchères).</summary>
     internal const string SourceRefFcPrefix = "encheresv6:fc:";
 
+    /// <summary>Préfixe namespacé de la référence source d'une note d'honoraires d'inventaire.</summary>
+    internal const string SourceRefNhPrefix = "encheresv6:nh:";
+
     private const string DeviseDomestique = "EUR";
 
     /// <summary>
@@ -317,6 +320,89 @@ internal static class EncheresV6RowMapper
             paymentDueDate: null);
     }
 
+    /// <summary>
+    /// Mappe une NOTE D'HONORAIRES d'inventaire (note ou avoir) en document pivot ORDINAIRE — prestation de
+    /// services autonome que l'OVV facture DIRECTEMENT (souvent un inventaire judiciaire ou volontaire), HORS
+    /// mécanisme d'enchères opaque (AUCUN frais d'enchères : ni <c>BuyerFees</c> ni <c>SellerFees</c>). Lines =
+    /// lignes FACTURÉES (honoraires type 1 + frais type 2 ; règlements type 3 exclus) au PRIX TOTAL :
+    /// <c>netAmount</c> = HT ligne (<c>montant_ht</c>), TVA ligne = <c>montant_tva</c> (distincte, telle quelle).
+    /// La note ne portant AUCUN <c>code_tva</c>, la clé de régime est le TAUX EFFECTIF recouvré par ligne
+    /// (<see cref="RecoverRateToken"/>) — la plateforme tranche la catégorie/taux par la table validée (R3,
+    /// arbitrage PO). La NATURE d'opération (TPS1 service) est laissée à la PLATEFORME (operationCategory
+    /// <c>null</c>, parité BA — CLAUDE.md n°6). Pour un avoir, <paramref name="creditNoteOrigin"/> DOIT être résolu.
+    /// </summary>
+    /// <param name="note">La note d'honoraires source (avec ses lignes type 1/2).</param>
+    /// <param name="creditNoteOrigin">Note d'origine d'un avoir, sinon <c>null</c>.</param>
+    /// <returns>Le document pivot correspondant.</returns>
+    public static PivotDocumentDto MapNoteHonoDocument(EncheresV6NoteHono note, EncheresV6NoteHono? creditNoteOrigin)
+    {
+        if (note is null)
+        {
+            throw new ArgumentNullException(nameof(note));
+        }
+
+        string kind = RequireField(note.FactureOuAvoir, "facture_ou_avoir", note.NoNoteHono);
+        string noNote = RequireField(note.NoNoteHono, "no_note_hono", note.NoNoteHono);
+        RequireDate(note.DateFacture, "date_facture", noNote);
+
+        var lines = new List<PivotLineDto>();
+        decimal totalNet = 0m;
+        decimal totalTax = 0m;
+
+        foreach (EncheresV6NoteHonoLigne ligne in note.Lignes)
+        {
+            // Honoraires (type 1) + frais (type 2) = lignes facturées ; le règlement (type 3) est exclu.
+            if (!IsBilledLineNh(ligne.TypeLigne))
+            {
+                continue;
+            }
+
+            // HT et TVA distincte sont portés EXPLICITEMENT par la ligne source (montant_ht / montant_tva) :
+            // arrondi half-up au centime (CLAUDE.md n°1), aucun recalcul. La TVA est reprise telle quelle.
+            decimal lineNet = RoundAmount(ligne.MontantHt);
+            decimal lineTax = RoundAmount(ligne.MontantTva);
+            totalNet += lineNet;
+            totalTax += lineTax;
+
+            lines.Add(new PivotLineDto(
+                description: LineDescription(ligne.Libelle, "Ligne", null),
+                netAmount: lineNet,
+                quantity: 1m,
+                unitPriceNet: null,
+                sourceRegimeCodes: RegimeCodes(RecoverRateToken(lineNet, lineTax)),
+                taxes: new[] { new PivotLineTaxDto(taxAmount: lineTax, rate: null, categoryCode: null, vatexCode: null) },
+                sourceLineRef: null,
+                sourceData: BuildNoteLineSourceData(ligne)));
+        }
+
+        PivotDocumentRefDto[] creditNoteRefs = MapNoteCreditNoteRefs(note, kind, creditNoteOrigin);
+
+        return new PivotDocumentDto(
+            sourceDocumentKind: kind,
+            number: noNote,
+            issueDate: note.DateFacture,
+            sourceReference: SourceRefNhPrefix + noNote,
+            supplier: null,
+            totals: new PivotTotalsDto(
+                totalNet: PivotRounding.RoundAmount(totalNet),
+                totalTax: PivotRounding.RoundAmount(totalTax),
+                totalGross: PivotRounding.RoundAmount(totalNet + totalTax),
+                sourceTotalGross: RoundAmount(note.MontantTtc)),
+            operationCategory: null,
+            currencyCode: NormalizeCurrency(note.CodeDevise),
+            customer: MapNoteHonoCustomer(note),
+            lines: lines,
+            creditNoteRefs: creditNoteRefs,
+            payments: null,
+            documentCharges: null,
+            invoicer: null,
+            payee: null,
+            isSelfBilled: false,
+            prepaidAmount: null,
+            sourceData: BuildNoteDocumentSourceData(note),
+            paymentDueDate: null);
+    }
+
     /// <summary>Mappe une ligne de règlement (BA type 3) en encaissement pivot brut (F09).</summary>
     /// <param name="bordereau">Le bordereau (entête minimale : no_ba) auquel le règlement est rattaché.</param>
     /// <param name="reglement">La ligne de règlement (type 3).</param>
@@ -382,6 +468,34 @@ internal static class EncheresV6RowMapper
     /// <returns><c>true</c> si la ligne est un commentaire sans montant.</returns>
     internal static bool IsCommentLineFc(EncheresV6FactureClientLigne ligne) =>
         ligne.Qte == 0 && ligne.PrixUnitaireHt == 0d;
+
+    /// <summary>Indique si un type de ligne de note est FACTURÉ (honoraires type 1 OU frais type 2) ; le règlement (type 3) est exclu.</summary>
+    /// <param name="typeLigne">Le type de ligne source brut.</param>
+    /// <returns><c>true</c> pour le type 1 ou 2.</returns>
+    internal static bool IsBilledLineNh(string? typeLigne) =>
+        typeLigne == EncheresV6Schema.LigneHonoraireNh || typeLigne == EncheresV6Schema.LigneFraisNh;
+
+    /// <summary>
+    /// Recouvre le TAUX EFFECTIF d'une ligne de note (<c>TVA / HT × 100</c>) comme clé de régime BRUTE — la note
+    /// d'honoraires ne porte AUCUN code de régime TVA en source, le taux est donc reconstruit depuis deux champs
+    /// source (arithmétique de TRANSPORT, jamais une catégorie fiscale : la plateforme tranche la catégorie via
+    /// la table validée, arbitrage PO). Base nulle → « 0 » (taux non recouvrable sans base : ligne exonérée /
+    /// hors champ, qui rend une note à taux MIXTES fail-closed côté plateforme). Arrondi à 2 décimales (couvre
+    /// 20 / 5.5 / 2.1 / 0), formaté invariant sans zéro superflu (« 20 », « 5.5 », « 0 »).
+    /// </summary>
+    /// <param name="lineNet">HT de la ligne (arrondi au centime).</param>
+    /// <param name="lineTax">TVA distincte de la ligne (arrondie au centime).</param>
+    /// <returns>Le jeton de taux effectif (clé de régime brute).</returns>
+    internal static string RecoverRateToken(decimal lineNet, decimal lineTax)
+    {
+        if (lineNet == 0m)
+        {
+            return "0";
+        }
+
+        decimal ratePct = Math.Round(lineTax / lineNet * 100m, 2, MidpointRounding.AwayFromZero);
+        return ratePct.ToString("0.##", CultureInfo.InvariantCulture);
+    }
 
     /// <summary>
     /// Conversion OBLIGATOIRE flottant legacy → <c>decimal</c> au centime, arrondi commercial (half-up) —
@@ -531,6 +645,23 @@ internal static class EncheresV6RowMapper
             isCompanyHint: false);
     }
 
+    private static PivotPartyDto? MapNoteHonoCustomer(EncheresV6NoteHono note)
+    {
+        string? name = ComposeName(note.Nom, note.Prenom);
+        if (name is null)
+        {
+            return null;
+        }
+
+        // La note d'honoraires ne porte ni SIREN ni champ « société » en source → tiers lu B2C par construction
+        // (IsCompanyHint false, aucun SIREN deviné). Un destinataire professionnel (forme juridique dans le nom)
+        // est traité par la PLATEFORME (BuyerLooksProfessionalRule / aiguillage VAL05), jamais ici (CLAUDE.md n°6).
+        return new PivotPartyDto(
+            name: name,
+            address: MapAddress(note.Adresse, note.CodePostal, note.Ville, note.CodePays),
+            isCompanyHint: false);
+    }
+
     private static PivotAddressDto? MapAddress(string? line1, string? postalCode, string? city, string? countryCode)
     {
         if (string.IsNullOrWhiteSpace(line1)
@@ -636,6 +767,26 @@ internal static class EncheresV6RowMapper
         RequireDate(origin.DateFact, "date_fact (origine avoir)", originNoFact);
 
         return new[] { new PivotDocumentRefDto(originNoFact, origin.DateFact, SourceRefFcPrefix + originNoFact) };
+    }
+
+    private static PivotDocumentRefDto[] MapNoteCreditNoteRefs(EncheresV6NoteHono note, string kind, EncheresV6NoteHono? origin)
+    {
+        if (kind != PieceAvoir)
+        {
+            return Array.Empty<PivotDocumentRefDto>();
+        }
+
+        if (origin is null)
+        {
+            throw new SourceSchemaException(
+                $"Avoir de note d'honoraires (no_note_hono « {note.NoNoteHono} ») sans note d'origine résoluble "
+                + $"(no_note_lettrage « {note.NoNoteLettrage} ») : document bloqué, l'origine n'est jamais devinée (ADR-0004 D3-3).");
+        }
+
+        string originNoNote = RequireField(origin.NoNoteHono, "no_note_hono (origine avoir)", origin.NoNoteHono);
+        RequireDate(origin.DateFacture, "date_facture (origine avoir)", originNoNote);
+
+        return new[] { new PivotDocumentRefDto(originNoNote, origin.DateFacture, SourceRefNhPrefix + originNoNote) };
     }
 
     private static string? ComposeName(string? nom, string? prenom)
@@ -758,5 +909,21 @@ internal static class EncheresV6RowMapper
             montant_ht_brut = facture.MontantHt,
             montant_tva_brut = facture.MontantTva,
             montant_ttc_brut = facture.MontantTtc,
+        });
+
+    private static string BuildNoteLineSourceData(EncheresV6NoteHonoLigne ligne) =>
+        JsonConvert.SerializeObject(new
+        {
+            type_ligne = ligne.TypeLigne,
+            code_ligne = ligne.CodeLigne,
+            montant_ht_brut = ligne.MontantHt,
+            montant_tva_brut = ligne.MontantTva,
+        });
+
+    private static string BuildNoteDocumentSourceData(EncheresV6NoteHono note) =>
+        JsonConvert.SerializeObject(new
+        {
+            no_note_hono = note.NoNoteHono,
+            montant_ttc_brut = note.MontantTtc,
         });
 }

@@ -91,6 +91,51 @@ public class EncheresV6FixtureExtractorTests
     }
 
     [Fact]
+    public void ExtractDocuments_emits_note_hono_as_plain_b2c_service_document()
+    {
+        // Une note d'honoraires d'inventaire (prestation de services) rejouée par les fixtures : honoraires (type 1)
+        // au prix total, TVA distincte source, taux effectif recouvré en clé de régime, règlement (type 3) exclu.
+        const string snapshot = @"{
+          ""regimes"": [], ""bordereaux"": [], ""bordereaux_vendeur"": [], ""factures_clients"": [],
+          ""notes_hono"": [
+            { ""no_note_hono"": ""100008"", ""facture_ou_avoir"": ""F"", ""date_facture"": ""2024-04-12"",
+              ""nom"": ""GLOUX"", ""adresse"": ""1 rue de la Criée"", ""code_postal"": ""56000"", ""ville"": ""Vannes"", ""code_pays"": ""FR"",
+              ""montant_ttc"": 27.6, ""code_devise"": ""EURO"",
+              ""lignes"": [
+                { ""type_ligne"": ""1"", ""libelle"": ""Honoraires d'inventaire"", ""montant_ht"": 23.0, ""montant_tva"": 4.6 },
+                { ""type_ligne"": ""3"", ""code_ligne"": ""CE"", ""libelle"": ""Chèque"", ""montant_ht"": 27.6, ""montant_tva"": 0.0 }
+              ] }
+          ] }";
+
+        EncheresV6FixtureExtractor extractor = EncheresV6FixtureExtractor.FromJson(snapshot);
+
+        List<PivotDocumentDto> docs = extractor.ExtractDocuments(new DateTime(2024, 1, 1), new DateTime(2025, 1, 1)).ToList();
+
+        PivotDocumentDto nh = docs.Single(d => d.SourceReference.StartsWith("encheresv6:nh:", StringComparison.Ordinal));
+        nh.Number.Should().Be("100008");
+        nh.BuyerFees.Should().BeNull("une note d'honoraires ne porte aucun frais d'enchères");
+        nh.SellerFees.Should().BeNull();
+        nh.OperationCategory.Should().BeNull("la nature (TPS1) est plateforme (profil tenant)");
+        nh.Lines.Should().ContainSingle("le règlement (type 3) est exclu");
+        nh.Lines[0].NetAmount.Should().Be(23.00m);
+        nh.Lines[0].Taxes[0].TaxAmount.Should().Be(4.60m, "TVA distincte source (montant_tva)");
+        nh.Lines[0].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("20", "taux effectif recouvré (4,6/23)");
+        nh.Totals.SourceTotalGross.Should().Be(27.60m);
+    }
+
+    [Fact]
+    public void FromJson_rejects_duplicate_no_note_hono_for_idempotence()
+    {
+        // Deux notes de même no_note_hono produiraient deux pivots de même SourceReference (double-déclaration, R2).
+        const string dup = @"{ ""regimes"": [], ""bordereaux"": [], ""bordereaux_vendeur"": [], ""factures_clients"": [], ""notes_hono"": [
+            { ""no_note_hono"": ""100008"", ""facture_ou_avoir"": ""F"", ""date_facture"": ""2024-04-12"", ""nom"": ""A"", ""lignes"": [] },
+            { ""no_note_hono"": ""100008"", ""facture_ou_avoir"": ""F"", ""date_facture"": ""2024-04-13"", ""nom"": ""B"", ""lignes"": [] }
+          ] }";
+
+        ((Action)(() => EncheresV6FixtureExtractor.FromJson(dup))).Should().Throw<SourceSchemaException>();
+    }
+
+    [Fact]
     public void FromJson_rejects_duplicate_no_fact_for_idempotence()
     {
         // Deux factures de même no_fact produiraient deux pivots de même SourceReference (double-déclaration, R2).
