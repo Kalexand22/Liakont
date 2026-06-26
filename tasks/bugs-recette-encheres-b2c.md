@@ -291,3 +291,18 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
   (libellés composante l.526, `PartNotConsulted` l.607). UI Liakont — règle review 19 (test bUnit/Playwright).
 - **NB** : le fond fonctionne (marge/taxable exigent une règle Frais — cf. seed `82e6361b`) ; c'est purement la
   LISIBILITÉ de l'éditeur qui est en cause.
+
+## BUG-13 — Publication SIREN : champs « Type d'opération » / « Taille d'entreprise » requis MÊME quand la PA les ignore (relevé Karl 26/06, PAS pour maintenant)
+
+- **Symptôme** : l'écran « Publication du SIREN / transmission » rend **obligatoires** (`*`) « Type d'opération » et
+  « Taille d'entreprise », mais pour **SuperPDP ces champs ne servent à rien** : `SuperPdpClient.EnsureTaxReportSettingAsync`
+  ne transmet AUCUN champ (SuperPDP n'expose pas d'écriture de `tax_report_setting` ; la KYC du SIREN se fait dans
+  l'espace SuperPDP). L'opérateur doit donc saisir des valeurs bidon obligatoires qui n'ont aucun effet.
+- **Faits** : la contrainte « requis » est codée en dur dans le formulaire (F05), indépendante de la PA active. Or
+  CLAUDE.md n°8 : aucun comportement produit ne doit dépendre de ce qu'UN PA sait faire — symétriquement, un champ
+  ne devrait pas être imposé si la PA active n'en a pas l'usage.
+- **À corriger** : piloter le « requis » de ces champs par la **capacité / les besoins de la PA active**
+  (`PaCapabilities`), pas en dur ; ou au minimum ne pas bloquer la publication d'une PA qui les ignore (SuperPDP).
+  Idéalement, proposer/valider les valeurs attendues par la PA quand elle en a (au lieu de « jamais devinée »).
+- **Fichiers (pistes)** : l'écran de publication SIREN (Host Components, `PaPublicationConsoleService`),
+  `PaTaxReportSettingRequest` (Transmission.Contracts). UI Liakont — règle review 19.
