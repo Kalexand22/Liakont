@@ -91,6 +91,24 @@
       "rateMode": "Fixed",
       "rateValue": 5.5,
       "note": "Documents B2C ordinaires (F03 §2.9), taux réduit 5,5 % -> catégorie S (le taux porte la distinction). Clé = taux effectif unifié factures/notes. Un document à taux MIXTES (p. ex. honoraires 20 % + frais 0 %) reste fail-closed (0 % non mappé)."
+    },
+    {
+      "sourceRegimeCode": "6",
+      "label": "Régime 6 — part FRAIS (commission/honoraire de la marge) taxable au taux normal",
+      "part": "Frais",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 20,
+      "note": "REQUIS pour l'e-reporting de la MARGE : le job B4 marge mappe la COMMISSION (honoraire acheteur+vendeur) en Part.Frais pour obtenir le TAUX de la marge (20 %, F03 §2.5) ; sans cette règle la marge BLOQUE (UnmappedRate). L'adjudication, elle, reste exonérée (règle « 6 » en Part.Autre/« Hors Enchères » -> E+VATEX-EU-J). Même code régime, deux composantes."
+    },
+    {
+      "sourceRegimeCode": "5",
+      "label": "Régime 5 — part FRAIS (commission acheteur) taxable au taux normal",
+      "part": "Frais",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 20,
+      "note": "REQUIS pour l'e-reporting du PRIX TOTAL TAXABLE : le job B4 taxable mappe la commission acheteur en Part.Frais (20 %, F03 §2.7) ; sans cette règle le taxable BLOQUE (UnmappedRate). L'adjudication taxable est mappée par la règle « 5 » en Part.Autre/« Hors Enchères »."
     }
   ]
 }
