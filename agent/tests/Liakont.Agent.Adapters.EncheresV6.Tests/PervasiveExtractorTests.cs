@@ -75,7 +75,8 @@ public class PervasiveExtractorTests
 
         _ = extractor.ExtractDocuments(From, To).ToList();
 
-        string baSql = connection.ExecutedCommandTexts.Single(sql => !sql.Contains(EncheresV6Schema.TableEnteteBv));
+        // La requête ACHETEUR est la seule à joindre ligne_pv (table QUALIFIÉE) ; FC et BV ne la joignent pas.
+        string baSql = connection.ExecutedCommandTexts.Single(sql => sql.Contains("enc." + EncheresV6Schema.TableLignePv));
         baSql.Should().Contain(
             "JOIN enc." + EncheresV6Schema.TableLignePv + " lp ON lp." + EncheresV6Schema.ColPvNoLigneToutPv
             + " = l." + EncheresV6Schema.ColNoLigneToutPv,
@@ -117,13 +118,69 @@ public class PervasiveExtractorTests
         ba.BuyerFees.Should().ContainSingle().Which.SourceRegimeCode.Should().Be("6");
     }
 
-    // Route la requête BA vers les lignes fournies et la requête BV vers un jeu vide (la requête vendeur
-    // référence entete_bv ; la requête acheteur ne le fait pas).
+    [Fact]
+    public void ExtractDocuments_streams_facture_client_filtered_by_dossier()
+    {
+        // Parité ODBC du flux ORDINAIRE : la requête FACTURE CLIENT (entete_facture_clien) streame une facture
+        // plate sans frais, code_tva en clé de régime, filtrée par dossier_cpt (tenant).
+        var connection = new RecordingConnection(readerResolver: sql =>
+            sql.Contains(EncheresV6Schema.TableEnteteFactureClient)
+                ? new[] { FactureClientRow() }
+                : Array.Empty<IReadOnlyDictionary<string, object?>>());
+        var extractor = new PervasiveExtractor(connection, new EncheresV6Schema("enc"), "2", new RecordingAgentLog());
+
+        PivotDocumentDto fc = extractor.ExtractDocuments(From, To).ToList()
+            .Should().ContainSingle(d => d.SourceReference.StartsWith("encheresv6:fc:", StringComparison.Ordinal)).Subject;
+
+        fc.Number.Should().Be("00100007");
+        fc.BuyerFees.Should().BeNull("une facture ordinaire ne porte aucun frais d'enchères");
+        fc.SellerFees.Should().BeNull();
+        fc.OperationCategory.Should().BeNull("la nature est plateforme (profil tenant)");
+        fc.Lines.Should().ContainSingle().Which.NetAmount.Should().Be(144.00m);
+        fc.Lines[0].Taxes[0].TaxAmount.Should().Be(28.80m);
+        fc.Lines[0].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("1");
+
+        connection.ExecutedCommandTexts.Should().Contain(
+            sql => sql.Contains(EncheresV6Schema.TableEnteteFactureClient) && sql.Contains(EncheresV6Schema.ColDossierCpt),
+            "la requête facture client filtre par dossier_cpt (tenant)");
+    }
+
+    private static Dictionary<string, object?> FactureClientRow() => new Dictionary<string, object?>(StringComparer.Ordinal)
+    {
+        [EncheresV6Schema.ColNoFact] = "00100007",
+        [EncheresV6Schema.ColFactureOuAvoir] = "F",
+        [EncheresV6Schema.ColDateFact] = new DateTime(2024, 4, 12),
+        [EncheresV6Schema.ColNoFactureLettrage] = null,
+        [EncheresV6Schema.ColNom] = "LOBRY",
+        [EncheresV6Schema.ColPrenom] = "STEEVE",
+        [EncheresV6Schema.ColFcAdresse1] = "15 rue Boberie",
+        [EncheresV6Schema.ColFcCp] = "53000",
+        [EncheresV6Schema.ColVille] = "LAVAL",
+        [EncheresV6Schema.ColCodePays] = "FR",
+        [EncheresV6Schema.ColFcMontantHt] = 144.0d,
+        [EncheresV6Schema.ColFcMontantTva] = 28.8d,
+        [EncheresV6Schema.ColFcMontantTtc] = 172.8d,
+        [EncheresV6Schema.ColCodeDevise] = "EUR",
+        [EncheresV6Schema.ColOriginNoFact] = null,
+        [EncheresV6Schema.ColOriginDateFact] = null,
+        [EncheresV6Schema.ColTypeLigne] = "1",
+        [EncheresV6Schema.ColNoLigne] = "1",
+        [EncheresV6Schema.ColCodeArticle] = "CV",
+        [EncheresV6Schema.ColDesignation] = "Caisse de Vins",
+        [EncheresV6Schema.ColQte] = 12,
+        [EncheresV6Schema.ColPrixUnitaireHt] = 12.0d,
+        [EncheresV6Schema.ColFcCodeTva] = 1,
+        [EncheresV6Schema.ColTauxTva] = 20.0d,
+    };
+
+    // Route la requête ACHETEUR (seule à référencer entete_ba) vers les lignes fournies ; les requêtes VENDEUR
+    // (entete_bv) et FACTURE CLIENT (entete_facture_clien) reçoivent un jeu vide. « entete_ba » n'est sous-chaîne
+    // ni d'« entete_bv » ni d'« entete_facture_clien » : le routage est sans ambiguïté.
     private static Func<string, IReadOnlyList<IReadOnlyDictionary<string, object?>>> RouteBaThenBv(
         IReadOnlyList<IReadOnlyDictionary<string, object?>> baRows) =>
-        sql => sql.Contains(EncheresV6Schema.TableEnteteBv)
-            ? Array.Empty<IReadOnlyDictionary<string, object?>>()
-            : baRows;
+        sql => sql.Contains(EncheresV6Schema.TableEnteteBa)
+            ? baRows
+            : Array.Empty<IReadOnlyDictionary<string, object?>>();
 
     private static Dictionary<string, object?> MargeBaRow() => new Dictionary<string, object?>(StringComparer.Ordinal)
     {

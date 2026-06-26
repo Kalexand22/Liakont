@@ -282,6 +282,128 @@ public class EncheresV6RowMapperTests
         payment.SourceReference.Should().Be("encheresv6:remise:REM-0500");
     }
 
+    [Fact]
+    public void MapFactureClientDocument_does_not_carry_emitter_nature_or_fees()
+    {
+        PivotDocumentDto doc = EncheresV6RowMapper.MapFactureClientDocument(StandardFacture(), null);
+
+        doc.Supplier.Should().BeNull("l'émetteur est rempli par la plateforme (FilledByPlatform)");
+        doc.OperationCategory.Should().BeNull("la nature TLB1/TPS1 est plateforme (profil tenant), jamais devinée par l'agent (n°6)");
+        doc.BuyerFees.Should().BeNull("une facture ordinaire ne porte AUCUN frais d'enchères (discriminant document ordinaire)");
+        doc.SellerFees.Should().BeNull();
+        doc.SourceDocumentKind.Should().Be("F", "le type de pièce est transporté brut (ADR-0004 D3-3)");
+        doc.SourceReference.Should().Be("encheresv6:fc:FAC-001");
+        doc.Number.Should().Be("FAC-001");
+        doc.CurrencyCode.Should().Be("EUR", "« EURO » source normalisé vers l'ISO 4217");
+    }
+
+    [Fact]
+    public void MapFactureClientDocument_maps_billed_lines_at_total_price_with_source_vat()
+    {
+        PivotDocumentDto doc = EncheresV6RowMapper.MapFactureClientDocument(StandardFacture(), null);
+
+        // Seules les 2 lignes FACTURÉES (type 1) sont portées : la ligne de commentaire (TXT, qte/prix nuls) et
+        // le règlement (type 2) sont écartés.
+        doc.Lines.Should().HaveCount(2);
+        doc.Lines[0].NetAmount.Should().Be(100.00m);
+        doc.Lines[0].Taxes[0].TaxAmount.Should().Be(20.00m, "TVA ligne = HT × taux_tva, comme la source la calcule (transport, pas une règle)");
+        doc.Lines[0].Taxes[0].Rate.Should().BeNull("le taux validé est posé par la plateforme (R3)");
+        doc.Lines[0].Taxes[0].CategoryCode.Should().BeNull("le mapping TVA est plateforme");
+        doc.Lines[0].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("1", "code_tva transporté brut en clé de régime");
+        doc.Lines[1].NetAmount.Should().Be(144.00m);
+        doc.Lines[1].Taxes[0].TaxAmount.Should().Be(28.80m);
+
+        doc.Totals.TotalNet.Should().Be(244.00m);
+        doc.Totals.TotalTax.Should().Be(48.80m);
+        doc.Totals.TotalGross.Should().Be(292.80m);
+        doc.Totals.SourceTotalGross.Should().Be(292.80m, "le TTC d'entête source est porté en contrôle");
+    }
+
+    [Fact]
+    public void MapFactureClientDocument_reduced_rate_line_uses_its_own_source_rate()
+    {
+        EncheresV6FactureClient f = StandardFacture();
+        f.Lignes[1].CodeTva = 2;
+        f.Lignes[1].Qte = 1;
+        f.Lignes[1].PrixUnitaireHt = 200.00;
+        f.Lignes[1].TauxTva = 5.5;
+
+        PivotDocumentDto doc = EncheresV6RowMapper.MapFactureClientDocument(f, null);
+
+        doc.Lines[1].NetAmount.Should().Be(200.00m);
+        doc.Lines[1].Taxes[0].TaxAmount.Should().Be(11.00m, "5,5 % de 200");
+        doc.Lines[1].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("2");
+    }
+
+    [Fact]
+    public void MapFactureClientDocument_customer_is_b2c_without_siren()
+    {
+        PivotDocumentDto doc = EncheresV6RowMapper.MapFactureClientDocument(StandardFacture(), null);
+
+        doc.Customer!.Name.Should().Be("Client Particulier");
+        doc.Customer.Siren.Should().BeNull("la facture client ne porte pas de SIREN → B2C par construction");
+        doc.Customer.IsCompanyHint.Should().BeFalse();
+        doc.Customer.Address!.PostalCode.Should().Be("75009");
+    }
+
+    [Fact]
+    public void MapFactureClientDocument_orphan_credit_note_is_blocked_never_guessed()
+    {
+        EncheresV6FactureClient avoir = StandardFacture();
+        avoir.FactureOuAvoir = "A";
+        avoir.NoFactureLettrage = "INCONNUE";
+
+        ((Action)(() => EncheresV6RowMapper.MapFactureClientDocument(avoir, null)))
+            .Should().Throw<SourceSchemaException>("un avoir sans facture d'origine résoluble est bloqué (ADR-0004 D3-3)");
+    }
+
+    [Fact]
+    public void MapFactureClientDocument_credit_note_links_to_resolved_origin()
+    {
+        EncheresV6FactureClient origin = StandardFacture();
+        origin.NoFact = "FAC-000";
+        EncheresV6FactureClient avoir = StandardFacture();
+        avoir.NoFact = "AV-001";
+        avoir.FactureOuAvoir = "A";
+        avoir.NoFactureLettrage = "FAC-000";
+
+        PivotDocumentDto doc = EncheresV6RowMapper.MapFactureClientDocument(avoir, origin);
+
+        doc.SourceDocumentKind.Should().Be("A");
+        doc.CreditNoteRefs.Should().ContainSingle();
+        doc.CreditNoteRefs[0].Number.Should().Be("FAC-000");
+        doc.CreditNoteRefs[0].SourceReference.Should().Be("encheresv6:fc:FAC-000");
+    }
+
+    // Facture client ORDINAIRE (hors enchères) : 2 lignes facturées (HONO 100 @20 %, caisse de vins 12×12 @20 %)
+    // + 1 ligne de commentaire (TXT, écartée) + 1 règlement (type 2, écarté). HT 244 / TVA 48,80 / TTC 292,80.
+    private static EncheresV6FactureClient StandardFacture()
+    {
+        var f = new EncheresV6FactureClient
+        {
+            NoFact = "FAC-001",
+            FactureOuAvoir = "F",
+            DateFact = new DateTime(2026, 1, 20),
+            Nom = "Client",
+            Prenom = "Particulier",
+            Adresse1 = "11 rue des Prunes",
+            Cp = "75009",
+            Ville = "Paris",
+            CodePays = "FR",
+            MontantHt = 244.00,
+            MontantTva = 48.80,
+            MontantTtc = 292.80,
+            CodeDevise = "EURO",
+        };
+
+        f.Lignes.Add(new EncheresV6FactureClientLigne { TypeLigne = "1", NoLigne = "1", CodeArticle = "HONO", Designation = "Honoraires inventaire", Qte = 1, PrixUnitaireHt = 100.00, CodeTva = 1, TauxTva = 20.0 });
+        f.Lignes.Add(new EncheresV6FactureClientLigne { TypeLigne = "1", NoLigne = "2", CodeArticle = "CV", Designation = "Caisse de vins", Qte = 12, PrixUnitaireHt = 12.00, CodeTva = 1, TauxTva = 20.0 });
+        f.Lignes.Add(new EncheresV6FactureClientLigne { TypeLigne = "1", NoLigne = "3", CodeArticle = "TXT", Designation = "Merci de votre confiance", Qte = 0, PrixUnitaireHt = 0.0, CodeTva = 0, TauxTva = 0.0 });
+        f.Lignes.Add(new EncheresV6FactureClientLigne { TypeLigne = "2", NoLigne = "1", CodeArticle = string.Empty, Designation = "Chèque", Qte = 0, PrixUnitaireHt = 292.80, CodeTva = 0, TauxTva = 0.0 });
+
+        return f;
+    }
+
     // Bordereau ACHETEUR : 1 lot au régime 6 (marge), adjudication 2000 (TVA 0) + commission acheteur
     // 334.40 HT + 66.88 TVA = 401.28 TTC (cas réel no_ba=100022).
     private static EncheresV6Bordereau MargeBa()

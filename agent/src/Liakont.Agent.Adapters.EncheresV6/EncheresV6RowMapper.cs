@@ -2,6 +2,7 @@ namespace Liakont.Agent.Adapters.EncheresV6;
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Liakont.Agent.Adapters.EncheresV6.Source;
 using Liakont.Agent.Contracts;
 using Liakont.Agent.Contracts.Pivot;
@@ -40,6 +41,9 @@ internal static class EncheresV6RowMapper
 
     /// <summary>Préfixe namespacé de la référence source d'un bordereau vendeur.</summary>
     internal const string SourceRefBvPrefix = "encheresv6:bv:";
+
+    /// <summary>Préfixe namespacé de la référence source d'une facture client (document ordinaire hors enchères).</summary>
+    internal const string SourceRefFcPrefix = "encheresv6:fc:";
 
     private const string DeviseDomestique = "EUR";
 
@@ -226,6 +230,93 @@ internal static class EncheresV6RowMapper
             sellerFees: sellerFees);
     }
 
+    /// <summary>
+    /// Mappe une FACTURE CLIENT (facture ou avoir) en document pivot ORDINAIRE — document que l'OVV émet
+    /// DIRECTEMENT, HORS mécanisme d'enchères opaque (AUCUN frais d'enchères : ni <c>BuyerFees</c> ni
+    /// <c>SellerFees</c> — discriminant « document ordinaire » de <c>B2cPlainTaxableMarking</c>). Lines =
+    /// lignes FACTURÉES (type 1, hors lignes de pur commentaire) au PRIX TOTAL : <c>netAmount</c> = HT ligne
+    /// (<c>qte × prix_unitaire_ht</c>), TVA ligne = HT × <c>taux_tva</c> (la source elle-même calcule ainsi —
+    /// transport, pas une règle inventée), <c>code_tva</c> brut en clé de régime (la plateforme mappe la
+    /// catégorie/taux par la table validée). La NATURE d'opération (TLB1 bien / TPS1 service) est laissée à la
+    /// PLATEFORME (operationCategory <c>null</c>, remplie au read-time depuis le profil tenant — parité BA,
+    /// CLAUDE.md n°6). Pour un avoir, <paramref name="creditNoteOrigin"/> DOIT être l'origine résolue.
+    /// </summary>
+    /// <param name="facture">La facture client source (avec ses lignes type 1).</param>
+    /// <param name="creditNoteOrigin">Facture d'origine d'un avoir, sinon <c>null</c>.</param>
+    /// <returns>Le document pivot correspondant.</returns>
+    public static PivotDocumentDto MapFactureClientDocument(EncheresV6FactureClient facture, EncheresV6FactureClient? creditNoteOrigin)
+    {
+        if (facture is null)
+        {
+            throw new ArgumentNullException(nameof(facture));
+        }
+
+        string kind = RequireField(facture.FactureOuAvoir, "facture_ou_avoir", facture.NoFact);
+        string noFact = RequireField(facture.NoFact, "no_fact", facture.NoFact);
+        RequireDate(facture.DateFact, "date_fact", noFact);
+
+        var lines = new List<PivotLineDto>();
+        decimal totalNet = 0m;
+        decimal totalTax = 0m;
+
+        foreach (EncheresV6FactureClientLigne ligne in facture.Lignes)
+        {
+            // L'extracteur ne charge que les lignes FACTURÉES (type 1) ; on reste défensif et on écarte les
+            // lignes de pur commentaire (TXT : quantité ET prix nuls) — présentation, pas une ligne facturée.
+            if (!IsBilledLineFc(ligne.TypeLigne) || IsCommentLineFc(ligne))
+            {
+                continue;
+            }
+
+            decimal lineNet = RoundAmount(ligne.Qte * ligne.PrixUnitaireHt);
+
+            // TVA de la ligne reconstruite comme la source la calcule (HT × taux_tva) : transport d'une
+            // arithmétique source (taux_tva est un champ source), JAMAIS une règle fiscale inventée (CLAUDE.md
+            // n°6). La plateforme reprend cette TVA telle quelle (ADR-0015) et mappe la catégorie/taux par
+            // code_tva (table validée). Arrondi half-up au centime (CLAUDE.md n°1).
+            decimal lineTax = PivotRounding.RoundAmount(lineNet * (decimal)ligne.TauxTva / 100m);
+            totalNet += lineNet;
+            totalTax += lineTax;
+
+            lines.Add(new PivotLineDto(
+                description: LineDescription(ligne.Designation, "Ligne", ligne.NoLigne),
+                netAmount: lineNet,
+                quantity: ligne.Qte,
+                unitPriceNet: null,
+                sourceRegimeCodes: RegimeCodes(ligne.CodeTva.ToString(CultureInfo.InvariantCulture)),
+                taxes: new[] { new PivotLineTaxDto(taxAmount: lineTax, rate: null, categoryCode: null, vatexCode: null) },
+                sourceLineRef: ligne.NoLigne,
+                sourceData: BuildFactureLineSourceData(ligne)));
+        }
+
+        PivotDocumentRefDto[] creditNoteRefs = MapFactureCreditNoteRefs(facture, kind, creditNoteOrigin);
+
+        return new PivotDocumentDto(
+            sourceDocumentKind: kind,
+            number: noFact,
+            issueDate: facture.DateFact,
+            sourceReference: SourceRefFcPrefix + noFact,
+            supplier: null,
+            totals: new PivotTotalsDto(
+                totalNet: PivotRounding.RoundAmount(totalNet),
+                totalTax: PivotRounding.RoundAmount(totalTax),
+                totalGross: PivotRounding.RoundAmount(totalNet + totalTax),
+                sourceTotalGross: RoundAmount(facture.MontantTtc)),
+            operationCategory: null,
+            currencyCode: NormalizeCurrency(facture.CodeDevise),
+            customer: MapFactureClientCustomer(facture),
+            lines: lines,
+            creditNoteRefs: creditNoteRefs,
+            payments: null,
+            documentCharges: null,
+            invoicer: null,
+            payee: null,
+            isSelfBilled: false,
+            prepaidAmount: null,
+            sourceData: BuildFactureDocumentSourceData(facture),
+            paymentDueDate: null);
+    }
+
     /// <summary>Mappe une ligne de règlement (BA type 3) en encaissement pivot brut (F09).</summary>
     /// <param name="bordereau">Le bordereau (entête minimale : no_ba) auquel le règlement est rattaché.</param>
     /// <param name="reglement">La ligne de règlement (type 3).</param>
@@ -276,6 +367,21 @@ internal static class EncheresV6RowMapper
     /// <param name="typeLigne">Le type de ligne source brut.</param>
     /// <returns><c>true</c> pour le type 2.</returns>
     internal static bool IsCommissionLineBv(string? typeLigne) => typeLigne == EncheresV6Schema.LigneCommissionBv;
+
+    /// <summary>Indique si un type de ligne de facture client est une ligne FACTURÉE (type 1).</summary>
+    /// <param name="typeLigne">Le type de ligne source brut.</param>
+    /// <returns><c>true</c> pour le type 1.</returns>
+    internal static bool IsBilledLineFc(string? typeLigne) => typeLigne == EncheresV6Schema.LigneFactureeFc;
+
+    /// <summary>
+    /// Indique si une ligne FACTURÉE est une ligne de pur COMMENTAIRE (présentation) : quantité ET prix
+    /// unitaire nuls (cas TXT du système source). Une telle ligne ne porte aucune valeur facturée — l'écarter
+    /// est une discrimination STRUCTURELLE (quelle ligne est facturée), pas une dérivation fiscale (CLAUDE.md n°6).
+    /// </summary>
+    /// <param name="ligne">La ligne de facture client.</param>
+    /// <returns><c>true</c> si la ligne est un commentaire sans montant.</returns>
+    internal static bool IsCommentLineFc(EncheresV6FactureClientLigne ligne) =>
+        ligne.Qte == 0 && ligne.PrixUnitaireHt == 0d;
 
     /// <summary>
     /// Conversion OBLIGATOIRE flottant legacy → <c>decimal</c> au centime, arrondi commercial (half-up) —
@@ -407,6 +513,24 @@ internal static class EncheresV6RowMapper
             isCompanyHint: false);
     }
 
+    private static PivotPartyDto? MapFactureClientCustomer(EncheresV6FactureClient facture)
+    {
+        string? name = ComposeName(facture.Nom, facture.Prenom);
+        if (name is null)
+        {
+            // Client anonyme : pas de tiers destinataire nommé (F01-F02 §6).
+            return null;
+        }
+
+        // La facture client ne porte ni SIREN ni champ « société » en source → tiers PARTICULIER (B2C) par
+        // construction. L'aiguillage B2B/B2C reste une décision PLATEFORME (VAL05) ; ici, lecture BRUTE sans
+        // heuristique (CLAUDE.md n°6) — IsCompanyHint false, aucun SIREN deviné.
+        return new PivotPartyDto(
+            name: name,
+            address: MapAddress(facture.Adresse1, facture.Cp, facture.Ville, facture.CodePays),
+            isCompanyHint: false);
+    }
+
     private static PivotAddressDto? MapAddress(string? line1, string? postalCode, string? city, string? countryCode)
     {
         if (string.IsNullOrWhiteSpace(line1)
@@ -492,6 +616,26 @@ internal static class EncheresV6RowMapper
         RequireDate(origin.DateVente, "date_vente (origine avoir)", originNoBv);
 
         return new[] { new PivotDocumentRefDto(originNoBv, origin.DateVente, SourceRefBvPrefix + originNoBv) };
+    }
+
+    private static PivotDocumentRefDto[] MapFactureCreditNoteRefs(EncheresV6FactureClient facture, string kind, EncheresV6FactureClient? origin)
+    {
+        if (kind != PieceAvoir)
+        {
+            return Array.Empty<PivotDocumentRefDto>();
+        }
+
+        if (origin is null)
+        {
+            throw new SourceSchemaException(
+                $"Avoir facture client (no_fact « {facture.NoFact} ») sans facture d'origine résoluble "
+                + $"(no_facture_lettrage « {facture.NoFactureLettrage} ») : document bloqué, l'origine n'est jamais devinée (ADR-0004 D3-3).");
+        }
+
+        string originNoFact = RequireField(origin.NoFact, "no_fact (origine avoir)", origin.NoFact);
+        RequireDate(origin.DateFact, "date_fact (origine avoir)", originNoFact);
+
+        return new[] { new PivotDocumentRefDto(originNoFact, origin.DateFact, SourceRefFcPrefix + originNoFact) };
     }
 
     private static string? ComposeName(string? nom, string? prenom)
@@ -594,5 +738,25 @@ internal static class EncheresV6RowMapper
             no_bv = bordereau.NoBv,
             total_bordereau_brut = bordereau.TotalBordereau,
             code_regime_tva = bordereau.CodeRegimeTva,
+        });
+
+    private static string BuildFactureLineSourceData(EncheresV6FactureClientLigne ligne) =>
+        JsonConvert.SerializeObject(new
+        {
+            no_ligne = ligne.NoLigne,
+            code_article = ligne.CodeArticle,
+            qte = ligne.Qte,
+            prix_unitaire_ht_brut = ligne.PrixUnitaireHt,
+            code_tva = ligne.CodeTva,
+            taux_tva_brut = ligne.TauxTva,
+        });
+
+    private static string BuildFactureDocumentSourceData(EncheresV6FactureClient facture) =>
+        JsonConvert.SerializeObject(new
+        {
+            no_fact = facture.NoFact,
+            montant_ht_brut = facture.MontantHt,
+            montant_tva_brut = facture.MontantTva,
+            montant_ttc_brut = facture.MontantTtc,
         });
 }

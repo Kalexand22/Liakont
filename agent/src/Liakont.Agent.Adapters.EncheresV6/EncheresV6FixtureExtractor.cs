@@ -21,17 +21,21 @@ public sealed class EncheresV6FixtureExtractor : IExtractor
 {
     private readonly List<EncheresV6Bordereau> _bordereaux;
     private readonly List<EncheresV6BordereauVendeur> _bordereauxVendeur;
+    private readonly List<EncheresV6FactureClient> _facturesClients;
     private readonly List<EncheresV6Regime> _regimes;
     private readonly Dictionary<string, EncheresV6Bordereau> _baByNo;
     private readonly Dictionary<string, EncheresV6BordereauVendeur> _bvByNo;
+    private readonly Dictionary<string, EncheresV6FactureClient> _factureByNo;
 
     private EncheresV6FixtureExtractor(EncheresV6SourceSnapshot snapshot)
     {
         _bordereaux = snapshot.Bordereaux;
         _bordereauxVendeur = snapshot.BordereauxVendeur;
+        _facturesClients = snapshot.FacturesClients;
         _regimes = snapshot.Regimes;
         _baByNo = IndexBa(_bordereaux);
         _bvByNo = IndexBv(_bordereauxVendeur);
+        _factureByNo = IndexFactures(_facturesClients);
 
         Capabilities = new ExtractorCapabilities(
             providesSourceDocuments: false,
@@ -106,6 +110,7 @@ public sealed class EncheresV6FixtureExtractor : IExtractor
             merged.Regimes.AddRange(snapshot.Regimes);
             merged.Bordereaux.AddRange(snapshot.Bordereaux);
             merged.BordereauxVendeur.AddRange(snapshot.BordereauxVendeur);
+            merged.FacturesClients.AddRange(snapshot.FacturesClients);
         }
 
         return new EncheresV6FixtureExtractor(merged);
@@ -118,7 +123,8 @@ public sealed class EncheresV6FixtureExtractor : IExtractor
     /// <inheritdoc />
     public HealthCheckResult CheckHealth() =>
         HealthCheckResult.Healthy(
-            $"Source de fixtures EncheresV6 : {_bordereaux.Count} BA, {_bordereauxVendeur.Count} BV, {_regimes.Count} régime(s).");
+            $"Source de fixtures EncheresV6 : {_bordereaux.Count} BA, {_bordereauxVendeur.Count} BV, "
+            + $"{_facturesClients.Count} facture(s) client, {_regimes.Count} régime(s).");
 
     /// <inheritdoc />
     public IEnumerable<PivotDocumentDto> ExtractDocuments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc)
@@ -141,6 +147,16 @@ public sealed class EncheresV6FixtureExtractor : IExtractor
             }
 
             yield return EncheresV6RowMapper.MapBvDocument(bordereau, ResolveBvOrigin(bordereau));
+        }
+
+        foreach (EncheresV6FactureClient facture in _facturesClients)
+        {
+            if (!IsInPeriod(facture.DateFact, fromInclusiveUtc, toExclusiveUtc))
+            {
+                continue;
+            }
+
+            yield return EncheresV6RowMapper.MapFactureClientDocument(facture, ResolveFactureOrigin(facture));
         }
     }
 
@@ -281,6 +297,30 @@ public sealed class EncheresV6FixtureExtractor : IExtractor
         return index;
     }
 
+    private static Dictionary<string, EncheresV6FactureClient> IndexFactures(IEnumerable<EncheresV6FactureClient> factures)
+    {
+        var index = new Dictionary<string, EncheresV6FactureClient>(StringComparer.Ordinal);
+        foreach (EncheresV6FactureClient facture in factures)
+        {
+            if (string.IsNullOrWhiteSpace(facture.NoFact))
+            {
+                continue;
+            }
+
+            // Idempotence (R2) : un no_fact dupliqué produirait deux pivots de même SourceReference.
+            if (index.ContainsKey(facture.NoFact!))
+            {
+                throw new SourceSchemaException(
+                    $"Fixtures EncheresV6 : facture client « no_fact={facture.NoFact} » dupliquée — "
+                    + "chaque facture doit être unique (idempotence R2). Corrigez les fixtures.");
+            }
+
+            index[facture.NoFact!] = facture;
+        }
+
+        return index;
+    }
+
     private static bool IsInPeriod(DateTime value, DateTime fromInclusive, DateTime toExclusive) =>
         value >= fromInclusive && value < toExclusive;
 
@@ -305,6 +345,18 @@ public sealed class EncheresV6FixtureExtractor : IExtractor
         }
 
         _bvByNo.TryGetValue(bordereau.NoBvLettrage!, out EncheresV6BordereauVendeur? origin);
+        return origin;
+    }
+
+    private EncheresV6FactureClient? ResolveFactureOrigin(EncheresV6FactureClient facture)
+    {
+        if (!string.Equals(facture.FactureOuAvoir, EncheresV6RowMapper.PieceAvoir, StringComparison.Ordinal)
+            || string.IsNullOrWhiteSpace(facture.NoFactureLettrage))
+        {
+            return null;
+        }
+
+        _factureByNo.TryGetValue(facture.NoFactureLettrage!, out EncheresV6FactureClient? origin);
         return origin;
     }
 }

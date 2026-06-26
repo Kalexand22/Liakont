@@ -23,4 +23,8 @@ internal sealed class EncheresV6SourceSnapshot
     /// <summary>Bordereaux VENDEUR (jambe vendeur de la marge) avec leurs lignes (tables <c>entete_bv</c> + <c>lignes_bv</c>).</summary>
     [JsonProperty("bordereaux_vendeur")]
     public List<EncheresV6BordereauVendeur> BordereauxVendeur { get; } = new List<EncheresV6BordereauVendeur>();
+
+    /// <summary>Factures clients ORDINAIRES (hors enchères) avec leurs lignes (tables <c>entete_facture_clien</c> + <c>ligne_facture_client</c>).</summary>
+    [JsonProperty("factures_clients")]
+    public List<EncheresV6FactureClient> FacturesClients { get; } = new List<EncheresV6FactureClient>();
 }

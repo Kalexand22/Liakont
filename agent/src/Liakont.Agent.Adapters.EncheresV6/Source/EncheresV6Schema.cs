@@ -34,6 +34,8 @@ internal sealed class EncheresV6Schema
     internal const string TableLignesBv = "lignes_bv";
     internal const string TableLignePv = "ligne_pv";
     internal const string TableRegimes = "Regime_tva";
+    internal const string TableEnteteFactureClient = "entete_facture_clien";
+    internal const string TableLigneFactureClient = "ligne_facture_client";
 
     // ── Colonnes communes / BA ──────────────────────────────────────
     internal const string ColNoBa = "no_ba";
@@ -81,6 +83,31 @@ internal sealed class EncheresV6Schema
     // ── ligne_pv ────────────────────────────────────────────────────
     internal const string ColPvNoLigneToutPv = "no_ligne_tout_pv";
 
+    // ── Factures clients (entête entete_facture_clien) ──────────────
+    internal const string ColNoFact = "no_fact";
+    internal const string ColFactureOuAvoir = "facture_ou_avoir";
+    internal const string ColDateFact = "date_fact";
+    internal const string ColDossierCpt = "dossier_cpt";
+    internal const string ColNoFactureLettrage = "no_facture_lettrage";
+    internal const string ColFcAdresse1 = "adresse1";
+    internal const string ColFcCp = "cp";
+    internal const string ColFcMontantHt = "montant_ht";
+    internal const string ColFcMontantTva = "montant_tva";
+    internal const string ColFcMontantTtc = "montant_ttc";
+
+    // ── Lignes facture client (ligne_facture_client) ────────────────
+    internal const string ColNoLigne = "no_ligne";
+    internal const string ColCodeArticle = "code_article";
+    internal const string ColDesignation = "designation";
+    internal const string ColQte = "qte";
+    internal const string ColPrixUnitaireHt = "prix_unitaire_ht";
+    internal const string ColFcCodeTva = "code_tva";
+    internal const string ColTauxTva = "taux_tva";
+
+    // ── Alias d'origine d'un avoir facture ──────────────────────────
+    internal const string ColOriginNoFact = "origin_no_fact";
+    internal const string ColOriginDateFact = "origin_date_fact";
+
     // ── Régimes ─────────────────────────────────────────────────────
     internal const string ColRegimeLibelle = "libelle_descriptif";
     internal const string ColRegimeOccurrences = "occurrences";
@@ -107,6 +134,8 @@ internal sealed class EncheresV6Schema
     internal const string LigneCommissionBv = "2"; // lignes_bv : commission vendeur (marge)
     internal const string LigneDeboursBv = "3";    // lignes_bv : débours (hors marge)
     internal const string LignePaiementBv = "4";   // lignes_bv : paiement
+    internal const string LigneFactureeFc = "1";   // ligne_facture_client : ligne facturée (article/prestation)
+    internal const string LigneReglementFc = "2";  // ligne_facture_client : règlement (exclu)
 
     private static readonly Regex SchemaPattern = new Regex("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
 
@@ -116,6 +145,8 @@ internal sealed class EncheresV6Schema
     private readonly string _lignesBv;
     private readonly string _lignePv;
     private readonly string _regimes;
+    private readonly string _enteteFactureClient;
+    private readonly string _ligneFactureClient;
 
     /// <summary>Crée la connaissance du schéma pour un préfixe donné (vide = tables nues Pervasive ; ex. « enc » pour la démo SQL Server).</summary>
     /// <param name="schema">Préfixe de schéma (paramétrage). <c>null</c>/vide = aucun préfixe. Validé contre l'injection.</param>
@@ -145,10 +176,16 @@ internal sealed class EncheresV6Schema
         _lignesBv = prefix + TableLignesBv;
         _lignePv = prefix + TableLignePv;
         _regimes = prefix + TableRegimes;
+        _enteteFactureClient = prefix + TableEnteteFactureClient;
+        _ligneFactureClient = prefix + TableLigneFactureClient;
     }
 
     /// <summary>Tables dont la présence est contrôlée par <c>CheckHealth</c>.</summary>
-    public string[] ExpectedTables => new[] { _enteteBa, _lignesBa, _enteteBv, _lignesBv, _lignePv, _regimes };
+    public string[] ExpectedTables => new[]
+    {
+        _enteteBa, _lignesBa, _enteteBv, _lignesBv, _lignePv, _regimes,
+        _enteteFactureClient, _ligneFactureClient,
+    };
 
     /// <summary>
     /// Requête des DOCUMENTS ACHETEUR (BA : ventes + avoirs) d'une période, lignes de LOT (type 1) jointes
@@ -207,6 +244,27 @@ internal sealed class EncheresV6Schema
         + " WHERE e." + ColNoDossierBa + " = ? AND l." + ColTypeLigne + " = '" + LigneReglementBa + "'"
         + " AND l." + ColDateReglement + " >= ? AND l." + ColDateReglement + " < ?"
         + " ORDER BY e." + ColNoBa + ", l." + ColNoLignePv;
+
+    /// <summary>
+    /// Requête des FACTURES CLIENTS (ventes + avoirs) d'une période, lignes FACTURÉES (type 1) jointes
+    /// + entête d'origine d'un avoir (auto-jointure par <c>no_facture_lettrage</c>). PAS de jointure
+    /// <c>ligne_pv</c> : le régime vit PAR LIGNE (<c>ligne_facture_client.code_tva</c>). Bornes positionnelles
+    /// ODBC : <c>dossier</c> (<c>dossier_cpt</c>), <c>from</c> (incluse), <c>to</c> (exclue, sur <c>date_fact</c>).
+    /// Streaming par <c>no_fact</c>.
+    /// </summary>
+    public string SelectFactureClientDocumentsSql =>
+        "SELECT e." + ColNoFact + ", e." + ColFactureOuAvoir + ", e." + ColDateFact + ", e." + ColNoFactureLettrage
+        + ", e." + ColNom + ", e." + ColPrenom + ", e." + ColFcAdresse1 + ", e." + ColFcCp + ", e." + ColVille + ", e." + ColCodePays
+        + ", e." + ColFcMontantHt + ", e." + ColFcMontantTva + ", e." + ColFcMontantTtc + ", e." + ColCodeDevise
+        + ", o." + ColNoFact + " AS " + ColOriginNoFact + ", o." + ColDateFact + " AS " + ColOriginDateFact
+        + ", l." + ColTypeLigne + ", l." + ColNoLigne + ", l." + ColCodeArticle + ", l." + ColDesignation
+        + ", l." + ColQte + ", l." + ColPrixUnitaireHt + ", l." + ColFcCodeTva + ", l." + ColTauxTva
+        + " FROM " + _enteteFactureClient + " e"
+        + " LEFT JOIN " + _ligneFactureClient + " l ON l." + ColNoFact + " = e." + ColNoFact + " AND l." + ColTypeLigne + " = '" + LigneFactureeFc + "'"
+        + " LEFT JOIN " + _enteteFactureClient + " o ON e." + ColFactureOuAvoir + " = '" + PieceAvoir + "' AND o." + ColNoFact + " = e." + ColNoFactureLettrage
+        + " WHERE e." + ColDossierCpt + " = ? AND e." + ColFactureOuAvoir + " IN ('" + PieceVente + "', '" + PieceAvoir + "')"
+        + " AND e." + ColDateFact + " >= ? AND e." + ColDateFact + " < ?"
+        + " ORDER BY e." + ColNoFact + ", l." + ColNoLigne;
 
     /// <summary>
     /// Requête des RÉGIMES de TVA source (catalogue global, code BRUT + libellé) + occurrences observées

@@ -58,6 +58,51 @@ public class EncheresV6FixtureExtractorTests
     }
 
     [Fact]
+    public void ExtractDocuments_emits_facture_client_as_plain_b2c_document()
+    {
+        // Une facture client (document ORDINAIRE hors enchères) rejouée par les fixtures : lignes plates au prix
+        // total, AUCUN frais d'enchères, code_tva en clé de régime — parité stricte avec le mode ODBC (F03 §2.9).
+        const string snapshot = @"{
+          ""regimes"": [], ""bordereaux"": [], ""bordereaux_vendeur"": [],
+          ""factures_clients"": [
+            { ""no_fact"": ""00100007"", ""facture_ou_avoir"": ""F"", ""date_fact"": ""2024-04-12"",
+              ""nom"": ""LOBRY"", ""prenom"": ""STEEVE"", ""adresse1"": ""15 rue Boberie"", ""cp"": ""53000"", ""ville"": ""LAVAL"", ""code_pays"": ""FR"",
+              ""montant_ht"": 144.0, ""montant_tva"": 28.8, ""montant_ttc"": 172.8, ""code_devise"": ""EURO"",
+              ""lignes"": [
+                { ""type_ligne"": ""1"", ""no_ligne"": ""1"", ""code_article"": ""CV"", ""designation"": ""Caisse de Vins"", ""qte"": 12, ""prix_unitaire_ht"": 12.0, ""code_tva"": 1, ""taux_tva"": 20.0 },
+                { ""type_ligne"": ""2"", ""no_ligne"": ""1"", ""code_article"": """", ""designation"": ""Carte bancaire"", ""qte"": 0, ""prix_unitaire_ht"": 172.8, ""code_tva"": 0, ""taux_tva"": 0.0 }
+              ] }
+          ] }";
+
+        EncheresV6FixtureExtractor extractor = EncheresV6FixtureExtractor.FromJson(snapshot);
+
+        List<PivotDocumentDto> docs = extractor.ExtractDocuments(new DateTime(2024, 1, 1), new DateTime(2025, 1, 1)).ToList();
+
+        PivotDocumentDto fc = docs.Single(d => d.SourceReference.StartsWith("encheresv6:fc:", StringComparison.Ordinal));
+        fc.Number.Should().Be("00100007");
+        fc.BuyerFees.Should().BeNull("une facture ordinaire ne porte aucun frais d'enchères");
+        fc.SellerFees.Should().BeNull();
+        fc.OperationCategory.Should().BeNull("la nature est plateforme (profil tenant)");
+        fc.Lines.Should().ContainSingle("le règlement (type 2) est écarté");
+        fc.Lines[0].NetAmount.Should().Be(144.00m);
+        fc.Lines[0].Taxes[0].TaxAmount.Should().Be(28.80m, "TVA ligne = HT × taux_tva source");
+        fc.Lines[0].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("1");
+        fc.Totals.SourceTotalGross.Should().Be(172.80m);
+    }
+
+    [Fact]
+    public void FromJson_rejects_duplicate_no_fact_for_idempotence()
+    {
+        // Deux factures de même no_fact produiraient deux pivots de même SourceReference (double-déclaration, R2).
+        const string dup = @"{ ""regimes"": [], ""bordereaux"": [], ""bordereaux_vendeur"": [], ""factures_clients"": [
+            { ""no_fact"": ""00100007"", ""facture_ou_avoir"": ""F"", ""date_fact"": ""2024-04-12"", ""nom"": ""A"", ""lignes"": [] },
+            { ""no_fact"": ""00100007"", ""facture_ou_avoir"": ""F"", ""date_fact"": ""2024-04-13"", ""nom"": ""B"", ""lignes"": [] }
+          ] }";
+
+        ((Action)(() => EncheresV6FixtureExtractor.FromJson(dup))).Should().Throw<SourceSchemaException>();
+    }
+
+    [Fact]
     public void ExtractDocuments_filters_by_period()
     {
         EncheresV6FixtureExtractor extractor = EncheresV6FixtureExtractor.FromJson(Snapshot);

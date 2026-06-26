@@ -128,6 +128,12 @@ public sealed class PervasiveExtractor : IExtractor
         {
             yield return document;
         }
+
+        // Documents ORDINAIRES (hors enchères, sans frais) : factures clients (F03 §2.9). Streaming O(1 doc).
+        foreach (PivotDocumentDto document in ExtractFactureClientDocuments(fromInclusiveUtc, toExclusiveUtc))
+        {
+            yield return document;
+        }
     }
 
     /// <inheritdoc />
@@ -252,6 +258,56 @@ public sealed class PervasiveExtractor : IExtractor
             CodeDevise = devise,
         };
     }
+
+    private static EncheresV6FactureClient ReadFactureClientHeader(IDataReader reader, string noFact) => new EncheresV6FactureClient
+    {
+        NoFact = noFact,
+        FactureOuAvoir = OdbcCellReader.GetString(reader, EncheresV6Schema.ColFactureOuAvoir),
+        DateFact = OdbcCellReader.GetNullableDate(reader, EncheresV6Schema.ColDateFact) ?? default(DateTime),
+        NoFactureLettrage = OdbcCellReader.GetString(reader, EncheresV6Schema.ColNoFactureLettrage),
+        Nom = OdbcCellReader.GetString(reader, EncheresV6Schema.ColNom),
+        Prenom = OdbcCellReader.GetString(reader, EncheresV6Schema.ColPrenom),
+        Adresse1 = OdbcCellReader.GetString(reader, EncheresV6Schema.ColFcAdresse1),
+        Cp = OdbcCellReader.GetString(reader, EncheresV6Schema.ColFcCp),
+        Ville = OdbcCellReader.GetString(reader, EncheresV6Schema.ColVille),
+        CodePays = OdbcCellReader.GetString(reader, EncheresV6Schema.ColCodePays),
+        MontantHt = OdbcCellReader.GetNullableDouble(reader, EncheresV6Schema.ColFcMontantHt) ?? 0d,
+        MontantTva = OdbcCellReader.GetNullableDouble(reader, EncheresV6Schema.ColFcMontantTva) ?? 0d,
+        MontantTtc = OdbcCellReader.GetNullableDouble(reader, EncheresV6Schema.ColFcMontantTtc) ?? 0d,
+        CodeDevise = OdbcCellReader.GetString(reader, EncheresV6Schema.ColCodeDevise),
+    };
+
+    private static EncheresV6FactureClient? ReadFactureClientOrigin(IDataReader reader, EncheresV6FactureClient facture)
+    {
+        if (!string.Equals(facture.FactureOuAvoir, EncheresV6Schema.PieceAvoir, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        string? originNoFact = OdbcCellReader.GetString(reader, EncheresV6Schema.ColOriginNoFact);
+        if (string.IsNullOrWhiteSpace(originNoFact))
+        {
+            return null;
+        }
+
+        return new EncheresV6FactureClient
+        {
+            NoFact = originNoFact,
+            DateFact = OdbcCellReader.GetNullableDate(reader, EncheresV6Schema.ColOriginDateFact) ?? default(DateTime),
+        };
+    }
+
+    private static EncheresV6FactureClientLigne ReadFactureClientLine(IDataReader reader) => new EncheresV6FactureClientLigne
+    {
+        TypeLigne = OdbcCellReader.GetString(reader, EncheresV6Schema.ColTypeLigne),
+        NoLigne = OdbcCellReader.GetString(reader, EncheresV6Schema.ColNoLigne),
+        CodeArticle = OdbcCellReader.GetString(reader, EncheresV6Schema.ColCodeArticle),
+        Designation = OdbcCellReader.GetString(reader, EncheresV6Schema.ColDesignation),
+        Qte = OdbcCellReader.GetInt(reader, EncheresV6Schema.ColQte),
+        PrixUnitaireHt = OdbcCellReader.GetNullableDouble(reader, EncheresV6Schema.ColPrixUnitaireHt) ?? 0d,
+        CodeTva = OdbcCellReader.GetInt(reader, EncheresV6Schema.ColFcCodeTva),
+        TauxTva = OdbcCellReader.GetNullableDouble(reader, EncheresV6Schema.ColTauxTva) ?? 0d,
+    };
 
     private static EncheresV6BordereauVendeur ReadBvHeader(IDataReader reader, string noBv) => new EncheresV6BordereauVendeur
     {
@@ -394,6 +450,41 @@ public sealed class PervasiveExtractor : IExtractor
         }
     }
 
+    private IEnumerable<PivotDocumentDto> ExtractFactureClientDocuments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc)
+    {
+        using (IDbConnection connection = SourceQuery.Open(_connectionFactory, SourceUnavailableMessage))
+        using (IDbCommand command = SourceQuery.CreateSelect(connection, _schema.SelectFactureClientDocumentsSql, QueryTimeoutSeconds, _dossier, fromInclusiveUtc, toExclusiveUtc))
+        using (IDataReader reader = SourceQuery.ExecuteReader(command, SourceUnavailableMessage))
+        {
+            EncheresV6FactureClient? current = null;
+            EncheresV6FactureClient? currentOrigin = null;
+            while (SourceQuery.Read(reader, SourceUnavailableMessage))
+            {
+                string noFact = OdbcCellReader.GetRequiredString(reader, EncheresV6Schema.ColNoFact);
+                if (current is null || !string.Equals(current.NoFact, noFact, StringComparison.Ordinal))
+                {
+                    if (current != null)
+                    {
+                        yield return MapFactureClientLogged(current, currentOrigin);
+                    }
+
+                    current = ReadFactureClientHeader(reader, noFact);
+                    currentOrigin = ReadFactureClientOrigin(reader, current);
+                }
+
+                if (!string.IsNullOrEmpty(OdbcCellReader.GetString(reader, EncheresV6Schema.ColTypeLigne)))
+                {
+                    current.Lignes.Add(ReadFactureClientLine(reader));
+                }
+            }
+
+            if (current != null)
+            {
+                yield return MapFactureClientLogged(current, currentOrigin);
+            }
+        }
+    }
+
     private PivotDocumentDto MapBaLogged(EncheresV6Bordereau bordereau, EncheresV6Bordereau? origin)
     {
         try
@@ -425,6 +516,23 @@ public sealed class PervasiveExtractor : IExtractor
             // le filigrane n'avance pas, le bordereau vendeur malformé reste ré-extractible (jamais perdu).
             _log.Warn(
                 $"Bordereau vendeur « {bordereau.NoBv} » : extraction BLOQUÉE (donnée source non conforme) — "
+                + $"{ex.Message} Corrigez la source ; la période sera ré-extraite (filigrane non avancé).");
+            throw;
+        }
+    }
+
+    private PivotDocumentDto MapFactureClientLogged(EncheresV6FactureClient facture, EncheresV6FactureClient? origin)
+    {
+        try
+        {
+            return EncheresV6RowMapper.MapFactureClientDocument(facture, origin);
+        }
+        catch (SourceSchemaException ex)
+        {
+            // FAIL-CLOSED (CLAUDE.md n°3), miroir de MapBaLogged : on journalise puis on RELANCE — le cycle avorte,
+            // le filigrane n'avance pas, la facture client malformée reste ré-extractible (jamais perdue).
+            _log.Warn(
+                $"Facture client « {facture.NoFact} » : extraction BLOQUÉE (donnée source non conforme) — "
                 + $"{ex.Message} Corrigez la source ; la période sera ré-extraite (filigrane non avancé).");
             throw;
         }
