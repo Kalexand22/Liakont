@@ -343,3 +343,19 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
 - **Fichiers** : `ParametrageView.razor` (ajouter l'action/formulaire), `ClientConsoleService.SaveProfileAsync`
   (déjà présent). UI Liakont — règle review 19. Lié à [[BUG-14]] (mieux : traiter les deux ensemble — gestion
   complète du profil légal : saisie à la création, jamais seedé, éditable après).
+
+## BUG-16 — Densité d'interface par défaut = Compact au lieu de Standard pour un nouvel utilisateur (relevé Karl 26/06, PAS pour maintenant)
+
+- **Symptôme** : après création, un utilisateur a la **Densité de l'interface = Compact** (Préférences) — devrait
+  être **Standard** par défaut (un nouvel utilisateur ne devrait pas atterrir dans une vue dense).
+- **Incohérence** : le **modèle** a pourtant le bon défaut — `UserPreferences.Density { get; init; } =
+  DensityStandard` (`src/Modules/Identity/Application/Preferences/UserPreferences.cs:25`). Donc le défaut
+  DONNÉES est Standard, mais l'**affichage EFFECTIF** est Compact → soit l'UI (Stratum.Common.UI) applique
+  Compact comme défaut de rendu avant/au lieu de lire la préférence, soit la préférence du nouvel utilisateur est
+  écrite à « compact » à la création.
+- **À corriger** : aligner le défaut EFFECTIF sur `Standard` — vérifier (1) le rendu densité côté
+  `Stratum.Common.UI` (classe CSS/état initial avant chargement de la pref), (2) l'init de la préférence à la
+  création d'utilisateur (`PostgresUserPreferencesService` / provisioning). Socle vendored modifiable
+  (consigner la provenance si on touche `Stratum.*`).
+- **Fichiers (pistes)** : `Stratum.Common.UI` (composant densité / layout), `Identity` préférences
+  (`UserPreferences`, `PostgresUserPreferencesService`). Règle review 19/20 (socle).
