@@ -270,3 +270,24 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
   c'est une question fiscale/métier (CLAUDE.md n°2).
 - **Action** : (1) obtenir la base/chaîne ODBC réelle de l'agent ; (2) Karl tranche régime 5 = marge ou taxable ;
   (3) si effet de bord de la garde `LooksLikeUnclassifiedMargin` sur un doc réellement taxable → affiner la garde.
+
+## BUG-12 — UX « Composante » de la table de mapping TVA : confuse (relevé Karl 26/06, PAS pour maintenant)
+
+- **Symptôme** : l'éditeur de règle (vertical enchères activé) propose 3 composantes — **Adjudication**, **Frais**,
+  **Autre** (« Hors Enchères ») — mais c'est **perturbant pour un utilisateur** : on ne comprend pas laquelle
+  mapper ni pourquoi.
+- **Faits (sourcés code)** : `TvaMappingPart` { Adjudication=0, Frais=1, Autre=2 }. Consommateurs RÉELS
+  (`TableTvaView.razor` l.607-608 + jobs) : **Autre/« Hors Enchères »** = lue par `CheckTvaMapping` (lignes :
+  adjudication, factures/notes) ; **Frais** = lue par B4 marge+taxable (`Part = TvaMappingPart.Frais`, taux de la
+  commission) ; **Adjudication = MORTE** (jamais consultée).
+- **À corriger (UX)** :
+  1. **Retirer/masquer « Adjudication »** de l'éditeur (ou la marquer non éditable « non consultée ») — offrir une
+     composante morte induit en erreur (l'utilisateur crée une règle qui ne sert à rien).
+  2. **Renommer « Autre »** (« Hors Enchères » est cryptique) en un libellé parlant (à trancher avec Karl) ; idem
+     clarifier **« Frais »**.
+  3. **Texte d'aide explicite** : dire À QUOI sert chaque composante (Frais = taux de la marge/commission ; l'autre
+     = les lignes) pour qu'un opérateur sache quoi saisir sans connaître le code.
+- **Fichiers (pistes)** : `src/Host/Liakont.Host/Components/TvaRuleEditor.razor`, `TableTvaView.razor`
+  (libellés composante l.526, `PartNotConsulted` l.607). UI Liakont — règle review 19 (test bUnit/Playwright).
+- **NB** : le fond fonctionne (marge/taxable exigent une règle Frais — cf. seed `82e6361b`) ; c'est purement la
+  LISIBILITÉ de l'éditeur qui est en cause.
