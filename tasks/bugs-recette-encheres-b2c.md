@@ -326,3 +326,20 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
   lever l'exclusivité du wizard (identité = saisie manuelle, paramétrage = seed, combinés). Fichiers :
   `tenant-profile.json` (structure), `ImportTenantSeedHandler`, `TenantSeedReader`, `ClientNouveau.razor` /
   `ClientWizardSeedStep.razor` (lever le « seed XOR manuel » sur le légal). UI Liakont — règle review 19.
+
+## BUG-15 — Profil légal du tenant NON éditable après création (relevé Karl 26/06, PAS pour maintenant)
+
+- **Symptôme** : le profil (SIREN, raison sociale, adresse, contact) est en **LECTURE SEULE** dans
+  `ParametrageView` (rendu en `<dl>`, aucun `InputText` ; le seul bouton est « Modifier les paramètres
+  **FISCAUX** », pas le profil). Le SIREN n'est saisissable **qu'au wizard de création**. Pas d'action
+  « Modifier le profil légal » post-création.
+- **Conséquence** : pour corriger une faute de frappe ou changer le SIREN (ex. l'aligner sur l'entreprise
+  sandbox SuperPDP `000000002`), il faut **SUPPRIMER + RECRÉER tout le tenant** — UX très lourde, et on perd
+  le reste de la config (PA, etc.).
+- **À corriger** : exposer une **édition du profil légal post-création** dans `ParametrageView`. Le command
+  existe DÉJÀ (`ClientConsoleService.SaveProfileAsync` → `SaveTenantProfileCommand`) — il manque juste le
+  point d'entrée UI (bouton + formulaire). ⚠️ changer le SIREN doit **ré-aligner la clé de publication**
+  (`cin_scheme « 0002 »`) côté PA → ce n'est pas qu'un champ libre, prévoir la ré-publication.
+- **Fichiers** : `ParametrageView.razor` (ajouter l'action/formulaire), `ClientConsoleService.SaveProfileAsync`
+  (déjà présent). UI Liakont — règle review 19. Lié à [[BUG-14]] (mieux : traiter les deux ensemble — gestion
+  complète du profil légal : saisie à la création, jamais seedé, éditable après).
