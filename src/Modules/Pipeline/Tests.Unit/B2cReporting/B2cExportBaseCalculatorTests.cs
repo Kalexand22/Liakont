@@ -24,6 +24,19 @@ public sealed class B2cExportBaseCalculatorTests
     }
 
     [Fact]
+    public void Base_Recovers_Tax_Exclusive_Commission_When_Source_Fee_Vat_Is_Carried()
+    {
+        // Guard P2 (F03 §2.8) : si la source portait une TVA de frais (commission NON détaxée), la base HT
+        // doit la RETRANCHER — recouvrement par construction, sans s'appuyer sur l'invariant « TVA frais = 0 ».
+        // Ici commission TTC 72 dont 12 de TVA source → HT 60 ; base = adjudication 120 + 60 = 180.
+        var pivot = Pivot(
+            lines: [Line(120m)],
+            buyerFees: [new PivotBuyerFeeDto("lot-7", 72m, sourceRegimeCode: "EXP_HORSUE", sourceTaxAmount: 12m)]);
+
+        B2cExportBaseCalculator.ComputeTaxExclusiveBase(pivot).Should().Be(180m);
+    }
+
+    [Fact]
     public void Base_Sums_All_Adjudication_Lines()
     {
         // Bordereau multi-lots : Σ des adjudications HT + commission acheteur.

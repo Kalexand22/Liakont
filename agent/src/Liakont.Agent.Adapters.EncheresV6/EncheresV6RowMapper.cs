@@ -102,13 +102,17 @@ internal static class EncheresV6RowMapper
                 sourceData: BuildBaLineSourceData(ligne)));
 
             // Commission acheteur (TTC = HT + TVA) = jambe acheteur de la marge, au grain bordereau (no_ba).
-            // Arrondi par composante puis somme (CLAUDE.md n°1).
+            // Arrondi par composante puis somme (CLAUDE.md n°1). La TVA de frais BRUTE est transportée à part
+            // (SourceTaxAmount) — sans logique fiscale (CLAUDE.md n°6) — pour que la plateforme recouvre la base
+            // HT exonérée d'un export (F03 §2.8) ; omise quand elle vaut 0 (commission détaxée → hash inchangé).
+            decimal fraisTvaTtc = RoundAmount(ligne.MontantTvaFrais);
             buyerFees.Add(new PivotBuyerFeeDto(
                 lotReference: noBa,
-                netAmount: RoundAmount(ligne.MontantFraisHt) + RoundAmount(ligne.MontantTvaFrais),
+                netAmount: RoundAmount(ligne.MontantFraisHt) + fraisTvaTtc,
                 sourceRegimeCode: NullIfBlank(ligne.CodeRegime),
                 sourceLineRef: ligne.NoLignePv,
-                description: NullIfBlank(ligne.Designation)));
+                description: NullIfBlank(ligne.Designation),
+                sourceTaxAmount: fraisTvaTtc == 0m ? null : fraisTvaTtc));
         }
 
         PivotDocumentRefDto[] creditNoteRefs = MapBaCreditNoteRefs(bordereau, kind, creditNoteOrigin);

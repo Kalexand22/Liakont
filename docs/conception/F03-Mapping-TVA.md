@@ -440,7 +440,10 @@ fail-closed (ni marge, ni taxable, ni exonéré reconnu → bloqué).
 de la TVA française (« soumise », G1.68 `TLB1`), **exonérée avec droit à déduction** (CGI **art. 262 I** — « TVA
 récupérable ») : l'exonération annule la TVA **sans changer la nature** (livraison de biens) → `TLB1`, taux 0, base
 = prix total HT (§270, comme §2.7 mais TVA 0 ; commission acheteur exonérée comme accessoire — `montant_tva_frais=0`
-en source). UNCL5305 interne `G` + VATEX-EU-G, mention **Art. 262-1** (confirmé par le système de référence VPAuto).
+en source). **Base HT recouvrée PAR CONSTRUCTION** (guard P2, 2026-06-26) : la commission étant portée TTC, son HT =
+`NetAmount − SourceTaxAmount` (TVA de frais SOURCE transportée brute par l'agent, `B2cExportBaseCalculator`) — on ne
+S'APPUIE PLUS sur l'invariant implicite « TVA frais = 0 » ; si la source portait une TVA de frais elle serait
+retranchée et la base resterait juste. UNCL5305 interne `G` + VATEX-EU-G, mention **Art. 262-1** (confirmé par le système de référence VPAuto).
 
 **Intracommunautaire (`INTRA`) → `TNT1` — VALIDÉ PO (2026-06-26).** G1.68 nomme explicitement les **ventes à distance
 intracommunautaires (art. 258 A)** dans `TNT1` (« non soumises **en France** », taxées au pays de destination,
@@ -482,7 +485,9 @@ fragile). Le domestique `5 → S` reste inchangé (zéro régression). La catég
 VAD-IC B2C est un flux OSS distinct, hors du `TNT1` français à 0) ; ② **mention franchise 275** (mappée comme l'export
 `G`/TLB1 — refinable si une catégorie 275 distincte est requise) ; ③ **caution** (cycle taxable→avoir→exonéré,
 e-reporting multi-étapes — non rencontré : exports EncheresV6 en exonération directe) ; ④ **preuve de sortie**
-(transportée, non vérifiée — charge à l'OVV) ; ⑤ **commission acheteur d'un détaxé** (ancrée exonérée, accessoire).
+(transportée, non vérifiée — charge à l'OVV) ; ⑤ ✅ **commission acheteur d'un détaxé — GARDÉ (guard P2, 2026-06-26)** :
+la base HT retranche désormais la TVA de frais SOURCE (`NetAmount − SourceTaxAmount`), au lieu de présumer
+`montant_tva_frais=0` ; l'invariant n'est plus une hypothèse silencieuse.
 
 **Go/no-go (activation).** ✅ Déjà actifs : prix total (§2.7), marge (§2.4/§2.5). ✅ **IMPLÉMENTÉ (BUG-11)** :
 **exonéré international → e-reporting B2C UNITAIRE** (`B2cExportReportingTenantJob` : une transaction `SE` au taux 0

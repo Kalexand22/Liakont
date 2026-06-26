@@ -186,6 +186,12 @@ public static class CanonicalJson
         WriteOptionalString(writer, "SourceRegimeCode", fee.SourceRegimeCode);
         WriteOptionalString(writer, "SourceLineRef", fee.SourceLineRef);
         WriteOptionalString(writer, "Description", fee.Description);
+
+        // TVA de frais source (F03 §2.8) : champ ADDITIF en FIN du frais acheteur (ADR-0007, ordre de
+        // déclaration), émis SEULEMENT s'il est porté — un frais SANS TVA source (export détaxé, marge) produit
+        // le JSON canonique INCHANGÉ octet par octet (pattern EXT01). Ce n'est pas une ventilation de TVA du flux
+        // 10.3 : c'est le terme brut qui permet à la plateforme de recouvrer la base HT (NetAmount − SourceTaxAmount).
+        WriteOptionalDecimal(writer, "SourceTaxAmount", fee.SourceTaxAmount);
         writer.EndObject();
     }
 

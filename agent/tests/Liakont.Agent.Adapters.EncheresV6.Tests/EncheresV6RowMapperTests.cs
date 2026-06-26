@@ -63,6 +63,10 @@ public class EncheresV6RowMapperTests
         doc.BuyerFees.Should().ContainSingle();
         doc.BuyerFees![0].NetAmount.Should().Be(401.28m);
         doc.BuyerFees[0].LotReference.Should().Be("100022", "la jambe acheteur est au grain bordereau (no_ba)");
+
+        // TVA de frais SOURCE transportée brute (F03 §2.8, sans logique fiscale) — la plateforme s'en sert pour
+        // recouvrer la base HT exonérée d'un export ; ici non nulle (commission taxable), donc portée telle quelle.
+        doc.BuyerFees[0].SourceTaxAmount.Should().Be(66.88m);
         doc.SellerFees.Should().BeNull("le BA ne porte pas la jambe vendeur");
     }
 

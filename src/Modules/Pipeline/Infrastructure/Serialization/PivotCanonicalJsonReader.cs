@@ -133,14 +133,17 @@ public static class PivotCanonicalJsonReader
         sourceLineRef: StrOrNull(element, "SourceLineRef"),
         description: StrOrNull(element, "Description"));
 
-    // Frais acheteur (B2C-08c) : miroir exact de ReadSellerFee — collection additive optionnelle lue par
-    // ReadListOrNull (absente du JSON → null, comme l'omet le writer).
+    // Frais acheteur (B2C-08c) : miroir exact de WriteBuyerFee — collection additive optionnelle lue par
+    // ReadListOrNull (absente du JSON → null, comme l'omet le writer). SourceTaxAmount (TVA de frais source,
+    // F03 §2.8) est un optionnel additif lu par DecimalOrNull : absent du JSON → null (frais détaxé/marge), comme
+    // l'omet le writer — sa lecture est REQUISE au SEND pour que la base HT d'export soit recouvrée à la relecture.
     private static PivotBuyerFeeDto ReadBuyerFee(JsonElement element) => new(
         lotReference: Str(element, "LotReference"),
         netAmount: Dec(element, "NetAmount"),
         sourceRegimeCode: StrOrNull(element, "SourceRegimeCode"),
         sourceLineRef: StrOrNull(element, "SourceLineRef"),
-        description: StrOrNull(element, "Description"));
+        description: StrOrNull(element, "Description"),
+        sourceTaxAmount: DecimalOrNull(element, "SourceTaxAmount"));
 
     // ── Primitives de lecture (par NOM de membre : l'ordre est sans incidence sur la lecture) ──
     private static string Str(JsonElement element, string name) => element.GetProperty(name).GetString()!;

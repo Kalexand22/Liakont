@@ -97,7 +97,8 @@ public static class PivotCanonicalReader
             netAmount: Number(map, "NetAmount"),
             sourceRegimeCode: TextOrNull(map, "SourceRegimeCode"),
             sourceLineRef: TextOrNull(map, "SourceLineRef"),
-            description: TextOrNull(map, "Description"));
+            description: TextOrNull(map, "Description"),
+            sourceTaxAmount: DecimalOrNull(map, "SourceTaxAmount"));
     }
 
     private static PivotInvoicePeriodDto BuildInvoicePeriod(IDictionary<string, object?> map)

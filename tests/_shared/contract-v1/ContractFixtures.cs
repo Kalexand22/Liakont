@@ -240,7 +240,8 @@ public static class ContractFixtures
                     netAmount: 50.00m,
                     sourceRegimeCode: "MARGE",
                     sourceLineRef: "ligne#fa",
-                    description: "Frais acheteur fictif"),
+                    description: "Frais acheteur fictif",
+                    sourceTaxAmount: 9.00m),
             },
             invoicePeriod: new PivotInvoicePeriodDto(
                 startDate: new DateTime(2026, 1, 1),

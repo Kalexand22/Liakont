@@ -309,6 +309,37 @@ public sealed class PivotContractGoldenTests
     }
 
     [Fact]
+    public void BuyerFee_SourceTaxAmount_when_present_is_emitted_in_tail_and_round_trips()
+    {
+        // Guard P2 (F03 §2.8) : la TVA de frais SOURCE (brute) est un champ ADDITIF émis EN FIN du frais
+        // acheteur (après Description, ADR-0007), relu sans perte sur les DEUX runtimes (net48 / .NET 10). Sous
+        // un export elle vaut 0 et est OMISE ; ici non nulle (commission taxable), donc portée — et le hash diffère.
+        var avecTva = new[]
+        {
+            new PivotBuyerFeeDto(lotReference: "no_ba=5000", netAmount: 72.00m, sourceRegimeCode: "MARGE", sourceLineRef: "ligne#fa", description: "Frais acheteur fictif", sourceTaxAmount: 12.00m),
+        };
+        var docAvecTva = BuildAvoirCompletAvecFraisAcheteur(avecTva);
+
+        string json = CanonicalJson.Serialize(docAvecTva);
+
+        json.Should().Contain(
+            "\"Description\":\"Frais acheteur fictif\",\"SourceTaxAmount\":12.00",
+            "la TVA de frais source est émise en FIN du frais acheteur (après Description, ADR-0007)");
+
+        var rebuilt = PivotCanonicalReader.ReadDocument(json);
+        rebuilt.BuyerFees!.Should().ContainSingle().Which.SourceTaxAmount.Should().Be(
+            12.00m, "la TVA de frais source traverse le round-trip du lecteur canonique");
+        CanonicalJson.Serialize(rebuilt).Should().Be(json, "round-trip sans perte avec la TVA de frais source");
+
+        var sansTva = BuildAvoirCompletAvecFraisAcheteur(new[]
+        {
+            new PivotBuyerFeeDto(lotReference: "no_ba=5000", netAmount: 72.00m, sourceRegimeCode: "MARGE", sourceLineRef: "ligne#fa", description: "Frais acheteur fictif"),
+        });
+        PayloadHasher.ComputeHash(docAvecTva).Should().NotBe(
+            PayloadHasher.ComputeHash(sansTva), "porter la TVA de frais source change le contenu, donc l'empreinte");
+    }
+
+    [Fact]
     public void InvoicePeriod_when_absent_keeps_the_canonical_json_and_hash_byte_identical()
     {
         // Slot réservé BG-14 (RD406) : un document SANS période de facturation doit produire le JSON
