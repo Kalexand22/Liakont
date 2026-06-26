@@ -222,17 +222,18 @@ internal static class CheckIntegrationFixtures
     }
 
     /// <summary>
-    /// Construit un bordereau d'enchères d'EXPORT HORS UE (BUG-11) tel que la SOURCE le produit : l'adjudication
-    /// porte la clé de régime COMPOSITE « {régime}_EXP_HORSUE » (l'agent combine code_export + mode_livraison),
-    /// mappée G + VATEX-EU-G (détaxé, art. 262 I) par la table validée du harnais → la plateforme DÉRIVE l'export
-    /// (B2cExportMarking). Adjudication détaxée (AUCUNE TVA distincte, <c>Totals.TotalTax = 0</c>), commission
-    /// acheteur exonérée elle aussi (montant TTC = HT, le code source ne porte aucune TVA de frais sur un export —
-    /// F03 §2.8). Acheteur anonyme (B2C particulier). Valeurs fictives (CLAUDE.md n°7).
+    /// Construit un bordereau d'enchères d'EXONÉRÉ INTERNATIONAL (BUG-11) tel que la SOURCE le produit :
+    /// l'adjudication porte la clé de régime par ZONE « EXP_{zone} » (l'agent dérive code_export + mode_livraison),
+    /// mappée par la table validée du harnais → la plateforme DÉRIVE l'exonéré international (B2cExportMarking). Par
+    /// défaut <c>EXP_HORSUE</c> (export hors UE 262 I → G → TLB1) ; passer <c>EXP_CEE</c> (intracom → K → TNT1) ou
+    /// <c>EXP_FR</c> (franchise → G → TLB1). Adjudication détaxée (AUCUNE TVA distincte, <c>Totals.TotalTax = 0</c>),
+    /// commission acheteur exonérée elle aussi (montant TTC = HT, le code source ne porte aucune TVA de frais sur un
+    /// détaxé — F03 §2.8). Acheteur anonyme (B2C particulier). Valeurs fictives (CLAUDE.md n°7).
     /// </summary>
-    public static PivotDocumentDto BuildExportAuctionWithFees(string sourceReference, string regimeCode = "EXPORT_HORSUE")
+    public static PivotDocumentDto BuildExportAuctionWithFees(string sourceReference, string regimeCode = "EXP_HORSUE")
     {
         var adjudication = new PivotLineDto(
-            description: "Adjudication lot (export hors UE — détaxé, art. 262 I)",
+            description: "Adjudication lot (exonéré international — détaxé)",
             netAmount: 120.00m,
             quantity: 1m,
             unitPriceNet: 120.00m,

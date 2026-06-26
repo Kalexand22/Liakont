@@ -7,11 +7,13 @@ using Liakont.Modules.Pipeline.Domain.B2cReporting;
 using Xunit;
 
 /// <summary>
-/// Couvre la DÉRIVATION PURE du marqueur de déclaration B2C d'EXPORT HORS UE détaxé (flux 10.3, TLB1 unitaire,
-/// art. 262 I) posé par la plateforme (<see cref="B2cExportMarking.IsExportDeclaration"/>), sur un pivot DÉJÀ
-/// enrichi. Critère sourcé F03 §2.8 : toutes lignes catégorie <c>G</c> + aucune TVA distincte + frais d'enchères
-/// + B2C (acheteur non pro). Fail-closed sur chaque trou. Symétrique de <c>B2cTaxableMarkingTests</c> /
-/// <c>B2cMarginMarkingTests</c>, avec en plus l'invariant de PARTITION à TROIS cas (marge / prix total / export).
+/// Couvre la DÉRIVATION PURE du marqueur de déclaration B2C d'EXONÉRÉ INTERNATIONAL détaxé (flux 10.3, unitaire —
+/// export hors UE 262 I/G/TLB1, intracom 262 ter/K/TNT1, franchise 275/G/TLB1) posé par la plateforme
+/// (<see cref="B2cExportMarking.IsExportDeclaration"/>), sur un pivot DÉJÀ enrichi. Critère F03 §2.8 : toutes
+/// lignes UNE MÊME catégorie détaxée (<c>G</c> ou <c>K</c>) + aucune TVA distincte + frais d'enchères + B2C
+/// (acheteur non pro). Fail-closed sur chaque trou (dont catégories mêlées → TT-81 ambiguë). Symétrique de
+/// <c>B2cTaxableMarkingTests</c> / <c>B2cMarginMarkingTests</c>, avec l'invariant de PARTITION (marge / prix
+/// total / exonéré international).
 /// </summary>
 public sealed class B2cExportMarkingTests
 {
@@ -34,6 +36,45 @@ public sealed class B2cExportMarkingTests
         var pivot = Pivot([ExportLine(2000m)], totalTax: 0m, customer: null, buyerFees: [Fee()]);
 
         B2cExportMarking.IsExportDeclaration(pivot).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Intracom_CategoryK_IsMarked()
+    {
+        // Intracommunautaire (catégorie K, 262 ter / 258 A) : détaxé international, TotalTax == 0, B2C, frais.
+        var pivot = Pivot([IntracomLine(2000m)], totalTax: 0m, customer: Particulier(), buyerFees: [Fee()]);
+
+        B2cExportMarking.IsExportDeclaration(pivot).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ExoneratedCategory_Returns_The_Homogeneous_Category_Or_Null()
+    {
+        // Le job dérive la TT-81 de cette catégorie (G→TLB1, K→TNT1) : G pour export, K pour intracom, null sinon.
+        var export = Pivot([ExportLine(2000m)], totalTax: 0m, customer: Particulier(), buyerFees: [Fee()]);
+        var intracom = Pivot([IntracomLine(2000m)], totalTax: 0m, customer: Particulier(), buyerFees: [Fee()]);
+        var taxable = Pivot(
+            lines: [new PivotLineDto("Adjudication", 2000m, sourceRegimeCodes: ["5"], taxes: [new PivotLineTaxDto(taxAmount: 400m, rate: 20m, categoryCode: VatCategory.S)])],
+            totalTax: 400m,
+            customer: Particulier(),
+            buyerFees: [Fee()]);
+
+        B2cExportMarking.ExoneratedCategory(export).Should().Be(VatCategory.G);
+        B2cExportMarking.ExoneratedCategory(intracom).Should().Be(VatCategory.K);
+        B2cExportMarking.ExoneratedCategory(taxable).Should().BeNull();
+    }
+
+    [Fact]
+    public void MixedExoneratedCategories_IsNotMarked_FailClosed()
+    {
+        // Une ligne G (export) + une ligne K (intracom) → TT-81 indéterminée (TLB1 ? TNT1 ?) → non marqué (fail-closed).
+        var pivot = Pivot(
+            lines: [ExportLine(2000m), IntracomLine(500m)],
+            totalTax: 0m,
+            customer: Particulier(),
+            buyerFees: [Fee()]);
+
+        B2cExportMarking.IsExportDeclaration(pivot).Should().BeFalse();
     }
 
     [Fact]
@@ -67,7 +108,7 @@ public sealed class B2cExportMarkingTests
     {
         // Ligne catégorie G mais portant une TVA résiduelle (> 0) → incohérent avec un export détaxé → non marqué.
         var pivot = Pivot(
-            lines: [new PivotLineDto("Adjudication", 2000m, sourceRegimeCodes: ["5_EXP_HORSUE"], taxes: [new PivotLineTaxDto(taxAmount: 5m, rate: 0m, categoryCode: VatCategory.G, vatexCode: "VATEX-EU-G")])],
+            lines: [new PivotLineDto("Adjudication", 2000m, sourceRegimeCodes: ["EXP_HORSUE"], taxes: [new PivotLineTaxDto(taxAmount: 5m, rate: 0m, categoryCode: VatCategory.G, vatexCode: "VATEX-EU-G")])],
             totalTax: 0m,
             customer: Particulier(),
             buyerFees: [Fee()]);
@@ -184,8 +225,15 @@ public sealed class B2cExportMarkingTests
         new(
             description: "Adjudication (export hors UE)",
             netAmount: net,
-            sourceRegimeCodes: ["5_EXP_HORSUE"],
+            sourceRegimeCodes: ["EXP_HORSUE"],
             taxes: [new PivotLineTaxDto(taxAmount: 0m, rate: 0m, categoryCode: VatCategory.G, vatexCode: "VATEX-EU-G")]);
+
+    private static PivotLineDto IntracomLine(decimal net) =>
+        new(
+            description: "Adjudication (intracommunautaire)",
+            netAmount: net,
+            sourceRegimeCodes: ["EXP_CEE"],
+            taxes: [new PivotLineTaxDto(taxAmount: 0m, rate: 0m, categoryCode: VatCategory.K, vatexCode: "VATEX-EU-IC")]);
 
     private static PivotBuyerFeeDto Fee() => new("100050", 480.00m, sourceRegimeCode: "5");
 

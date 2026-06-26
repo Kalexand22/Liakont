@@ -67,9 +67,10 @@ internal static class EncheresV6RowMapper
         decimal totalNet = 0m;
         decimal totalTax = 0m;
 
-        // Jeton de ZONE d'export (F03 §2.8) : combine le flag source code_export et le mode de livraison en une
-        // clé de régime COMPOSITE (RegimeKeyShape.Composite) — la plateforme distingue ainsi un même code régime
-        // « 5 » domestique d'un « 5_EXP_HORSUE » exonéré. Transport de donnée source (régime + export + zone),
+        // Jeton de ZONE d'export (F03 §2.8) : dérive du flag source code_export + le mode de livraison une clé de
+        // régime par ZONE (RegimeKeyShape.Composite, « EXP_HORSUE »/« EXP_CEE »/« EXP_FR ») — l'exonération
+        // internationale prime sur le régime domestique, donc la zone SUFFIT à classer (la plateforme mappe une
+        // règle par zone). Transport de donnée source (export + zone ; le régime brut reste dans SourceData),
         // AUCUNE dérivation fiscale ici : la catégorie/VATEX restent décidées par la table validée (CLAUDE.md n°6).
         string? exportZone = ExportZone(bordereau);
 
@@ -310,11 +311,11 @@ internal static class EncheresV6RowMapper
     /// Jeton de ZONE d'un bordereau export, ou <c>null</c> si <c>code_export</c> est faux (cas nominal). Normalise
     /// le mode de livraison legacy (« HORS CEE » / « CEE » / « FRANCE » / autre) en zone — transport d'une donnée
     /// source (miroir de <see cref="NormalizeCountryCode"/>), JAMAIS une catégorie fiscale. La zone alimente la
-    /// clé de régime composite (F03 §2.8) ; c'est la table validée de la plateforme qui tranche la catégorie.
+    /// clé de régime par zone (F03 §2.8) ; c'est la table validée de la plateforme qui tranche la catégorie.
     /// <list type="bullet">
-    ///   <item><c>HORSUE</c> — export hors UE (mode « HORS CEE ») → mappé `G`/0 % (262 I) si la table le couvre ;</item>
-    ///   <item><c>CEE</c> — livraison intra-UE (mode « CEE ») → fail-closed tant que la table ne le couvre pas ;</item>
-    ///   <item><c>FR</c> — zone indéterminée (mode « FRANCE »/absent ; franchise probable) → fail-closed.</item>
+    ///   <item><c>HORSUE</c> — export hors UE (mode « HORS CEE ») → mappé `G`/0 % (262 I) ;</item>
+    ///   <item><c>CEE</c> — livraison intra-UE (mode « CEE ») → mappé `K`/0 % (262 ter / 258 A) ;</item>
+    ///   <item><c>FR</c> — franchise (mode « FRANCE » + <c>code_export</c> : achat en franchise art. 275) → `G`/0 %.</item>
     /// </list>
     /// </summary>
     private static string? ExportZone(EncheresV6Bordereau bordereau)
@@ -339,18 +340,20 @@ internal static class EncheresV6RowMapper
     }
 
     /// <summary>
-    /// Clé de régime COMPOSITE (RegimeKeyShape.Composite, F03 §2.8) : <c>code_regime</c> seul hors export, sinon
-    /// <c>{code_regime}_EXP_{zone}</c> (ex. <c>5_EXP_HORSUE</c>). La plateforme mappe cette clé via la table validée
-    /// — un régime composite non couvert BLOQUE (fail-closed), jamais deviné.
+    /// Clé de régime par ZONE (RegimeKeyShape.Composite, F03 §2.8) : <c>code_regime</c> brut hors export, sinon
+    /// <c>EXP_{zone}</c> (<c>EXP_HORSUE</c>/<c>EXP_CEE</c>/<c>EXP_FR</c>) — l'exonération internationale (262 I /
+    /// 262 ter / 275) prime sur le régime domestique, donc la ZONE seule classe (une règle de mapping par zone, pas
+    /// par couple régime×zone). Le régime brut reste dans <c>SourceData</c> (audit). La plateforme mappe cette clé
+    /// via la table validée — une zone non couverte BLOQUE (fail-closed), jamais devinée.
     /// </summary>
     private static string? ComposeRegimeKey(string? codeRegime, string? exportZone)
     {
-        if (string.IsNullOrWhiteSpace(codeRegime) || exportZone is null)
+        if (exportZone is null)
         {
             return codeRegime;
         }
 
-        return codeRegime!.Trim() + "_EXP_" + exportZone;
+        return "EXP_" + exportZone;
     }
 
     private static string LineDescription(string? libelle, string fallback, string? noLignePv)

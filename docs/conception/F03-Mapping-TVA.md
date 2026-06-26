@@ -391,7 +391,7 @@ autofacturation 389 sous mandat, nouveauté — cf. F15) ; elle ne fait pas l'ob
   l'adjudicataire → e-invoicing vs e-reporting, bordereau valant facture). *(Preuve d'appui métier, pas un texte
   fiscal primaire.)*
 
-### 2.8 Cartographie générique « régime fiscal → e-reporting B2C » (flux 10.3) — total / marge / export / intracom / franchise / caution — 🟧 PROPOSÉ ; ✅ export hors UE IMPLÉMENTÉ (BUG-11)
+### 2.8 Cartographie générique « régime fiscal → e-reporting B2C » (flux 10.3) — total / marge / export / intracom / franchise / caution — ✅ exonéré international (export/intracom/franchise) IMPLÉMENTÉ, validé PO (BUG-11) ; 🟧 caution résiduelle
 
 > ⚠️ **Statut : PROPOSITION d'ancrage ARCHITECTURAL, défauts défendables `[À CONFIRMER EC]` fail-closed.** §2.4/§2.5
 > (marge → `TMA1`) et §2.7 (prix total → `TLB1`) sourcent deux régimes. La présente section les **généralise** en
@@ -425,9 +425,9 @@ Factur-X** (par ligne) — **jamais dans le flux 10.3**.
 |---|---|---|---|---|---|
 | **Prix total** (`ASS`) | — | `S` (+ taux) | **`TLB1`** | plein | ✅ §2.7 |
 | **Marge** (`NASS`) | Art. 297-A | `E` + VATEX-EU-F/I/J | **`TMA1`** | 0 | ✅ §2.4/§2.5 |
-| **Export hors UE** (`EXP`) | Art. 262-1 | `G` + VATEX-EU-G | **`TLB1`** | 0 | ✅ sourcé (ci-dessous) |
-| **Intracommunautaire** (`INTRA`) | Art. 262 Ter-1 | `K` + VATEX-EU-IC | **`TNT1`** | 0 | 🟧 `[À CONFIRMER EC]` (OSS) |
-| **Franchise** (`EXO`) | Art. 275 | `E` (motif franchise) | **`[À CONFIRMER EC]`** | 0 | 🟧 résiduel ③ |
+| **Export hors UE** (`EXP`) | Art. 262-1 | `G` + VATEX-EU-G | **`TLB1`** | 0 | ✅ IMPLÉMENTÉ (BUG-11) |
+| **Intracommunautaire** (`INTRA`) | Art. 262 Ter-1 | `K` + VATEX-EU-IC | **`TNT1`** | 0 | ✅ IMPLÉMENTÉ — validé PO (BUG-11) |
+| **Franchise** (`EXO`) | Art. 275 | `G` (export-bound) | **`TLB1`** | 0 | ✅ IMPLÉMENTÉ — validé PO (BUG-11) |
 | **Caution** (étape 1) | 262-1 / 262 Ter-1 | `S` (+ taux) | **`TLB1`** | **plein** | 🟧 cycle de vie, résiduel ④ |
 
 Rôle déclarant **`SE`** pour tous (G7.52 — l'OVV reporte ses ventes ; cf. §2.5 ⑤). Le marquage plateforme dérive
@@ -442,17 +442,18 @@ récupérable ») : l'exonération annule la TVA **sans changer la nature** (liv
 = prix total HT (§270, comme §2.7 mais TVA 0 ; commission acheteur exonérée comme accessoire — `montant_tva_frais=0`
 en source). UNCL5305 interne `G` + VATEX-EU-G, mention **Art. 262-1** (confirmé par le système de référence VPAuto).
 
-**Intracommunautaire (`INTRA`) → `TNT1` — 🟧 `[À CONFIRMER EC]`.** G1.68 nomme explicitement les **ventes à distance
+**Intracommunautaire (`INTRA`) → `TNT1` — VALIDÉ PO (2026-06-26).** G1.68 nomme explicitement les **ventes à distance
 intracommunautaires (art. 258 A)** dans `TNT1` (« non soumises **en France** », taxées au pays de destination,
-guichet **OSS**). Mention **Art. 262 Ter-1**. Résiduel ② : la représentation OSS (taxe à destination) d'un VAD-IC
-B2C dépasse le simple `K` → catégorie/taux destination à confirmer ; **fail-closed**.
+guichet **OSS**). Mention **Art. 262 Ter-1**, catégorie interne `K` + VATEX-EU-IC → e-reporting B2C **`TNT1` à 0**
+(taxe française nulle). La taxe à destination via **OSS** est une obligation distincte, **hors de ce flux 10.3** —
+le `TNT1` à 0 est le report français correct (défaut défendable, refinable si l'OSS doit être représenté ici).
 
-**Franchise (`EXO`, art. 275) → 🟧 `[À CONFIRMER EC]`.** « Achat en franchise » (CGI **art. 275**) : l'acheteur
-achète **hors TVA** sous attestation/franchise (souvent en vue d'un export ultérieur — « acheteur en France qui
-exporte lui-même »). Opération **située en France** mais exonérée → distincte de l'export 262 I et de l'intracom
-262 ter. Sa `TT-81` (TLB1 à 0 ? autre ?) **et** son canal (B2B si l'acheteur est un assujetti à franchise, vs B2C)
-ne sont **pas tranchés** → **fail-closed** (résiduel ③). *(C'est très probablement le cas des bordereaux EncheresV6
-« `code_export=1` + `mode_livraison=FRANCE` » — 100132/100263 — à confirmer.)*
+**Franchise (`EXO`, art. 275) → `TLB1` à 0 — VALIDÉ PO (2026-06-26).** « Achat en franchise » (CGI **art. 275**) :
+l'acheteur achète **hors TVA** sous attestation, **en vue d'un export ultérieur** (« acheteur en France qui exporte
+lui-même »). Opération détaxée, **export-bound** → traitée comme l'export 262 I : catégorie interne `G` →
+e-reporting B2C **`TLB1` à 0**. Défaut défendable (refinable si une mention/catégorie 275 distincte est requise).
+*(Cas des bordereaux EncheresV6 « `code_export=1` + `mode_livraison=FRANCE` » — 100132/100263.)* Aiguillage B2C/B2B
+préservé : un acheteur à SIREN reste happé par le B2B (e-invoicing), jamais l'e-reporting B2C.
 
 **Caution de TVA (export/intracom en 2 temps) → 🟧 future, `[À CONFIRMER EC]`.** Un système de production peut, quand
 l'acheteur doit **prouver la sortie de territoire**, **encaisser la TVA en caution** (étape 1 : bordereau **taxable**
@@ -465,35 +466,33 @@ caution/avoir est à traiter quand l'adaptateur source le porte (VPAuto, entité
 **Signal & dérivation du régime — par ADAPTATEUR (l'agent transporte le brut, aucune logique fiscale — n°6).**
 - **Système portant la taxonomie (VPAuto)** : le **groupe de TVA** est un champ de premier rang → mappé directement
   (`EXP`→export, `INTRA`→intracom, `EXO`→franchise, `NASS`→marge, `ASS`→prix total).
-- **Legacy EncheresV6** : pas de groupe TVA structuré → régime **dérivé au mieux** de `code_regime_tva` (assujetti/
-  non) + `code_export` (LOGICAL, autoritaire pour « export-type » — corrélation parfaite 6/6 vérifiée) + zone via
-  `mode_livraison`/`code_pays`/`tva_cee`. **Zone ambiguë** (`mode_livraison=FRANCE` + `code_export=1` = franchise
-  probable) → **fail-closed** (jamais une TT-81 devinée).
+- **Legacy EncheresV6** : pas de groupe TVA structuré → zone **dérivée** de `code_export` (LOGICAL, autoritaire pour
+  « détaxé international ») + `mode_livraison` (`HORS CEE`→export, `CEE`→intracom, `FRANCE`→franchise). Le `code_regime_tva`
+  domestique ne sert PAS à la classification détaxée (l'exonération internationale prime) ; il reste dans `SourceData`.
 
-**Mécanique de clé composite (mapping).** Le mapping est clé `(code régime, part)`, **une règle par couple** (§4.1,
-TvaMapper) → un même `code_regime_tva` ne peut pas porter plusieurs traitements. La clé soumise au mapping devient
-donc **composite** avec la **zone** (`5` domestique → `S`/plein ; `5_EXP_HORSUE` → `G`/0 ; `5_EXP_CEE`/`5_EXP_FR`
-non mappés → fail-closed ; etc.), alimentée par les champs source transportés (`code_export` + `mode_livraison`,
-`RegimeKeyShape.Composite`). Le domestique `5 → S` reste inchangé (zéro régression). La catégorie/VATEX restent
-décidées par la **table validée** (plateforme), jamais par l'agent. **L'export hors UE étant exonéré quel que soit
-le régime domestique sous-jacent** (262 I prime), la table mappe `{2,5,6}_EXP_HORSUE → G/0` (les régimes présents
-en HORS CEE dans EncheresV6_Demo).
+**Mécanique de clé par ZONE (mapping).** Le mapping est clé `(code régime, part)`, **une règle par couple** (§4.1,
+TvaMapper). Hors export la clé est le `code_regime_tva` brut (`5` → `S`/plein) ; en export elle est la **ZONE seule**
+(`EXP_HORSUE` → `G`/0 ; `EXP_CEE` → `K`/0 ; `EXP_FR` → `G`/0), dérivée de `code_export` + `mode_livraison`
+(`RegimeKeyShape.Composite`). **L'exonération internationale primant sur le régime domestique** (262 I / 262 ter /
+275), la clé ne dépend QUE de la zone → **3 règles** au lieu d'une par couple régime×zone (pas d'énumération
+fragile). Le domestique `5 → S` reste inchangé (zéro régression). La catégorie/VATEX restent décidées par la
+**table validée** (plateforme), jamais par l'agent ; le régime brut reste dans `SourceData` (audit).
 
-**Résiduels `[À CONFIRMER EC]` (fail-closed) :** ① **zone** (hors UE/intra-UE/franchise) indéterminable depuis
-EncheresV6 quand `mode_livraison=FRANCE` ; ② **intracom OSS** (catégorie/taux destination d'un VAD-IC B2C au-delà de
-`K`) ; ③ **franchise 275** (TT-81 + canal B2B/B2C) ; ④ **caution** (cycle taxable→avoir→exonéré, e-reporting
-multi-étapes) ; ⑤ **preuve de sortie** (transportée, non vérifiée — charge à l'OVV) ; ⑥ **commission acheteur d'un
-exonéré** (ancrée exonérée, accessoire — à confirmer si prestation distincte).
+**Résiduels (refinables, défauts défendables — PAS de blocage) :** ① **intracom OSS** (la taxe à destination d'un
+VAD-IC B2C est un flux OSS distinct, hors du `TNT1` français à 0) ; ② **mention franchise 275** (mappée comme l'export
+`G`/TLB1 — refinable si une catégorie 275 distincte est requise) ; ③ **caution** (cycle taxable→avoir→exonéré,
+e-reporting multi-étapes — non rencontré : exports EncheresV6 en exonération directe) ; ④ **preuve de sortie**
+(transportée, non vérifiée — charge à l'OVV) ; ⑤ **commission acheteur d'un détaxé** (ancrée exonérée, accessoire).
 
-**Go/no-go (activation).** ✅ Déjà actifs : prix total (§2.7), marge (§2.4/§2.5). ✅ **IMPLÉMENTÉ (BUG-11)** : **export
-hors UE direct-exonéré → `TLB1` à 0** (sourcé 262 I / G1.68) — marquage plateforme `B2cExportMarking` (toutes lignes
-`G` + `TotalTax==0` + B2C + frais), aiguillage `B2cExportDeclaration` (exclu de la marge par `!IsExportDeclaration`),
-et **e-reporting UNITAIRE** (`B2cExportReportingTenantJob` : une transaction `TLB1`/`SE` au taux 0 PAR opération, base
-HT = adjudication + commission acheteur — jamais agrégé, à la différence du domestique). 🟧 **Fail-closed** (reconnu,
-message juste, **non transmis**) : intracom OSS, franchise 275, caution, zone ambiguë. Figeage PROD subordonné à la
-levée du statut « proposition » par l'EC du tenant, comme §2.4/§2.5/§2.7. **Périmètre fail-closed VALIDÉ PO
-(2026-06-26)** : bloquer CEE (intracom) et FRANCE (franchise 275) tant que l'EC n'a pas tranché leur traitement
-est la décision de build retenue (jamais une TT-81 devinée — n°2/n°3) ; seul l'export hors UE 262 I est actif.
+**Go/no-go (activation).** ✅ Déjà actifs : prix total (§2.7), marge (§2.4/§2.5). ✅ **IMPLÉMENTÉ (BUG-11)** :
+**exonéré international → e-reporting B2C UNITAIRE** (`B2cExportReportingTenantJob` : une transaction `SE` au taux 0
+PAR opération, base HT = adjudication + commission acheteur — jamais agrégé). Marquage `B2cExportMarking` (toutes
+lignes UNE MÊME catégorie `G`/`K` + `TotalTax==0` + B2C + frais), aiguillage `B2cExportDeclaration` (exclu de la
+marge par `!IsExportDeclaration`), **TT-81 dérivée de la catégorie** : export hors UE 262 I (`G`) → `TLB1` ; intracom
+262 ter / 258 A (`K`) → `TNT1` ; franchise 275 export-bound (`G`) → `TLB1`. **Classification VALIDÉE PO (2026-06-26)**
+— les trois zones sont ACTIVES (défauts défendables, refinables), jamais devinées par le code (la table tranche).
+🟧 Hors périmètre : caution (cycle multi-étapes). Figeage PROD subordonné à la validation de la table par le tenant,
+comme §2.4/§2.5/§2.7.
 
 **Sources primaires :**
 - CGI **262 I** (export), **262 ter I** / **258 A** (intracom / VAD-IC), **275** (franchise), **297 A** (marge),

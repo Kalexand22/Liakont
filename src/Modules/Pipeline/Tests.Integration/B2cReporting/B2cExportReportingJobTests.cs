@@ -25,8 +25,11 @@ public sealed class B2cExportReportingJobTests : IAsyncLifetime
     private const string SendB2cTransaction = "SendB2cTransactionAsync";
     private const string SendDocument = "SendDocumentAsync";
 
-    // Détail journalisé par le plug-in factice pour la transaction d'export (TLB1/SE, jour de la fixture).
+    // Détail journalisé par le plug-in factice pour la transaction d'export/franchise (TLB1/SE, jour de la fixture).
     private const string ExportTxDetail = "Tlb1/Seller/20260120";
+
+    // Détail de la transaction intracom (TNT1/SE — non soumis en France, jour de la fixture).
+    private const string IntracomTxDetail = "Tnt1/Seller/20260120";
 
     // Détail de la transaction de MARGE (TMA1/SE) — vérifie que le job marge n'émet RIEN pour un export.
     private const string MarginTxDetail = "Tma1/Seller/20260120";
@@ -74,6 +77,66 @@ public sealed class B2cExportReportingJobTests : IAsyncLifetime
 
         // Le job NE transitionne PAS la machine à états du document (projection parallèle).
         (await _harness.GetDocumentStateAsync(documentId)).Should().Be("ReadyToSend");
+    }
+
+    [Fact]
+    public async Task Intracom_Cee_Is_Reported_As_Tnt1()
+    {
+        // CEE → intracommunautaire (262 ter / 258 A) → catégorie K → TT-81 TNT1 (non soumis en France), taux 0.
+        // La TT-81 est DÉRIVÉE de la catégorie mappée (jamais hard-codée TLB1).
+        await _harness.UsePublishedFakeAsync();
+
+        var documentId = Guid.NewGuid();
+        var declaration = CheckIntegrationFixtures.BuildExportAuctionWithFees("ba-" + documentId.ToString("N"), "EXP_CEE");
+        await _harness.SeedDetectedAndStageAsync(documentId, declaration);
+        await _harness.MarkReadyToSendAsync(documentId);
+
+        await _harness.RunB2cExportAsync();
+
+        _harness.PaCallCount(SendB2cTransaction, IntracomTxDetail).Should()
+            .Be(1, "un intracom (catégorie K) est transmis en TNT1, jamais TLB1.");
+        _harness.PaCallCount(SendB2cTransaction, ExportTxDetail).Should()
+            .Be(0, "aucune transaction TLB1 pour un intracom.");
+        (await _harness.GetB2cMarginEmissionsAsync(documentId)).Select(e => e.Status).Should().Equal("Pending", "Issued");
+    }
+
+    [Fact]
+    public async Task Franchise_France_Is_Reported_As_Tlb1()
+    {
+        // FRANCE + code_export → franchise (art. 275, export-bound) → catégorie G → TT-81 TLB1, taux 0.
+        await _harness.UsePublishedFakeAsync();
+
+        var documentId = Guid.NewGuid();
+        var declaration = CheckIntegrationFixtures.BuildExportAuctionWithFees("ba-" + documentId.ToString("N"), "EXP_FR");
+        await _harness.SeedDetectedAndStageAsync(documentId, declaration);
+        await _harness.MarkReadyToSendAsync(documentId);
+
+        await _harness.RunB2cExportAsync();
+
+        _harness.PaCallCount(SendB2cTransaction, ExportTxDetail).Should()
+            .Be(1, "une franchise export (catégorie G) est transmise en TLB1, taux 0.");
+        (await _harness.GetB2cMarginEmissionsAsync(documentId)).Select(e => e.Status).Should().Equal("Pending", "Issued");
+    }
+
+    [Fact]
+    public async Task Mixed_Run_Emits_One_Post_Per_Tt81_Category()
+    {
+        // Un run mêlant un export hors UE (G→TLB1) et un intracom (K→TNT1) émet DEUX POST distincts — un par TT-81
+        // (EmitAllAsync applique UNE catégorie par lot ; le job groupe par catégorie).
+        await _harness.UsePublishedFakeAsync();
+
+        var exportId = Guid.NewGuid();
+        await _harness.SeedDetectedAndStageAsync(exportId, CheckIntegrationFixtures.BuildExportAuctionWithFees("ba-x-" + exportId.ToString("N"), "EXP_HORSUE"));
+        await _harness.MarkReadyToSendAsync(exportId);
+
+        var intracomId = Guid.NewGuid();
+        await _harness.SeedDetectedAndStageAsync(intracomId, CheckIntegrationFixtures.BuildExportAuctionWithFees("ba-i-" + intracomId.ToString("N"), "EXP_CEE"));
+        await _harness.MarkReadyToSendAsync(intracomId);
+
+        await _harness.RunB2cExportAsync();
+
+        _harness.PaCallCount(SendB2cTransaction, ExportTxDetail).Should().Be(1, "l'export hors UE part en TLB1.");
+        _harness.PaCallCount(SendB2cTransaction, IntracomTxDetail).Should().Be(1, "l'intracom part en TNT1, dans un POST distinct.");
     }
 
     [Fact]
@@ -151,7 +214,7 @@ public sealed class B2cExportReportingJobTests : IAsyncLifetime
 
         var runs = await _harness.GetRunsAsync();
         var run = runs.First(r => r.RunType == PipelineRunType.B2cExportReporting);
-        run.Detail.Should().Contain("export hors UE", "le run d'export est tracé et identifiable (jamais un flux muet).");
+        run.Detail.Should().Contain("exonéré international", "le run d'exonéré international est tracé et identifiable (jamais un flux muet).");
     }
 
     [Fact]

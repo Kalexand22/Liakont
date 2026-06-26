@@ -94,14 +94,15 @@ public class EncheresV6RowMapperTests
     }
 
     [Theory]
-    [InlineData("HORS CEE", "5_EXP_HORSUE")] // export hors UE → mappable G/0 % (262 I) si la table le couvre
-    [InlineData("CEE", "5_EXP_CEE")] // intra-UE → fail-closed tant que non mappé
-    [InlineData("FRANCE", "5_EXP_FR")] // zone indéterminée (franchise probable) → fail-closed
-    [InlineData("", "5_EXP_FR")] // mode absent → zone indéterminée
-    public void MapBaDocument_export_emits_composite_regime_key_with_zone(string modeLivraison, string expectedRegime)
+    [InlineData("HORS CEE", "EXP_HORSUE")] // export hors UE → mappé G/0 % (262 I)
+    [InlineData("CEE", "EXP_CEE")] // intra-UE → mappé K/0 % (262 ter / 258 A)
+    [InlineData("FRANCE", "EXP_FR")] // franchise (mode FRANCE + code_export, art. 275) → G/0 %
+    [InlineData("", "EXP_FR")] // mode absent → zone par défaut FR
+    public void MapBaDocument_export_emits_zone_regime_key(string modeLivraison, string expectedRegime)
     {
-        // F03 §2.8 : code_export=1 → clé de régime COMPOSITE « {regime}_EXP_{zone} » (RegimeKeyShape.Composite).
-        // Transport de donnée source (régime + export + zone normalisée), AUCUNE dérivation fiscale (CLAUDE.md n°6).
+        // F03 §2.8 : code_export=1 → clé de régime par ZONE « EXP_{zone} » (RegimeKeyShape.Composite). Le régime
+        // domestique ne figure PAS dans la clé (l'exonération internationale prime — 262 I/262 ter/275) ; il reste
+        // dans SourceData. Transport de donnée source, AUCUNE dérivation fiscale (CLAUDE.md n°6).
         EncheresV6Bordereau export = MargeBa();
         export.Lignes[0].CodeRegime = "5"; // assujetti (prix total) MAIS exporté
         export.CodeExport = true;

@@ -3,6 +3,7 @@ namespace Liakont.Modules.Pipeline.Infrastructure.B2cReporting;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Liakont.Agent.Contracts.Pivot;
@@ -21,30 +22,34 @@ using Microsoft.Extensions.Logging;
 using Stratum.Common.Abstractions.Jobs;
 
 /// <summary>
-/// E-reporting B2C d'EXPORT HORS UE détaxé (flux 10.3, enchères — art. 262 I CGI, F03 §2.8) : job planifié PAR
-/// TENANT (mécanique <see cref="ITenantJob"/>/<c>TenantJobRunner</c>, SOL06 ; JAMAIS une boucle multi-tenant
-/// maison). Apparenté à <see cref="B2cTaxableAggregatorTenantJob"/> (même flux, même orchestration d'émission
-/// PARTAGÉE <see cref="B2cReportingEmitter"/>, même catégorie de transaction <b>TLB1</b>) mais avec DEUX
-/// différences SOURCÉES (F03 §2.8) :
+/// E-reporting B2C d'EXONÉRÉ INTERNATIONAL détaxé (flux 10.3, enchères, F03 §2.8) : job planifié PAR TENANT
+/// (mécanique <see cref="ITenantJob"/>/<c>TenantJobRunner</c>, SOL06 ; JAMAIS une boucle multi-tenant maison).
+/// Apparenté à <see cref="B2cTaxableAggregatorTenantJob"/> (même flux, même orchestration d'émission PARTAGÉE
+/// <see cref="B2cReportingEmitter"/>) mais avec DEUX différences (F03 §2.8) :
 /// <list type="bullet">
-///   <item><b>UNITAIRE, pas agrégé</b> : une opération internationale (export) se déclare au grain OPÉRATION —
-///   une transaction e-reporting PAR document, jamais agrégée jour×devise (à la différence de la marge/prix
-///   total domestiques). La traçabilité opération↔déclaration est donc 1↔1.</item>
-///   <item><b>Détaxé (taux 0)</b> : l'export est exonéré (art. 262 I) — aucune TVA. La base est le total HT
-///   exonéré (adjudication HT + commission acheteur, exonérée elle aussi : le code source ne porte aucune TVA de
-///   frais sur un export — F03 §2.8). Un seul sous-total au taux 0.</item>
+///   <item><b>UNITAIRE, pas agrégé</b> : une opération internationale se déclare au grain OPÉRATION — une
+///   transaction e-reporting PAR document, jamais agrégée jour×devise (à la différence de la marge/prix total
+///   domestiques). La traçabilité opération↔déclaration est donc 1↔1.</item>
+///   <item><b>Détaxé (taux 0)</b> : l'opération est exonérée — aucune TVA. La base est le total HT exonéré
+///   (adjudication HT + commission acheteur, exonérée elle aussi : le code source ne porte aucune TVA de frais sur
+///   un détaxé — F03 §2.8). Un seul sous-total au taux 0.</item>
 /// </list>
 /// <para>
+/// <b>TROIS régimes, TT-81 par catégorie</b> (résolue depuis le marquage, pas hard-codée) : export hors UE
+/// (262 I, catégorie <c>G</c>) → <b>TLB1</b> ; intracommunautaire (262 ter / 258 A, catégorie <c>K</c>) →
+/// <b>TNT1</b> (non soumis en France ; OSS destination = autre flux) ; franchise (275, catégorie <c>G</c>
+/// export-bound) → <b>TLB1</b>. Un run mêlant les trois émet un POST par TT-81 (groupé).
+/// </para>
+/// <para>
 /// <b>Anti-doublon</b> : MÊME journal d'émission append-only que la marge/prix total (attempt-once par document,
-/// décision D3) — un document est soit marge, soit prix total, soit export, jamais plusieurs, et un document déjà
-/// tenté est EXCLU des runs suivants (jamais 2 POST).
+/// décision D3) — un document est soit marge, soit prix total, soit exonéré international, jamais plusieurs, et un
+/// document déjà tenté est EXCLU des runs suivants (jamais 2 POST).
 /// </para>
 /// <para>
 /// <b>Frontières</b> : tenant-scopé (companyId du profil tenant — CLAUDE.md n°9) ; aucune référence à un plug-in
 /// PA concret (capacité <c>SupportsB2cReporting</c> — CLAUDE.md n°8) ; aucune règle fiscale inventée (catégorie
-/// <c>G</c> du mapping validé F03 §2.1/§2.8, forme ancrée F03 §2.8 ; intracom/franchise NON couverts =
-/// fail-closed). La <b>commission vendeur</b> d'un lot exporté est HORS de cette base (prestation B2B) : le
-/// bordereau acheteur (BA) ne porte que la commission acheteur.
+/// <c>G</c>/<c>K</c> du mapping validé F03 §2.1/§2.8, classification validée PO). La <b>commission vendeur</b> d'un
+/// lot est HORS de cette base (prestation B2B) : le bordereau acheteur (BA) ne porte que la commission acheteur.
 /// </para>
 /// </summary>
 public sealed partial class B2cExportReportingTenantJob : ITenantJob
@@ -101,18 +106,28 @@ public sealed partial class B2cExportReportingTenantJob : ITenantJob
             return;
         }
 
-        // 3) Émission (TLB1 / SE, F03 §2.8) : orchestration PARTAGÉE (B2cReportingEmitter) — Pending (crash-safe)
-        //    → POST → issue → gel des liens (D2) si Issued. Chaque transaction porte UNE seule contribution.
-        var (issued, rejected, technical) = await B2cReportingEmitter.EmitAllAsync(
-            services,
-            emissionStore,
-            paClient,
-            companyId.Value,
-            discovery.Transactions,
-            EReportingTransactionCategory.Tlb1,
-            EReportingDeclarantRole.Seller,
-            logger,
-            cancellationToken);
+        // 3) Émission (SE, F03 §2.8) : orchestration PARTAGÉE (B2cReportingEmitter) — Pending (crash-safe) → POST
+        //    → issue → gel des liens (D2) si Issued. Chaque transaction porte UNE seule contribution. On émet UN
+        //    lot par TT-81 (TLB1 export/franchise, TNT1 intracom) : EmitAllAsync applique UNE catégorie au lot.
+        var issued = 0;
+        var rejected = 0;
+        var technical = 0;
+        foreach (var group in discovery.Transactions.GroupBy(t => t.Category))
+        {
+            var (i, r, t) = await B2cReportingEmitter.EmitAllAsync(
+                services,
+                emissionStore,
+                paClient,
+                companyId.Value,
+                group.Select(g => g.Transaction).ToList(),
+                group.Key,
+                EReportingDeclarantRole.Seller,
+                logger,
+                cancellationToken);
+            issued += i;
+            rejected += r;
+            technical += t;
+        }
 
         var detail = Describe(discovery, issued, rejected, technical, capabilityPending: false);
         await WriteRunLogAsync(services, timeProvider, _trigger, startedAt, discovery.Examined, issued, discovery.NotMapped + rejected + technical, detail, cancellationToken);
@@ -133,7 +148,7 @@ public sealed partial class B2cExportReportingTenantJob : ITenantJob
         var staging = services.GetRequiredService<IPayloadStagingStore>();
         var tvaMapping = services.GetRequiredService<ITvaMappingService>();
 
-        var transactions = new List<B2cAggregatedTransaction>();
+        var transactions = new List<TaggedTransaction>();
         var examined = 0;
         var notMapped = 0;
 
@@ -180,11 +195,13 @@ public sealed partial class B2cExportReportingTenantJob : ITenantJob
 
                     if (!B2cExportDeclaration.Matches(marked))
                     {
-                        continue; // classé NON-export (marge / prix total / acheteur pro) → autre voie : pas une anomalie.
+                        continue; // classé NON-exonéré-international (marge / prix total / acheteur pro) → autre voie.
                     }
 
                     examined++;
-                    transactions.Add(BuildExportTransaction(document, marked));
+                    transactions.Add(new TaggedTransaction(
+                        ResolveTransactionCategory(marked),
+                        BuildExportTransaction(document, marked)));
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -238,6 +255,15 @@ public sealed partial class B2cExportReportingTenantJob : ITenantJob
         };
     }
 
+    // Résout la catégorie de transaction TT-81 (G1.68) depuis la catégorie UNCL5305 HOMOGÈNE du document détaxé
+    // (garantie par B2cExportMarking) : intracom (K, 262 ter / 258 A) → TNT1 (non soumis en France) ; export hors
+    // UE (G, 262 I) et franchise (G export-bound, 275) → TLB1 (livraison de biens détaxée). Aucune TT-81 devinée :
+    // la catégorie vient de la TABLE VALIDÉE (classification validée PO, F03 §2.8).
+    private static EReportingTransactionCategory ResolveTransactionCategory(PivotDocumentDto marked) =>
+        B2cExportMarking.ExoneratedCategory(marked) == VatCategory.K
+            ? EReportingTransactionCategory.Tnt1
+            : EReportingTransactionCategory.Tlb1;
+
     private static string Describe(
         DiscoveryResult discovery,
         int issued,
@@ -249,12 +275,12 @@ public sealed partial class B2cExportReportingTenantJob : ITenantJob
         {
             return string.Create(
                 CultureInfo.InvariantCulture,
-                $"E-reporting B2C export hors UE (flux 10.3, TLB1 unitaire, art. 262 I) : {discovery.Transactions.Count} opération(s) EN ATTENTE de capacité PA (SupportsB2cReporting) — aucun envoi. {discovery.Examined} export(s) examiné(s), {discovery.NotMapped} non mappable(s).");
+                $"E-reporting B2C exonéré international (flux 10.3, unitaire — export 262 I/TLB1, intracom 262 ter/TNT1, franchise 275/TLB1) : {discovery.Transactions.Count} opération(s) EN ATTENTE de capacité PA (SupportsB2cReporting) — aucun envoi. {discovery.Examined} opération(s) examinée(s), {discovery.NotMapped} non mappable(s).");
         }
 
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"E-reporting B2C export hors UE (flux 10.3, TLB1 unitaire, art. 262 I) : {discovery.Transactions.Count} opération(s) — {issued} transmise(s), {rejected} rejetée(s), {technical} erreur(s). {discovery.Examined} export(s) examiné(s), {discovery.NotMapped} non mappable(s).");
+            $"E-reporting B2C exonéré international (flux 10.3, unitaire — export 262 I/TLB1, intracom 262 ter/TNT1, franchise 275/TLB1) : {discovery.Transactions.Count} opération(s) — {issued} transmise(s), {rejected} rejetée(s), {technical} erreur(s). {discovery.Examined} opération(s) examinée(s), {discovery.NotMapped} non mappable(s).");
     }
 
     private static async Task WriteRunLogAsync(
@@ -279,20 +305,24 @@ public sealed partial class B2cExportReportingTenantJob : ITenantJob
     }
 
     [LoggerMessage(EventId = 7470, Level = LogLevel.Information,
-        Message = "E-reporting B2C export hors UE (TLB1 unitaire) terminé pour le tenant « {TenantId} » : {Operations} opération(s) — {Issued} transmise(s), {Rejected} rejetée(s), {Technical} erreur(s).")]
+        Message = "E-reporting B2C exonéré international (unitaire) terminé pour le tenant « {TenantId} » : {Operations} opération(s) — {Issued} transmise(s), {Rejected} rejetée(s), {Technical} erreur(s).")]
     private static partial void LogCompleted(ILogger logger, string tenantId, int operations, int issued, int rejected, int technical);
 
     [LoggerMessage(EventId = 7471, Level = LogLevel.Information,
-        Message = "E-reporting B2C export hors UE (TLB1 unitaire) pour le tenant « {TenantId} » : {Operations} opération(s) en attente — la PA active ne déclare pas la capacité d'e-reporting B2C (aucun envoi).")]
+        Message = "E-reporting B2C exonéré international (unitaire) pour le tenant « {TenantId} » : {Operations} opération(s) en attente — la PA active ne déclare pas la capacité d'e-reporting B2C (aucun envoi).")]
     private static partial void LogCapabilityPending(ILogger logger, string tenantId, int operations);
 
     [LoggerMessage(EventId = 7473, Level = LogLevel.Error,
-        Message = "E-reporting B2C export hors UE (TLB1 unitaire) : échec du traitement du document « {DocumentId} » — isolé, le run continue.")]
+        Message = "E-reporting B2C exonéré international (unitaire) : échec du traitement du document « {DocumentId} » — isolé, le run continue.")]
     private static partial void LogDocumentFailed(ILogger logger, Guid documentId, Exception exception);
 
     [LoggerMessage(EventId = 7474, Level = LogLevel.Warning,
-        Message = "E-reporting B2C export hors UE (TLB1 unitaire) : document « {DocumentId} » porteur de frais dont l'adjudication n'est plus mappable (table de mapping TVA modifiée depuis le contrôle) — non transmis, tracé. Le document reste prêt à l'envoi ; action opérateur : faites valider/rétablir le mapping du régime d'export de cette adjudication.")]
+        Message = "E-reporting B2C exonéré international (unitaire) : document « {DocumentId} » porteur de frais dont l'adjudication n'est plus mappable (table de mapping TVA modifiée depuis le contrôle) — non transmis, tracé. Le document reste prêt à l'envoi ; action opérateur : faites valider/rétablir le mapping du régime de cette adjudication.")]
     private static partial void LogExportAdjudicationNotMapped(ILogger logger, Guid documentId);
 
-    private sealed record DiscoveryResult(int Examined, int NotMapped, IReadOnlyList<B2cAggregatedTransaction> Transactions);
+    // Une transaction unitaire + sa catégorie de transaction TT-81 résolue (TLB1 export/franchise, TNT1 intracom) :
+    // l'émission groupe par TT-81 (EmitAllAsync applique UNE catégorie par lot).
+    private sealed record TaggedTransaction(EReportingTransactionCategory Category, B2cAggregatedTransaction Transaction);
+
+    private sealed record DiscoveryResult(int Examined, int NotMapped, IReadOnlyList<TaggedTransaction> Transactions);
 }

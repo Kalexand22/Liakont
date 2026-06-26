@@ -18,7 +18,7 @@ public sealed class B2cExportBaseCalculatorTests
         // Cas nominal : adjudication 120 HT + commission acheteur 60 (exonérée → TTC = HT) = 180.
         var pivot = Pivot(
             lines: [Line(120m)],
-            buyerFees: [new PivotBuyerFeeDto("lot-7", 60m, sourceRegimeCode: "5_EXP_HORSUE")]);
+            buyerFees: [new PivotBuyerFeeDto("lot-7", 60m, sourceRegimeCode: "EXP_HORSUE")]);
 
         B2cExportBaseCalculator.ComputeTaxExclusiveBase(pivot).Should().Be(180m);
     }
@@ -29,7 +29,7 @@ public sealed class B2cExportBaseCalculatorTests
         // Bordereau multi-lots : Σ des adjudications HT + commission acheteur.
         var pivot = Pivot(
             lines: [Line(120m), Line(80m)],
-            buyerFees: [new PivotBuyerFeeDto("lot-7", 50m, sourceRegimeCode: "5_EXP_HORSUE")]);
+            buyerFees: [new PivotBuyerFeeDto("lot-7", 50m, sourceRegimeCode: "EXP_HORSUE")]);
 
         B2cExportBaseCalculator.ComputeTaxExclusiveBase(pivot).Should().Be(250m);
     }
@@ -49,8 +49,8 @@ public sealed class B2cExportBaseCalculatorTests
             operationCategory: null,
             customer: null,
             lines: [Line(120m)],
-            sellerFees: [new PivotSellerFeeDto("lot-7", 999m, sourceRegimeCode: "5_EXP_HORSUE")],
-            buyerFees: [new PivotBuyerFeeDto("lot-7", 60m, sourceRegimeCode: "5_EXP_HORSUE")]);
+            sellerFees: [new PivotSellerFeeDto("lot-7", 999m, sourceRegimeCode: "EXP_HORSUE")],
+            buyerFees: [new PivotBuyerFeeDto("lot-7", 60m, sourceRegimeCode: "EXP_HORSUE")]);
 
         B2cExportBaseCalculator.ComputeTaxExclusiveBase(pivot).Should().Be(180m);
     }
@@ -67,7 +67,7 @@ public sealed class B2cExportBaseCalculatorTests
         new(
             description: "Adjudication (export hors UE)",
             netAmount: net,
-            sourceRegimeCodes: ["5_EXP_HORSUE"],
+            sourceRegimeCodes: ["EXP_HORSUE"],
             taxes: [new PivotLineTaxDto(taxAmount: 0m, rate: 0m, categoryCode: VatCategory.G, vatexCode: "VATEX-EU-G")]);
 
     private static PivotDocumentDto Pivot(

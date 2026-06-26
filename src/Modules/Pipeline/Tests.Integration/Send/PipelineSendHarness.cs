@@ -510,14 +510,37 @@ public sealed class PipelineSendHarness : IAsyncLifetime
             RateValue = 0m,
         };
 
-        // Règle PART AUTRE pour l'EXPORT HORS UE (BUG-11 — marquage 10.3) : l'adjudication d'un lot livré hors UE
-        // est détaxée, mappée G + VATEX-EU-G (art. 262 I, F03 §2.8) sur la clé COMPOSITE « {régime}_EXP_HORSUE »
-        // produite par l'agent. C'est le signal VALIDÉ qui permet à la plateforme de DÉRIVER l'export
-        // (B2cExportMarking) et de l'émettre en e-reporting B2C UNITAIRE (TLB1, taux 0). Clé (EXPORT_HORSUE, Autre).
-        var exportAdjudicationRule = new MappingRule
+        // Règles PART AUTRE pour l'EXONÉRÉ INTERNATIONAL (BUG-11 — marquage 10.3) : l'adjudication d'un lot livré
+        // hors France est détaxée, mappée sur la clé par ZONE « EXP_{zone} » produite par l'agent (F03 §2.8). Le
+        // signal VALIDÉ permet à la plateforme de DÉRIVER l'exonéré international (B2cExportMarking) et de l'émettre
+        // en e-reporting B2C UNITAIRE, TT-81 par catégorie : EXP_HORSUE/EXP_FR -> G -> TLB1 (export 262 I / franchise
+        // 275) ; EXP_CEE -> K -> TNT1 (intracom 262 ter / 258 A).
+        var exportHorsUeRule = new MappingRule
         {
-            SourceRegimeCode = "EXPORT_HORSUE",
+            SourceRegimeCode = "EXP_HORSUE",
             Label = "Export hors UE détaxé (art. 262 I)",
+            Part = MappingPart.Autre,
+            Category = VatCategory.G,
+            Vatex = "VATEX-EU-G",
+            RateMode = RateMode.Fixed,
+            RateValue = 0m,
+        };
+
+        var intracomRule = new MappingRule
+        {
+            SourceRegimeCode = "EXP_CEE",
+            Label = "Livraison intracommunautaire (art. 262 ter / 258 A)",
+            Part = MappingPart.Autre,
+            Category = VatCategory.K,
+            Vatex = "VATEX-EU-IC",
+            RateMode = RateMode.Fixed,
+            RateValue = 0m,
+        };
+
+        var franchiseRule = new MappingRule
+        {
+            SourceRegimeCode = "EXP_FR",
+            Label = "Achat en franchise pour export (art. 275)",
             Part = MappingPart.Autre,
             Category = VatCategory.G,
             Vatex = "VATEX-EU-G",
@@ -531,7 +554,7 @@ public sealed class PipelineSendHarness : IAsyncLifetime
             "Expert-comptable CMP",
             new DateOnly(2026, 7, 15),
             MappingDefaultBehavior.Block,
-            new[] { rule, feeRule, marginAdjudicationRule, exportAdjudicationRule });
+            new[] { rule, feeRule, marginAdjudicationRule, exportHorsUeRule, intracomRule, franchiseRule });
 
         await using var scope = _provider!.CreateAsyncScope();
         var factory = scope.ServiceProvider.GetRequiredService<ITvaMappingUnitOfWorkFactory>();
