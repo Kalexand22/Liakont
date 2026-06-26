@@ -306,3 +306,23 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
   Idéalement, proposer/valider les valeurs attendues par la PA quand elle en a (au lieu de « jamais devinée »).
 - **Fichiers (pistes)** : l'écran de publication SIREN (Host Components, `PaPublicationConsoleService`),
   `PaTaxReportSettingRequest` (Transmission.Contracts). UI Liakont — règle review 19.
+
+## BUG-14 — Le seed importe l'IDENTITÉ LÉGALE du tenant (ne devrait JAMAIS) + écrase la saisie manuelle (relevé Karl 26/06, PAS pour maintenant)
+
+- **Symptôme** : après création + import de seed, le profil du tenant affiche l'identité **du seed** (SIREN
+  `976543215`, raison sociale « SVV INNEXA (démo) », adresse « 1 rue des Enchères », contact
+  `alertes.svv@encheres-demo.test`) — PAS ce que l'opérateur a saisi à la création. Karl : « ce genre d'info ne
+  devrait jamais être seedée ».
+- **Cause (design)** : `tenant-profile.json` du seed porte l'**identité légale** (SIREN/raisonSociale/address/
+  contactEmailAlerte) EN PLUS du paramétrage (fiscal/mapping/seuils/PA). Le wizard « Nouveau client » traite le
+  seed et la saisie manuelle comme **EXCLUSIFS** (`ClientWizardSeedStep` : « si un seed est choisi, SON profil
+  fait foi ») → le seed **ÉCRASE** la saisie légale de l'opérateur par des valeurs FICTIVES de démo.
+- **Pourquoi c'est faux** : l'identité légale est une **donnée tenant-spécifique RÉELLE** (la vraie société), pas
+  du paramétrage réutilisable. Seul le **paramétrage** (nature fiscale, table de mapping, seuils, comptes PA SANS
+  secret) est seedable/réutilisable. Effet de bord concret ici : il a fallu RE-éditer le SIREN à la main pour le
+  faire correspondre à l'entreprise sandbox SuperPDP (`000000002`).
+- **À corriger** : DÉCOUPLER **profil légal** (saisie manuelle, par tenant, jamais seedé) et **paramétrage**
+  (seedable). Soit retirer l'identité légale de `tenant-profile.json` (le seed ne porte que le paramétrage), soit
+  lever l'exclusivité du wizard (identité = saisie manuelle, paramétrage = seed, combinés). Fichiers :
+  `tenant-profile.json` (structure), `ImportTenantSeedHandler`, `TenantSeedReader`, `ClientNouveau.razor` /
+  `ClientWizardSeedStep.razor` (lever le « seed XOR manuel » sur le légal). UI Liakont — règle review 19.
