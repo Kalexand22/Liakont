@@ -23,7 +23,7 @@ public record PaCapabilitiesSummaryDto
     /// <summary>E-reporting de paiement international (flux 10.2).</summary>
     public required bool SupportsInternationalPaymentReporting { get; init; }
 
-    /// <summary>Facturation électronique B2B (flux 1/2, phase 2).</summary>
+    /// <summary>Facturation électronique B2B (flux 1/2) — la PA route-t-elle une facture B2B en tant que PDP (la production de la facture relève du produit, Lot 1).</summary>
     public required bool SupportsB2bInvoicing { get; init; }
 
     /// <summary>Émission d'avoirs.</summary>

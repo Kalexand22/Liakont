@@ -97,14 +97,18 @@ public sealed class B2cReportingCapabilityTests : IAsyncLifetime
             .Be(1, "la déclaration B2C est e-reportée par son job vers une PA capable.");
     }
 
-    /// <summary>Capacités d'une PA publiée générale MAIS sans la capacité e-reporting B2C (le reste = défaut V1).</summary>
+    /// <summary>
+    /// Capacités d'une PA publiée générale MAIS sans la capacité e-reporting B2C (le reste = défaut V1, dont la
+    /// facturation B2B — Lot 1 — pour qu'une facture à destinataire identifié dispose d'un canal de transmission,
+    /// garde aiguillage B2B/B2G document-driven).
+    /// </summary>
     private static PaCapabilities WithoutB2cReporting() => new()
     {
         PaName = "Fake",
         SupportsB2cReporting = false,
         SupportsDomesticPaymentReporting = true,
         SupportsInternationalPaymentReporting = false,
-        SupportsB2bInvoicing = false,
+        SupportsB2bInvoicing = true,
         SupportsCreditNotes = true,
         SupportsTaxReportRetrieval = true,
         SupportsDocumentRetrieval = true,

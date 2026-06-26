@@ -58,8 +58,10 @@ public sealed class SyncTenantJobIntegrationTests : IClassFixture<PipelineSendHa
     [Fact]
     public async Task Sync_Without_Retrieval_Capabilities_Archives_Nothing()
     {
-        // PA sans aucune capacité de récupération : aucun addendum, et aucun appel de récupération (jamais bloqué).
-        var options = new FakePaClientOptions { Capabilities = new PaCapabilities { PaName = "Fake" } };
+        // PA sans aucune capacité de RÉCUPÉRATION (sujet du test) ; la facturation B2B reste déclarée pour qu'une
+        // facture à destinataire identifié dispose d'un canal et soit ÉMISE (garde aiguillage B2B/B2G document-driven) —
+        // sinon elle serait maintenue et le SYNC n'aurait rien à archiver.
+        var options = new FakePaClientOptions { Capabilities = new PaCapabilities { PaName = "Fake", SupportsB2bInvoicing = true } };
         var (documentId, pivot) = await IssueDocumentAsync("nocaps", options);
         var paDocumentId = "FAKE-" + pivot.Number;
 

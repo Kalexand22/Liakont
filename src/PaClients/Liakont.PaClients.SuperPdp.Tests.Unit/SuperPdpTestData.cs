@@ -85,7 +85,7 @@ internal static class SuperPdpTestData
     /// <summary>
     /// Facture dont la ligne porte une unité de mesure explicite (EN 16931 BT-130, RD407). Sert à vérifier
     /// que le builder SuperPDP CONSERVE l'unité neutre C62 sur sa ligne agrégée en quantité 1 (l'émission
-    /// fidèle de l'unité du pivot est un différé B2B — voir <c>SuperPdpPayloadBuilder</c>).
+    /// fidèle de l'unité du pivot est un raffinement différé, RD407 — voir <c>SuperPdpPayloadBuilder</c>).
     /// </summary>
     /// <param name="number">Numéro du document.</param>
     /// <param name="unitCode">Code d'unité UN/ECE Rec 20 porté par la ligne (ex. <c>KGM</c>).</param>

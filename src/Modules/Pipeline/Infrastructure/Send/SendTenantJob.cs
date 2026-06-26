@@ -317,6 +317,16 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
+        // Filet de transmission (garde PRIMAIRE au CHECK ; ce filet couvre un changement de PA après ReadyToSend
+        // — décision Karl 2026-06-22 « jamais une capacité d'une PA n'impacte le FLUX »). Un document à
+        // destinataire identifié (acheteur SIREN) sans canal de transmission (ni PDP B2B, ni transport Factur-X)
+        // est maintenu, jamais dégradé en e-reporting B2C anonyme — voir IsUnsendableB2bInvoice (CLAUDE.md n°3/8).
+        if (IsUnsendableB2bInvoice(staged.Pivot!, paClient))
+        {
+            LogB2bInvoicingCapabilityMissing(logger, document.Id, paClient.Capabilities.PaName);
+            return SendOutcome.Skipped;
+        }
+
         // Garde anti double-envoi pour une PA SANS dédoublonnage propre (Essentiel : la générique email/dépôt
         // ne déduplique pas, GetDocumentStatus = CapabilityNotSupported). Un cycle précédent a pu transmettre +
         // journaliser ce Factur-X puis crasher AVANT MarkIssued : la journalisation FX06/FX07 (clé d'idempotence
@@ -417,6 +427,15 @@ public sealed partial class SendTenantJob : ITenantJob
         var selfBilled = await ResolveSelfBilledSendAsync(services, paClient, companyId, document.Id, staged.Pivot!, logger, cancellationToken);
         if (selfBilled.Hold)
         {
+            return SendOutcome.Skipped;
+        }
+
+        // Filet de transmission (parité CHECK + autres chemins SEND) : un document à destinataire identifié sans
+        // canal de transmission (ni PDP B2B, ni transport Factur-X) reste en l'état, jamais dégradé en e-reporting
+        // B2C anonyme — voir IsUnsendableB2bInvoice (CLAUDE.md n°3/8 ; capacité au bord, jamais dans le flux).
+        if (IsUnsendableB2bInvoice(staged.Pivot!, paClient))
+        {
+            LogB2bInvoicingCapabilityMissing(logger, document.Id, paClient.Capabilities.PaName);
             return SendOutcome.Skipped;
         }
 
@@ -535,6 +554,16 @@ public sealed partial class SendTenantJob : ITenantJob
         var selfBilled = await ResolveSelfBilledSendAsync(services, paClient, companyId, document.Id, staged.Pivot!, logger, cancellationToken);
         if (selfBilled.Hold)
         {
+            return SendOutcome.Skipped;
+        }
+
+        // Filet de transmission (même garde qu'au CHECK, parité avec le hold 389) : un document à destinataire
+        // identifié (acheteur SIREN) n'est émissible que vers une PA offrant un canal (PDP B2B OU transport
+        // Factur-X) ; sinon MAINTENU ReadyToSend, jamais dégradé en e-reporting B2C anonyme — voir
+        // IsUnsendableB2bInvoice (CLAUDE.md n°3/8 ; capacité au bord, jamais dans le flux ; décision Karl 2026-06-22).
+        if (IsUnsendableB2bInvoice(staged.Pivot!, paClient))
+        {
+            LogB2bInvoicingCapabilityMissing(logger, document.Id, paClient.Capabilities.PaName);
             return SendOutcome.Skipped;
         }
 
@@ -1020,6 +1049,18 @@ public sealed partial class SendTenantJob : ITenantJob
     private static bool IsUnsendableCreditNote(PivotDocumentDto pivot, IPaClient paClient) =>
         pivot.CreditNoteRefs.Count > 0 && !paClient.Capabilities.SupportsCreditNotes;
 
+    // Un document à DESTINATAIRE IDENTIFIÉ (acheteur avec SIREN — B2B ou B2G, hors self-billed qui a sa propre
+    // garde 389) n'est émissible que si la PA active a un CANAL pour le transmettre : soit le routage PDP B2B
+    // (SupportsB2bInvoicing), soit le transport du Factur-X produit par la plateforme (SupportsFacturXTransmission
+    // — ex. Generique email/dépôt, Chorus Pro B2G). Sinon il serait dégradé en e-reporting B2C anonyme par une PA
+    // B2C-only (ex. B2Brouter) → on bloque (CLAUDE.md n°3). Le FLUX vient du DOCUMENT, les capacités ne font que
+    // gater la transmission au bord (CLAUDE.md n°8 ; décision Karl 2026-06-22). Jamais un if (pa is …).
+    private static bool IsUnsendableB2bInvoice(PivotDocumentDto pivot, IPaClient paClient) =>
+        !pivot.IsSelfBilled
+        && !string.IsNullOrWhiteSpace(pivot.Customer?.Siren)
+        && !paClient.Capabilities.SupportsB2bInvoicing
+        && !paClient.Capabilities.SupportsFacturXTransmission;
+
     /// <summary>
     /// Garde CIBLÉE sur la DÉCLARATION e-reporting B2C (flux 10.3, B2C01) : vraie UNIQUEMENT quand le document
     /// porte le marqueur <see cref="PivotDocumentDto.IsB2cReportingDeclaration"/> ET que la PA active ne déclare
@@ -1266,6 +1307,10 @@ public sealed partial class SendTenantJob : ITenantJob
     [LoggerMessage(EventId = 7213, Level = LogLevel.Warning,
         Message = "SEND : auto-facture sous mandat (389) {DocumentId} non envoyée — la Plateforme Agréée « {PaName} » ne déclare pas la capacité d'émission 389 (maintenue ; ne sera jamais émise en facture standard).")]
     private static partial void LogSelfBilledCapabilityMissing(ILogger logger, Guid documentId, string paName);
+
+    [LoggerMessage(EventId = 7225, Level = LogLevel.Warning,
+        Message = "SEND : facture à destinataire identifié {DocumentId} non envoyée — la Plateforme Agréée « {PaName} » n'offre aucun canal (ni facturation B2B PDP, ni transport Factur-X) ; maintenue ReadyToSend, jamais dégradée en e-reporting B2C anonyme.")]
+    private static partial void LogB2bInvoicingCapabilityMissing(ILogger logger, Guid documentId, string paName);
 
     [LoggerMessage(EventId = 7214, Level = LogLevel.Warning,
         Message = "SEND : auto-facture sous mandat (389) {DocumentId} non envoyée — acceptation par le mandant non acquise (art. 289 I-2 CGI) ; maintenue jusqu'à acceptation.")]
