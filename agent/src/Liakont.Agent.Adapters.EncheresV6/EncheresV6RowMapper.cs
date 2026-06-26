@@ -70,7 +70,6 @@ internal static class EncheresV6RowMapper
         RequireDate(bordereau.DateVente, "date_vente", noBa);
 
         var lines = new List<PivotLineDto>();
-        var buyerFees = new List<PivotBuyerFeeDto>();
         decimal totalNet = 0m;
         decimal totalTax = 0m;
 
@@ -95,6 +94,11 @@ internal static class EncheresV6RowMapper
             // est un montant au centime ; Round(a)+Round(b) évite le décalage d'un centime de Round(a+b) sur un
             // flottant legacy bruité. En régime de la marge l'un des deux est nul (adjudication exonérée).
             decimal adjTax = RoundAmount(ligne.MttTvaInclusAdj) + RoundAmount(ligne.MttTvaEnPlusAdj);
+
+            // MÊME clé régime/zone pour l'adjudication ET l'honoraire acheteur de ce lot (la zone d'export prime
+            // pareillement sur les deux composantes — F03 §2.8). Calculée une fois, partagée par les deux lignes.
+            IReadOnlyList<string> regimeCodes = RegimeCodes(ComposeRegimeKey(ligne.CodeRegime, exportZone));
+
             totalNet += adjNet;
             totalTax += adjTax;
 
@@ -103,22 +107,36 @@ internal static class EncheresV6RowMapper
                 netAmount: adjNet,
                 quantity: 1m,
                 unitPriceNet: null,
-                sourceRegimeCodes: RegimeCodes(ComposeRegimeKey(ligne.CodeRegime, exportZone)),
+                sourceRegimeCodes: regimeCodes,
                 taxes: new[] { new PivotLineTaxDto(taxAmount: adjTax, rate: null, categoryCode: null, vatexCode: null) },
                 sourceLineRef: ligne.NoLignePv,
                 sourceData: BuildBaLineSourceData(ligne)));
 
-            // Commission acheteur (TTC = HT + TVA) = jambe acheteur de la marge, au grain bordereau (no_ba).
-            // Arrondi par composante puis somme (CLAUDE.md n°1). La TVA de frais BRUTE est transportée à part
-            // (SourceTaxAmount) — sans logique fiscale (CLAUDE.md n°6) — pour que la plateforme recouvre la base
-            // HT exonérée d'un export (F03 §2.8) ; omise quand elle vaut 0 (commission détaxée → hash inchangé).
+            // HONORAIRE ACHETEUR porté en LIGNE (rôle BuyerFee) — F03 §2.3 amendement (2026-06-26, BUG-17 volet b).
+            // Au lieu d'un side-channel hors-lignes (BuyerFees), la commission acheteur est une VRAIE 2e ligne du
+            // bordereau : le total de la pièce devient réel (adjudication + honoraire) et la facture électronique la
+            // porte (le sérialiseur ne lit que les lignes). NetAmount = TTC (HT + TVA, arrondi par composante puis
+            // somme, CLAUDE.md n°1) ; taxe de ligne à 0 — l'agent ne CLASSE pas (CLAUDE.md n°6), la catégorie vient du
+            // mapping plateforme (E+VATEX sous marge → TVA « dans la marge », non apparente, art. 297 E ; S sous prix
+            // total). La ligne reste TTC/taxe 0 (le dé-pliage HT/TVA d'un honoraire taxable est DÉFÉRÉ, BUG-17). La TVA
+            // de frais BRUTE est transportée à part (SourceTaxAmount) pour que la plateforme recouvre la base HT d'un
+            // export (F03 §2.8, recouvrement EFFECTIF) et, à terme, dé-plie la TVA au régime du prix total (F03 §2.7) ;
+            // omise quand elle vaut 0 (commission détaxée → hash inchangé). Le total de TVA n'inclut PAS la TVA-marge
+            // (297 E, TotalTax == 0 préservé) ; elle est calculée par le job B4 (mapping part Frais).
             decimal fraisTvaTtc = RoundAmount(ligne.MontantTvaFrais);
-            buyerFees.Add(new PivotBuyerFeeDto(
-                lotReference: noBa,
-                netAmount: RoundAmount(ligne.MontantFraisHt) + fraisTvaTtc,
-                sourceRegimeCode: NullIfBlank(ligne.CodeRegime),
+            decimal honoraireTtc = RoundAmount(ligne.MontantFraisHt) + fraisTvaTtc;
+            totalNet += honoraireTtc;
+
+            lines.Add(new PivotLineDto(
+                description: HonoraireDescription(ligne.NoLignePv),
+                netAmount: honoraireTtc,
+                quantity: 1m,
+                unitPriceNet: null,
+                sourceRegimeCodes: regimeCodes,
+                taxes: new[] { new PivotLineTaxDto(taxAmount: 0m, rate: null, categoryCode: null, vatexCode: null) },
                 sourceLineRef: ligne.NoLignePv,
-                description: NullIfBlank(ligne.Designation),
+                sourceData: BuildBaLineSourceData(ligne),
+                role: PivotLineRole.BuyerFee,
                 sourceTaxAmount: fraisTvaTtc == 0m ? null : fraisTvaTtc));
         }
 
@@ -147,8 +165,7 @@ internal static class EncheresV6RowMapper
             isSelfBilled: false,
             prepaidAmount: null,
             sourceData: BuildBaDocumentSourceData(bordereau),
-            paymentDueDate: null,
-            buyerFees: buyerFees);
+            paymentDueDate: null);
     }
 
     /// <summary>
@@ -597,6 +614,11 @@ internal static class EncheresV6RowMapper
 
         return string.IsNullOrWhiteSpace(noLignePv) ? fallback : fallback + " lot " + noLignePv!.Trim();
     }
+
+    // Libellé de la ligne d'HONORAIRE acheteur (rôle BuyerFee) : un libellé FIXE « Honoraires acheteur » (+ lot),
+    // jamais la désignation du lot — sinon l'honoraire porterait le MÊME libellé que sa ligne d'adjudication.
+    private static string HonoraireDescription(string? noLignePv) =>
+        string.IsNullOrWhiteSpace(noLignePv) ? "Honoraires acheteur" : "Honoraires acheteur lot " + noLignePv!.Trim();
 
     private static PivotPartyDto? MapBuyer(EncheresV6Bordereau bordereau)
     {

@@ -26,9 +26,13 @@ public static class B2cExportBaseCalculator
     /// <returns>La base HT exonérée, en <see cref="decimal"/>.</returns>
     public static decimal ComputeTaxExclusiveBase(PivotDocumentDto pivot)
     {
-        decimal adjudicationHt = pivot.Lines.Sum(line => line.NetAmount);
-        decimal commissionHt = (pivot.BuyerFees ?? Enumerable.Empty<PivotBuyerFeeDto>())
-            .Sum(fee => fee.NetAmount - (fee.SourceTaxAmount ?? 0m));
+        // Partition par RÔLE (BUG-17 volet b) : l'honoraire acheteur est désormais une LIGNE (rôle BuyerFee) — on
+        // somme l'adjudication (lignes ordinaires) à son HT, et la commission acheteur en recouvrant son HT (TTC
+        // NetAmount − TVA de frais source SourceTaxAmount). Sans cette partition, sommer TOUTES les lignes
+        // double-compterait l'honoraire (en TTC). La commission VENDEUR reste exclue (jambe B2B, F03 §2.8).
+        decimal adjudicationHt = B2cAuctionFeeLines.AdjudicationLines(pivot).Sum(line => line.NetAmount);
+        decimal commissionHt = B2cAuctionFeeLines.BuyerFeeLines(pivot)
+            .Sum(line => line.NetAmount - (line.SourceTaxAmount ?? 0m));
         return adjudicationHt + commissionHt;
     }
 }

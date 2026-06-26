@@ -61,7 +61,7 @@ public static class B2cTaxableMarking
         }
 
         // (2) Frais d'enchères présents (commission acheteur et/ou vendeur) — discriminant enchères.
-        bool hasFees = ((enrichedPivot.SellerFees?.Count ?? 0) > 0) || ((enrichedPivot.BuyerFees?.Count ?? 0) > 0);
+        bool hasFees = B2cAuctionFeeLines.HasAuctionFees(enrichedPivot);
         if (!hasFees)
         {
             return false;

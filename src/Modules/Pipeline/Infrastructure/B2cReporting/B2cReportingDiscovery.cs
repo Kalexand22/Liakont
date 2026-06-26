@@ -28,7 +28,7 @@ internal static partial class B2cReportingDiscovery
     /// <param name="pivot">Le pivot à pré-filtrer.</param>
     /// <returns><c>true</c> si des frais acheteur/vendeur sont présents.</returns>
     public static bool HasFees(PivotDocumentDto pivot) =>
-        ((pivot.SellerFees?.Count ?? 0) > 0) || ((pivot.BuyerFees?.Count ?? 0) > 0);
+        Domain.B2cReporting.B2cAuctionFeeLines.HasAuctionFees(pivot);
 
     /// <summary>
     /// Lit le pivot stagé d'un document (PIP00). NotFound (non/plus stagé) → <c>null</c> ce cycle (transitoire) ;

@@ -45,7 +45,47 @@ aucune fonctionnalité produit ne dépend de ce qu'**une** PA sait faire (item d
 
 ### 2.3 Régime de la marge (art. 297 A CGI) — ✅ confirmé DR4
 - Sous régime de marge, **la TVA ne figure JAMAIS distinctement** sur le bordereau (art. 297 E). Mention « Régime particulier – Biens d'occasion ».
-- Modèle **2 lignes** validé en staging : adjudication (E, 0 %, VATEX-EU-F/I/J selon nature du bien) + frais acheteur (S, 20 %).
+- Modèle **2 lignes** : adjudication (E, 0 %, VATEX-EU-F/I/J selon nature du bien) + **honoraire acheteur**. ⚠️ Le « frais acheteur (S, 20 %) » du modèle staging d'origine **contredisait** le bullet 1 (297 E) ; l'**amendement 2026-06-26** ci-dessous **réconcilie** §2.3 vers son propre principe : sous marge l'honoraire acheteur est porté **en ligne mais SANS TVA distincte** (catégorie héritée du régime = E), le « 20 % » n'étant que le **taux de calcul** de la TVA-marge par le job B4 (mapping part Frais).
+
+> **Amendement (2026-06-26, décision Karl, interactif) — HONORAIRE ACHETEUR PORTÉ EN LIGNE (rôle de ligne) ; modèle 2-lignes restauré et réconcilié art. 297 E (BUG-17 volet b).**
+>
+> **Constat (recette EncheresV6).** L'implémentation actuelle porte l'honoraire acheteur **hors lignes**
+> (`PivotDocumentDto.BuyerFees`, side-channel ajouté pour l'agrégat B4). Conséquences relevées en recette
+> (doc n°100351, BAMPS VERONIQUE, régime 6) : sur la pièce **seule l'adjudication apparaît** (« Total TTC
+> 150 € » = adjudication seule, **honoraires invisibles, marge nulle part**), le total est sous-évalué, et
+> surtout la **voie document / le sérialiseur Factur-X — qui ne lit QUE les lignes — PERDRAIT l'honoraire**
+> à l'émission (marge sous-déclarée). C'est la cause structurelle de la garde « marge non classée » (§2.10 /
+> `LooksLikeUnclassifiedMargin`, BUG-17 2ᵉ volet).
+>
+> **Décision — l'honoraire ACHETEUR est une vraie LIGNE du bordereau**, distinguée par un **rôle de ligne**
+> (`HonoraireAcheteur` vs `Adjudication`) porté par le contrat pivot (`PivotLineDto`). Conséquences :
+> - **Total réel de la pièce** = adjudication + honoraire acheteur (montants TTC). Plus de side-channel acheteur.
+> - **Catégorie de la ligne honoraire = celle du RÉGIME du lot.** Le mapping plateforme pose
+>   `CheckTvaMapping.LinePart = Autre` (constant) sur **toutes** les lignes → l'honoraire hérite du **même
+>   triplet** que l'adjudication :
+>   - **Marge (régime 6)** → `E` + VATEX-EU-F/I/J, **TVA 0** — TVA « **dans la marge**, non apparente »
+>     (**art. 297 E**, bullet 1). La 2ᵉ ligne ne porte **JAMAIS** de TVA distincte. Réconciliation de la
+>     contradiction interne de §2.3 : le « (S, 20 %) » staging est **corrigé** — sous marge, 297 E **prime**,
+>     la ligne est affichée `E` ; le **20 %** n'est que le **taux de calcul** de la TVA-marge utilisé par B4
+>     via le mapping **part Frais** (§2.5 amendement pt 2-3, inchangé), **jamais** une TVA de document.
+>     `TotalTax == 0` reste donc l'**invariant marge** (§2.4/§2.5, discriminant inchangé).
+>   - **Prix total (régime 5)** → `S`, 20 % (TVA distincte, cohérent — `TotalTax > 0`, §2.7).
+> - **Honoraire VENDEUR : reste HORS lignes** (`SellerFees`). Il vit sur le **décompte vendeur (BV)**, n'est
+>   PAS sur le bordereau de l'acheteur — il alimente **uniquement** le calcul de la marge (B4, §2.4 :
+>   marge = honoraire acheteur + honoraire vendeur).
+> - **B4 (agrégat marge/taxable)** lit désormais la **ligne au rôle `HonoraireAcheteur`** (re-mappée part Frais
+>   pour la TVA-marge, §2.5, inchangé) **+** `SellerFees` — au lieu de `BuyerFees`. **Source de vérité unique**
+>   (les lignes), total juste **par construction**, Factur-X correct **sans traitement spécial**.
+>
+> **Aiguillage (BUG-17 volet a, débloqué par CE volet b).** Une fois l'honoraire en ligne, un bordereau marge
+> à **acheteur identifié** (assujetti FR) peut **router vers l'e-invoicing** (facture B2B « Régime particulier »)
+> **sans perte d'honoraire** — la garde `LooksLikeUnclassifiedMargin` (§2.10) cesse de bloquer un régime
+> **classé** au seul motif d'un acheteur non-B2C. Les cellules **non traitées / ouvertes** (marge × assujetti UE,
+> intracom 262 ter / 289 B) **restent fail-closed** (§2.10, jamais devinées — n°2).
+>
+> **Invariant anti-doublon (n°4/F06) ASSUMÉ et TRACÉ.** Le rôle de ligne entre dans le **pivot SOURCE hashé** →
+> golden contrat à régénérer (changement de schéma pivot **explicite**, jamais silencieux). Le calcul de marge
+> (§2.4/§2.5), le grain agrégé jour×devise×taux et le `role_code = SE` sont **inchangés**.
 
 ### 2.4 Composition du « montant de la marge » — e-reporting B2C (cas DGFiP n°33) — 🟧 PROPOSÉ (B2C-05, soumis à GATE_B2C_SOURCING)
 
@@ -549,6 +589,107 @@ validée** (plateforme), jamais devinés. Figeage PROD subordonné à la validat
 **Sources additionnelles :** **G1.68** (`TLB1` biens / `TPS1` services) ; classification factures/notes = **Karl** (opérateur
 enchères), cf. [[modele-reporting-encheres-opaque]] ; `OperationCategory` (`Liakont.Agent.Contracts.Pivot`) déjà fiable
 (bloquant au CHECK, déjà discriminant bien/service pour le flux 10.4 paiement).
+
+### 2.10 Matrice d'aiguillage COMPLÈTE (régime × acheteur → canal) — fidèle au tableau maître SYMEV p.7 — 🟧 PROPOSÉ (BUG-17)
+
+> ⚠️ **Statut : amendement d'ARCHITECTURE D'AIGUILLAGE, fail-closed, cellules ouvertes signalées.** §2.4–§2.9
+> sourcent le **CONTENU fiscal** par régime (marge `TMA1` / prix total `TLB1`·`TPS1` / exonérés). La présente
+> section unifie ces régimes avec l'axe **ACHETEUR → CANAL** en UNE matrice unique, fidèle au **tableau maître du
+> Livre Blanc SYMEV** (« La facturation électronique dans les ventes aux enchères », BROUILLON V0.1 du 10/06/2026,
+> `C:\Source\Liakont-GoToMarket\Metiers\Encheres\Livre-Blanc-SYMEV-Facturation-Electronique-Encheres.pdf`, **p.7** —
+> *preuve d'appui métier, comme le Livre blanc CNCJ en §2.7 ; les textes primaires faisant foi sont les articles CGI
+> cités en bas de section*). Elle **corrige la confusion BUG-17** : aujourd'hui un document sous un régime RECONNU
+> mais à acheteur NON-B2C est **bloqué** (« marge non classée ») au lieu d'être routé vers son canal. Aucune règle
+> inventée (n°2) : chaque cellule renvoie à un article CGI + à une section F03 ; les cellules que le Livre Blanc lui-
+> même renvoie en **annexe D** restent **OUVERTES** (jamais devinées).
+
+**Principe — DEUX AXES INDÉPENDANTS.** Le tableau maître croise deux choses qui ne doivent jamais être confondues :
+1. **Le régime du lot** (fixé par le **vendeur/commettant**, via la **table TVA validée** §2.4–§2.9) → détermine le
+   **CONTENU fiscal** : catégorie UNCL5305 + VATEX + taux + TVA apparente ou non. *Indépendant de l'acheteur.*
+2. **Le profil de l'acheteur** (le **tiers destinataire**) → détermine le **CANAL** réforme (et l'exonération
+   internationale éventuelle). *Indépendant du régime.*
+
+**Les 3 canaux de la réforme** (CGI art. 289 bis / 290, cf. Livre Blanc p.4-5) :
+- **e-invoicing** — facture électronique **B2B DOMESTIQUE** (assujetti FR ↔ assujetti FR), **CGI 289 bis**. Voie
+  document (facture structurée via PA). Porte le contenu du régime (marge E+VATEX **ou** taxable S).
+- **e-reporting B2C agrégé** — **particulier FR**, **CGI 290**. Agrégé **jour × devise × taux** (jobs B4 : marge
+  `TMA1` §2.5 / taxable `TLB1`·`TPS1` §2.7/§2.9).
+- **e-reporting UNITAIRE international** — **parties non établies en France** (assujetti UE, acheteur hors UE),
+  **CGI 290**, **facture par facture**. (Export hors UE déjà implémenté unitaire §2.8 ; **UE-B2B = trou**, voir matrice.)
+
+**Les 4 profils d'acheteur** (qualification opérée par la maison — Livre Blanc §7.4 ; classification produit sur les
+champs du contrat pivot UNIQUEMENT, frontière P1) :
+
+| Profil | Détection (pivot) | Canal |
+|---|---|---|
+| **Assujetti FR** | SIREN / SIRET / n° TVA **FR**, pays FR ou vide | e-invoicing (289 bis) |
+| **Particulier FR** | aucun indice pro (ni SIREN/SIRET/n° TVA, ni indice société), pays FR ou vide | e-reporting B2C agrégé (290) |
+| **Assujetti UE** | n° TVA intracommunautaire (pays **UE ≠ FR**), ou indice pro + pays UE | e-reporting unitaire international (290) |
+| **Hors UE** | pays **hors UE** | e-reporting unitaire export (290) |
+
+> ⚠️ **PRÉREQUIS BUG-18.** Cette classification dépend d'un **code pays VALIDE** (UE vs hors UE). Un code pays source
+> non-ISO (`JAP`, `ENG`…) doit être normalisé AVANT l'aiguillage (table de correspondance, BUG-18) ; à défaut, un
+> acheteur identifié sans pays exploitable est **bloqué** (fail-closed, jamais classé au hasard — n°2).
+
+**LA MATRICE** (régime × acheteur → contenu + canal ; fidèle à p.7) :
+
+| Régime du lot | Acheteur | Contenu (catégorie/VATEX/taux) | Mention bordereau | **Canal** | État code |
+|---|---|---|---|---|---|
+| **Marge** (297 A) | Assujetti FR | `E` + VATEX-EU-F/I/J, TVA 0 | « Régime particulier » (297 A) | **e-invoicing** | ⛔ **bloqué** (BUG-17) |
+| **Marge** | Particulier FR | `E` + VATEX-EU-F/I/J, TVA 0 | « Régime particulier » | e-reporting B2C agrégé (`TMA1`) | ✅ §2.4/§2.5 |
+| **Marge** | Assujetti UE | `E` + VATEX-EU-F/I/J, TVA 0 ; **pas d'exonération intra** (taxé en France sur la marge) | « Régime particulier » | e-reporting **unitaire** B2B | ⛔ **non traité** |
+| **Marge** | Hors UE | exonéré **262 I**, hors taxe | « Exonération TVA, art. 262 I » | e-reporting unitaire export | ⚠️ B2C ok (§2.8) / pro à router |
+| **Prix total 20 %** (droit commun) | Assujetti FR | `S`, 20 % | TVA détaillée | **e-invoicing** | ✅ (passe : TVA>0) |
+| **Prix total 20 %** | Particulier FR | `S`, 20 % | TVA détaillée | e-reporting B2C agrégé (`TLB1`) | ✅ §2.7 |
+| **Prix total** | Assujetti UE | exonéré LIC **262 ter** + n° TVA acheteur | « Exonération TVA, art. 262 ter I » | e-reporting unitaire + **VIES / état récap (289 B)** | ⛔ **OUVERT** (annexe D) |
+| **Prix total** | Hors UE | exonéré export **262 I** | « Exonération TVA, art. 262 I » | e-reporting unitaire export ; consignation/restitution | ⚠️ B2C ok (§2.8) / pro à router |
+| **Œuvre d'art 5,5 %** (option régime général, chap. 3) | selon acheteur | `S`, 5,5 % | TVA détaillée | **selon l'acheteur** (lignes ci-dessus) | hérite |
+
+**RÈGLE D'AIGUILLAGE (corrige la confusion BUG-17).**
+1. Le **contenu** (catégorie/VATEX/taux) est dérivé du **régime** par la table validée (§2.4–§2.9), **sans regarder
+   l'acheteur**. Une marge reste une marge (E + VATEX-EU-F/I/J, 297 E) qu'elle soit vendue à un particulier, un pro
+   FR, un assujetti UE ou un acheteur hors UE.
+2. Les marquages `B2cMarginMarking` / `B2cTaxableMarking` / `B2cExportMarking` / `B2cPlainTaxableMarking` ne
+   reconnaissent que le **sous-cas « particulier FR »** (→ agrégat B4). **C'est correct pour CE canal** — mais c'est
+   un SOUS-ENSEMBLE, pas la définition du régime.
+3. **Un document sous un régime RECONNU (marge/taxable/export) avec un acheteur IDENTIFIÉ doit router vers SON canal**
+   (e-invoicing pour l'assujetti FR ; unitaire international pour l'assujetti UE / hors UE), **JAMAIS être bloqué**
+   « marge non classée ». La garde `LooksLikeUnclassifiedMargin` (`DocumentCheckEvaluator` l.146) ne doit bloquer que
+   le régime **véritablement non classé** — catégorie `E` **sans** VATEX de marge, hors-champ, ou mapping incomplet —
+   et **jamais** un régime classé dont le seul « défaut » est un acheteur non-B2C.
+4. **e-invoicing d'une MARGE (assujetti FR)** : la facture structurée (**cas DGFiP n°33**, EN 16931) porte la mention
+   « Régime particulier » (E + VATEX-EU-F/I/J, montants TTC, TVA 0) **ET l'honoraire acheteur en ligne** — sous marge
+   l'honoraire est *dans la marge, non apparent* (p.7, « Lecture des frais » ; art. 297 E). ✅ **Résolu (amendement
+   §2.3, 2026-06-26, BUG-17 volet b)** : l'honoraire acheteur est désormais une **vraie ligne** du bordereau (rôle de
+   ligne `HonoraireAcheteur`, catégorie héritée du régime), plus un side-channel `BuyerFees` — la voie document / le
+   sérialiseur Factur-X la porte **par construction**. Le total de la pièce (adjudication + honoraire acheteur) est
+   juste et l'e-invoice marge-pro est complète. C'est le 2ᵉ volet (fondation) du fix BUG-17 ; le **volet a** (router
+   au lieu de bloquer, règle 3 ci-dessus) ne devient **sûr** qu'une fois ce volet posé (sans lui, router perdrait
+   l'honoraire). L'honoraire **vendeur** (décompte BV) reste hors lignes — hors bordereau acheteur, il n'alimente
+   que le calcul de marge B4.
+
+**CELLULES OUVERTES — NE PAS TRANCHER (le Livre Blanc les renvoie en annexe D ; n°2).**
+- **Prix total × assujetti UE** : livraison intracommunautaire exonérée **262 ter** sous conditions **VIES + preuve de
+  transport + état récapitulatif (CGI 289 B)** — obligations distinctes du flux 10.3, périmètre non figé (cf. §2.8
+  résiduel ① OSS, et p.7 « périmètre — annexe D »). Tant que non tranché : **fail-closed** (bloqué, jamais émis avec
+  un 262 ter deviné).
+- **Export (× hors UE)** : exonération **262 I** sous **preuve de sortie** ; à défaut, **consignation puis restitution**
+  de la TVA (cycle multi-étapes taxable→avoir→exonéré — cf. §2.8 « Caution », résiduel). Les exports EncheresV6 sont en
+  exonération **directe** (cas simple, déjà implémenté §2.8) ; le cycle caution reste ouvert.
+- **Pondération acheteur pro / particulier sur un MÊME régime international** : la bascule e-invoicing (UE-B2B unitaire)
+  vs e-reporting selon le statut exact de l'acheteur étranger reste à border avec l'acheteur identifié — dépend de
+  BUG-18 (pays fiable).
+
+**Sources primaires :**
+- **CGI art. 289 bis** (e-invoicing — B2B domestique) ; **art. 290** (e-reporting de transactions) ; **art. 290 A**
+  (e-reporting de paiement) — les 3 flux et leur périmètre (cf. Livre Blanc p.4-5).
+- **CGI art. 256 V** (opaque, §2.7), **297 A** (marge), **297 E** (pas de TVA distincte), **262 I** (export), **262
+  ter I** / **258 A** (intracom / VAD-IC), **275** (franchise), **289 B** (état récapitulatif / VIES).
+- **F03 §2.4–§2.9** (contenu fiscal par régime : `TMA1`/`TLB1`/`TPS1`/exonérés ; cartographie §2.8) ; décision Karl
+  « SIREN FR → facture B2B, e-reporting B2C = particuliers » (backlog recette, raffinée ici pour le **cross-border** :
+  un pro **étranger** relève de l'e-reporting **unitaire international**, pas de l'e-invoicing domestique).
+- **Livre Blanc SYMEV** p.6-8 (règle d'or 3 questions, tableau maître, lecture des frais) — *preuve d'appui métier,
+  BROUILLON V0.1, non figé ; cellules « annexe D » non tranchées.*
 
 ## 3. La subtilité métier (cœur du risque — cf. Analyse-Donnees §5)
 

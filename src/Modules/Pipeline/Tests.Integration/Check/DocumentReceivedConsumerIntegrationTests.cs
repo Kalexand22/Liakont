@@ -127,12 +127,14 @@ public sealed class DocumentReceivedConsumerIntegrationTests : IClassFixture<Pip
     }
 
     [Fact]
-    public async Task Margin_Shaped_Document_Not_Classified_Margin_Is_Blocked_Fail_Closed()
+    public async Task Classified_Margin_With_Professional_Buyer_Is_Routed_Not_Blocked_As_Unclassified()
     {
-        // Garde fail-closed (review P2 / CLAUDE.md n°3) : un document à la FORME d'une marge (honoraires + aucune
-        // TVA distincte) que le mapping NE classe PAS marge — ici adjudication exonérée (E + VATEX-EU-J) MAIS
-        // acheteur PROFESSIONNEL (SIREN) → ni B2C marge, ni B2B représentable (honoraires hors lignes) — est
-        // BLOQUÉ au CHECK avec un message opérateur, jamais routé en silence (honoraires perdus = marge sous-déclarée).
+        // BUG-17 (volet a buyer-indépendant + volet b honoraire en ligne, F03 §2.10) : un document dont le RÉGIME
+        // est CLASSÉ marge (adjudication E + VATEX-EU-J) avec un acheteur PROFESSIONNEL (SIREN) n'est PLUS happé par
+        // la garde « marge non classée » — le CONTENU fiscal vient du régime (classé), le CANAL de l'acheteur. Le
+        // portage de l'honoraire EN LIGNE (volet b) le rend B2B-représentable : router devient sûr (l'honoraire
+        // n'est plus perdu). Le document est donc ROUTÉ en aval (atteint ReadyToSend), jamais bloqué « marge non
+        // classée ». ANCIEN attendu : Blocked + motif « honoraires » ; NOUVEAU : ReadyToSend (routé en aval).
         var documentId = Guid.NewGuid();
         var sourceReference = "no_ba=" + documentId.ToString("N");
         var buyer = new PivotPartyDto("Galerie Pro SARL", siren: "945678902");
@@ -142,12 +144,14 @@ public sealed class DocumentReceivedConsumerIntegrationTests : IClassFixture<Pip
 
         await ConsumeAsync(documentId, sourceReference, CheckIntegrationFixtures.PayloadHashOf(pivot));
 
-        (await _harness.GetDocumentStateAsync(documentId)).Should().Be("Blocked");
+        (await _harness.GetDocumentStateAsync(documentId)).Should().Be(
+            "ReadyToSend",
+            "un régime classé marge avec acheteur professionnel route en aval (buyer-indépendant), jamais bloqué « marge non classée » (BUG-17 volet a/b).");
 
         var events = await _harness.GetEventsAsync(documentId);
-        events.Should().Contain(
-            e => e.Detail != null && e.Detail.Contains("honoraires", StringComparison.Ordinal),
-            "le motif fail-closed « marge non classée » doit être consigné dans la piste d'audit (CLAUDE.md n°12).");
+        events.Should().NotContain(
+            e => e.Detail != null && e.Detail.Contains("marge sous-déclarée", StringComparison.Ordinal),
+            "la garde fail-closed « marge non classée » ne doit PLUS firer sur un régime CLASSÉ (BUG-17 volet a).");
     }
 
     private async Task SeedAndStageAsync(Guid documentId, string sourceReference, PivotDocumentDto pivot)

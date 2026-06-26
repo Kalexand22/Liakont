@@ -174,12 +174,36 @@ public sealed class B2cTaxableMarkingTests
 
     private static PivotPartyDto ProfessionnelSiren() => new("AUTOSUD21", siren: "945678902");
 
+    // BUG-17 volet b : l'honoraire acheteur est désormais porté en LIGNE (rôle BuyerFee), non plus dans le
+    // side-channel hors-lignes BuyerFees. Le helper Pivot transcrit chaque Fee() en LIGNE BuyerFee : elle porte
+    // la MÊME ventilation (catégorie) que l'adjudication (le mapping plateforme classe l'honoraire au même
+    // régime que le lot) avec une TVA de ligne nulle. Seule la construction de l'entrée change ; les RÉSULTATS
+    // attendus (marquage) sont inchangés.
+    private static PivotLineDto BuyerFeeLine(IReadOnlyList<PivotLineDto> lines, PivotBuyerFeeDto fee)
+    {
+        var model = lines.Count > 0 ? lines[0].Taxes[0] : new PivotLineTaxDto(taxAmount: 0m, rate: null);
+        return new PivotLineDto(
+            description: "Honoraires acheteur",
+            netAmount: fee.NetAmount,
+            sourceRegimeCodes: lines.Count > 0 ? lines[0].SourceRegimeCodes : ["5"],
+            taxes: [new PivotLineTaxDto(taxAmount: 0m, rate: model.Rate, categoryCode: model.CategoryCode, vatexCode: model.VatexCode)],
+            role: PivotLineRole.BuyerFee,
+            sourceTaxAmount: fee.SourceTaxAmount);
+    }
+
     private static PivotDocumentDto Pivot(
         IReadOnlyList<PivotLineDto> lines,
         decimal totalTax,
         PivotPartyDto? customer,
-        IReadOnlyList<PivotBuyerFeeDto>? buyerFees = null) =>
-        new(
+        IReadOnlyList<PivotBuyerFeeDto>? buyerFees = null)
+    {
+        var allLines = new List<PivotLineDto>(lines);
+        foreach (var fee in buyerFees ?? [])
+        {
+            allLines.Add(BuyerFeeLine(lines, fee));
+        }
+
+        return new(
             sourceDocumentKind: "B",
             number: "100050",
             issueDate: new System.DateTime(2024, 1, 12),
@@ -188,6 +212,6 @@ public sealed class B2cTaxableMarkingTests
             totals: new PivotTotalsDto(totalNet: 2000m, totalTax: totalTax, totalGross: 2000m + totalTax),
             operationCategory: null,
             customer: customer,
-            lines: lines,
-            buyerFees: buyerFees);
+            lines: allLines);
+    }
 }

@@ -18,7 +18,7 @@ public sealed class B2cExportBaseCalculatorTests
         // Cas nominal : adjudication 120 HT + commission acheteur 60 (exonérée → TTC = HT) = 180.
         var pivot = Pivot(
             lines: [Line(120m)],
-            buyerFees: [new PivotBuyerFeeDto("lot-7", 60m, sourceRegimeCode: "EXP_HORSUE")]);
+            buyerFees: [BuyerFee(60m)]);
 
         B2cExportBaseCalculator.ComputeTaxExclusiveBase(pivot).Should().Be(180m);
     }
@@ -31,7 +31,7 @@ public sealed class B2cExportBaseCalculatorTests
         // Ici commission TTC 72 dont 12 de TVA source → HT 60 ; base = adjudication 120 + 60 = 180.
         var pivot = Pivot(
             lines: [Line(120m)],
-            buyerFees: [new PivotBuyerFeeDto("lot-7", 72m, sourceRegimeCode: "EXP_HORSUE", sourceTaxAmount: 12m)]);
+            buyerFees: [BuyerFee(72m, sourceTaxAmount: 12m)]);
 
         B2cExportBaseCalculator.ComputeTaxExclusiveBase(pivot).Should().Be(180m);
     }
@@ -42,7 +42,7 @@ public sealed class B2cExportBaseCalculatorTests
         // Bordereau multi-lots : Σ des adjudications HT + commission acheteur.
         var pivot = Pivot(
             lines: [Line(120m), Line(80m)],
-            buyerFees: [new PivotBuyerFeeDto("lot-7", 50m, sourceRegimeCode: "EXP_HORSUE")]);
+            buyerFees: [BuyerFee(50m)]);
 
         B2cExportBaseCalculator.ComputeTaxExclusiveBase(pivot).Should().Be(250m);
     }
@@ -51,7 +51,7 @@ public sealed class B2cExportBaseCalculatorTests
     public void Base_Excludes_Seller_Commission()
     {
         // La commission VENDEUR (jambe B2B) n'entre JAMAIS dans la base d'export (F03 §2.8) : seules les lignes
-        // et la commission acheteur comptent. Ici : 120 + 60 = 180, la commission vendeur 999 est ignorée.
+        // (adjudication + honoraire acheteur) comptent. Ici : 120 + 60 = 180, la commission vendeur 999 est ignorée.
         var pivot = new PivotDocumentDto(
             sourceDocumentKind: "F",
             number: "BAX",
@@ -61,9 +61,8 @@ public sealed class B2cExportBaseCalculatorTests
             totals: new PivotTotalsDto(120m, 0m, 120m),
             operationCategory: null,
             customer: null,
-            lines: [Line(120m)],
-            sellerFees: [new PivotSellerFeeDto("lot-7", 999m, sourceRegimeCode: "EXP_HORSUE")],
-            buyerFees: [new PivotBuyerFeeDto("lot-7", 60m, sourceRegimeCode: "EXP_HORSUE")]);
+            lines: [Line(120m), BuyerFee(60m)],
+            sellerFees: [new PivotSellerFeeDto("lot-7", 999m, sourceRegimeCode: "EXP_HORSUE")]);
 
         B2cExportBaseCalculator.ComputeTaxExclusiveBase(pivot).Should().Be(180m);
     }
@@ -83,9 +82,20 @@ public sealed class B2cExportBaseCalculatorTests
             sourceRegimeCodes: ["EXP_HORSUE"],
             taxes: [new PivotLineTaxDto(taxAmount: 0m, rate: 0m, categoryCode: VatCategory.G, vatexCode: "VATEX-EU-G")]);
 
+    // BUG-17 volet b : l'honoraire acheteur est porté en LIGNE (rôle BuyerFee) — NetAmount TTC, TVA de frais
+    // source à part (SourceTaxAmount). Le calculateur recouvre son HT (NetAmount − SourceTaxAmount), comme avant.
+    private static PivotLineDto BuyerFee(decimal netTtc, decimal? sourceTaxAmount = null) =>
+        new(
+            description: "Honoraires acheteur (export hors UE)",
+            netAmount: netTtc,
+            sourceRegimeCodes: ["EXP_HORSUE"],
+            taxes: [new PivotLineTaxDto(taxAmount: 0m, rate: 0m, categoryCode: VatCategory.G, vatexCode: "VATEX-EU-G")],
+            role: PivotLineRole.BuyerFee,
+            sourceTaxAmount: sourceTaxAmount);
+
     private static PivotDocumentDto Pivot(
         System.Collections.Generic.IReadOnlyList<PivotLineDto> lines,
-        System.Collections.Generic.IReadOnlyList<PivotBuyerFeeDto>? buyerFees) =>
+        System.Collections.Generic.IReadOnlyList<PivotLineDto>? buyerFees) =>
         new(
             sourceDocumentKind: "F",
             number: "BAX",
@@ -95,6 +105,5 @@ public sealed class B2cExportBaseCalculatorTests
             totals: new PivotTotalsDto(lines.Count > 0 ? 120m : 0m, 0m, 120m),
             operationCategory: null,
             customer: null,
-            lines: lines,
-            buyerFees: buyerFees);
+            lines: [.. lines, .. buyerFees ?? []]);
 }

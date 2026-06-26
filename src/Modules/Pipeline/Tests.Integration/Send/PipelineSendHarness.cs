@@ -518,6 +518,21 @@ public sealed class PipelineSendHarness : IAsyncLifetime
             RateValue = 0m,
         };
 
+        // Règle PART FRAIS pour le RÉGIME DE LA MARGE (B4 — taux de l'honoraire ACHETEUR) : depuis BUG-17 volet b,
+        // l'honoraire acheteur est une LIGNE qui porte le MÊME régime que son adjudication (« MARGE »). Le job B4
+        // mappe cette ligne en Part.Frais pour résoudre le taux (la jambe vendeur, régime « NORMAL », mappe déjà
+        // (NORMAL, Frais) → 20). Un frais est toujours taxable (S, F03 §2.3) ; taux 20 IDENTIQUE à (NORMAL, Frais)
+        // → buyer + seller au même taux (pas de MixedRates). Clé (MARGE, Frais) distincte de (MARGE, Autre) → INV-TVAMAPPING-003 respectée.
+        var marginFeeRule = new MappingRule
+        {
+            SourceRegimeCode = "MARGE",
+            Label = "Frais acheteur d'une vente au régime de la marge (20 %)",
+            Part = MappingPart.Frais,
+            Category = VatCategory.S,
+            RateMode = RateMode.Fixed,
+            RateValue = 20m,
+        };
+
         // Règles PART AUTRE pour l'EXONÉRÉ INTERNATIONAL (BUG-11 — marquage 10.3) : l'adjudication d'un lot livré
         // hors France est détaxée, mappée sur la clé par ZONE « EXP_{zone} » produite par l'agent (F03 §2.8). Le
         // signal VALIDÉ permet à la plateforme de DÉRIVER l'exonéré international (B2cExportMarking) et de l'émettre
@@ -562,7 +577,7 @@ public sealed class PipelineSendHarness : IAsyncLifetime
             "Expert-comptable CMP",
             new DateOnly(2026, 7, 15),
             MappingDefaultBehavior.Block,
-            new[] { rule, feeRule, marginAdjudicationRule, exportHorsUeRule, intracomRule, franchiseRule });
+            new[] { rule, feeRule, marginAdjudicationRule, marginFeeRule, exportHorsUeRule, intracomRule, franchiseRule });
 
         await using var scope = _provider!.CreateAsyncScope();
         var factory = scope.ServiceProvider.GetRequiredService<ITvaMappingUnitOfWorkFactory>();

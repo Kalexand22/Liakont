@@ -141,6 +141,12 @@ public static class PivotCanonicalReader
 
     private static PivotLineDto BuildLine(IDictionary<string, object?> map)
     {
+        // Rôle (F03 §2.3 amendement) : clé absente → Standard (le writer omet le rôle par défaut) ;
+        // SourceTaxAmount : clé absente → null. Miroir exact du writer pour le round-trip sans perte.
+        PivotLineRole role = map.TryGetValue("Role", out var rawRole)
+            ? (PivotLineRole)Enum.Parse(typeof(PivotLineRole), (string)rawRole!)
+            : PivotLineRole.Standard;
+
         return new PivotLineDto(
             description: Text(map, "Description"),
             netAmount: Number(map, "NetAmount"),
@@ -150,7 +156,9 @@ public static class PivotCanonicalReader
             taxes: BuildList(map, "Taxes", BuildLineTax),
             sourceLineRef: TextOrNull(map, "SourceLineRef"),
             sourceData: TextOrNull(map, "SourceData"),
-            unitCode: TextOrNull(map, "UnitCode"));
+            unitCode: TextOrNull(map, "UnitCode"),
+            role: role,
+            sourceTaxAmount: DecimalOrNull(map, "SourceTaxAmount"));
     }
 
     private static PivotLineTaxDto BuildLineTax(IDictionary<string, object?> map)

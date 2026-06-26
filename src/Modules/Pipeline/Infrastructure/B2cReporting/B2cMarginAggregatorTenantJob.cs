@@ -236,9 +236,14 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
             fees.Add((fee.NetAmount, fee.SourceRegimeCode, fee.SourceLineRef));
         }
 
-        foreach (var fee in pivot.BuyerFees ?? Enumerable.Empty<PivotBuyerFeeDto>())
+        // Jambe ACHETEUR : l'honoraire acheteur est porté en LIGNE (rôle BuyerFee, BUG-17 volet b) — on lit la
+        // ligne au lieu de l'ancien side-channel BuyerFees. Montant TTC recouvré PAR CONSTRUCTION = NetAmount + TVA de
+        // ligne (sous marge la ligne reste pliée : net=TTC, TVA 0 → somme = TTC). La jambe VENDEUR reste hors-lignes
+        // (SellerFees, décompte BV). Total inchangé : marge = Σ acheteur + Σ vendeur.
+        foreach (var line in B2cAuctionFeeLines.BuyerFeeLines(pivot))
         {
-            fees.Add((fee.NetAmount, fee.SourceRegimeCode, fee.SourceLineRef));
+            decimal amountTtc = line.NetAmount + line.Taxes.Sum(t => t.TaxAmount);
+            fees.Add((amountTtc, line.SourceRegimeCodes.Count > 0 ? line.SourceRegimeCodes[0] : null, line.SourceLineRef));
         }
 
         var requests = fees

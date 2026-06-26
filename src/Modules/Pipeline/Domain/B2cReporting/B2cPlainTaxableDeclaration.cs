@@ -26,6 +26,5 @@ public static class B2cPlainTaxableDeclaration
     public static bool Matches(PivotDocumentDto pivot) =>
         pivot != null
         && pivot.IsB2cReportingDeclaration
-        && ((pivot.SellerFees?.Count ?? 0) == 0)
-        && ((pivot.BuyerFees?.Count ?? 0) == 0);
+        && !B2cAuctionFeeLines.HasAuctionFees(pivot);
 }

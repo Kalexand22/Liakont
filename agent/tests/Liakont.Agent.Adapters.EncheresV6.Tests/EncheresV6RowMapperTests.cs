@@ -10,8 +10,9 @@ using Xunit;
 /// <summary>
 /// Tests de la transformation BRUTE EncheresV6 → pivot (<see cref="EncheresV6RowMapper"/>), modèle BA/BV
 /// de la marge (validé + sourcé). Vérifie les invariants du contrat d'extraction : commission acheteur en
-/// <c>BuyerFees</c> TTC (BA, lignes type 1), commission vendeur en <c>SellerFees</c> TTC (BV, lignes type
-/// 2), adjudication = seule LIGNE du document, émetteur/nature d'opération NON portés (FilledByPlatform),
+/// LIGNE au rôle <see cref="PivotLineRole.BuyerFee"/> TTC (BA, BUG-17 volet b), commission vendeur en
+/// <c>SellerFees</c> TTC (BV, lignes type 2), adjudication + honoraire = lignes du document, émetteur/nature
+/// d'opération NON portés (FilledByPlatform),
 /// conversion flottant→decimal half-up (CLAUDE.md n°1), aucun mapping TVA (R3), avoir orphelin bloqué.
 /// </summary>
 public class EncheresV6RowMapperTests
@@ -51,22 +52,36 @@ public class EncheresV6RowMapperTests
     {
         PivotDocumentDto doc = EncheresV6RowMapper.MapBaDocument(MargeBa(), null);
 
-        // Adjudication = seule LIGNE (régime marge → TVA 0 → document marge propre, art. 297 E).
-        doc.Lines.Should().ContainSingle();
-        doc.Lines[0].NetAmount.Should().Be(2000.00m);
-        doc.Lines[0].Taxes[0].TaxAmount.Should().Be(0m, "sous le régime de la marge l'adjudication est exonérée");
-        doc.Lines[0].Taxes[0].CategoryCode.Should().BeNull("le mapping TVA est plateforme (R3)");
-        doc.Lines[0].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("6");
+        // BUG-17 volet b : l'honoraire acheteur est désormais porté en LIGNE (rôle BuyerFee), plus dans le
+        // side-channel hors-lignes BuyerFees. Le bordereau a donc DEUX lignes : adjudication + honoraire.
+        doc.Lines.Should().HaveCount(2);
+
+        // Adjudication = 1re ligne (régime marge → TVA 0 → document marge propre, art. 297 E).
+        var adjudication = doc.Lines[0];
+        adjudication.Role.Should().Be(PivotLineRole.Standard, "l'adjudication est une ligne ordinaire");
+        adjudication.NetAmount.Should().Be(2000.00m);
+        adjudication.Taxes[0].TaxAmount.Should().Be(0m, "sous le régime de la marge l'adjudication est exonérée");
+        adjudication.Taxes[0].CategoryCode.Should().BeNull("le mapping TVA est plateforme (R3)");
+        adjudication.SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("6");
         doc.Totals.TotalTax.Should().Be(0m);
 
-        // Commission acheteur = BuyerFee TTC (HT 334.40 + TVA 66.88), jamais une ligne taxable.
-        doc.BuyerFees.Should().ContainSingle();
-        doc.BuyerFees![0].NetAmount.Should().Be(401.28m);
-        doc.BuyerFees[0].LotReference.Should().Be("100022", "la jambe acheteur est au grain bordereau (no_ba)");
+        // Commission acheteur = LIGNE au rôle BuyerFee, NetAmount TTC (HT 334.40 + TVA 66.88), taxe de ligne à 0
+        // (l'agent ne CLASSE pas — la catégorie vient du mapping plateforme), même régime que l'adjudication.
+        var honoraire = doc.Lines[1];
+        honoraire.Role.Should().Be(PivotLineRole.BuyerFee, "l'honoraire acheteur porte le rôle BuyerFee");
+        honoraire.NetAmount.Should().Be(401.28m, "NetAmount TTC = 334.40 + 66.88");
+        honoraire.Taxes[0].TaxAmount.Should().Be(0m, "la ligne d'honoraire ne porte aucune TVA distincte (art. 297 E)");
+        honoraire.Taxes[0].CategoryCode.Should().BeNull("le mapping TVA est plateforme (R3)");
+        honoraire.SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("6", "même régime que l'adjudication du lot");
 
         // TVA de frais SOURCE transportée brute (F03 §2.8, sans logique fiscale) — la plateforme s'en sert pour
         // recouvrer la base HT exonérée d'un export ; ici non nulle (commission taxable), donc portée telle quelle.
-        doc.BuyerFees[0].SourceTaxAmount.Should().Be(66.88m);
+        honoraire.SourceTaxAmount.Should().Be(66.88m);
+
+        // Le total du document inclut désormais l'honoraire (le bordereau a un total réel : 2000 + 401.28).
+        doc.Totals.TotalNet.Should().Be(2401.28m, "le total inclut l'adjudication ET l'honoraire acheteur porté en ligne");
+
+        doc.BuyerFees.Should().BeNull("l'honoraire acheteur n'est plus porté dans le side-channel BuyerFees (BUG-17 volet b)");
         doc.SellerFees.Should().BeNull("le BA ne porte pas la jambe vendeur");
     }
 

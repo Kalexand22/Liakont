@@ -30,6 +30,21 @@ public sealed class PivotLineDto
     /// normalisée en <c>null</c> (équivalent « absent », empreinte canonique inchangée). L'adaptateur
     /// recopie le code source sans l'interpréter (CLAUDE.md n°2) — aucune table d'unités n'est inventée.
     /// </param>
+    /// <param name="role">
+    /// Rôle STRUCTUREL de la ligne (<see cref="PivotLineRole"/>) — transcription brute d'une distinction
+    /// portée par la source, JAMAIS une décision fiscale (CLAUDE.md n°6). <see cref="PivotLineRole.Standard"/>
+    /// par défaut (ligne ordinaire / adjudication) ; <see cref="PivotLineRole.BuyerFee"/> pour l'honoraire
+    /// acheteur d'un bordereau d'enchères (F03 §2.3 amendement 2026-06-26). Champ ADDITIF en fin (ADR-0007) :
+    /// OMIS du JSON canonique quand <see cref="PivotLineRole.Standard"/> (hash-neutre, pattern EXT01).
+    /// </param>
+    /// <param name="sourceTaxAmount">
+    /// TVA de frais SOURCE brute (F03 §2.8), portée UNIQUEMENT pour une ligne d'honoraire acheteur
+    /// (<see cref="PivotLineRole.BuyerFee"/>) dont le <see cref="NetAmount"/> est TTC : permet à la PLATEFORME
+    /// de recouvrer la base HT (<c>NetAmount − SourceTaxAmount</c>) pour un export détaxé (F03 §2.8) et de
+    /// DÉ-PLIER la TVA d'une commission au régime du PRIX TOTAL taxable (F03 §2.7). AUCUNE logique fiscale côté
+    /// agent (CLAUDE.md n°6) : terme BRUT transporté. Champ ADDITIF en fin (ADR-0007), nullable, OMIS du JSON
+    /// canonique quand <c>null</c> (hash-neutre) — une ligne ordinaire ne le porte jamais.
+    /// </param>
     public PivotLineDto(
         string description,
         decimal netAmount,
@@ -39,7 +54,9 @@ public sealed class PivotLineDto
         IReadOnlyList<PivotLineTaxDto>? taxes = null,
         string? sourceLineRef = null,
         string? sourceData = null,
-        string? unitCode = null)
+        string? unitCode = null,
+        PivotLineRole role = PivotLineRole.Standard,
+        decimal? sourceTaxAmount = null)
     {
         Description = description;
         NetAmount = netAmount;
@@ -49,6 +66,8 @@ public sealed class PivotLineDto
         Taxes = taxes ?? Array.Empty<PivotLineTaxDto>();
         SourceLineRef = sourceLineRef;
         SourceData = sourceData;
+        Role = role;
+        SourceTaxAmount = sourceTaxAmount;
 
         // Normalisation de SURFACE uniquement (jamais d'interprétation du code, CLAUDE.md n°2) : on borne
         // les espaces de bord — un code padded (« C62 ») casserait l'appariement de la liste UN/ECE au
@@ -86,4 +105,18 @@ public sealed class PivotLineDto
     /// <c>null</c> = unité neutre par défaut à l'émission (<c>C62</c>). Voir le constructeur.
     /// </summary>
     public string? UnitCode { get; }
+
+    /// <summary>
+    /// Rôle structurel de la ligne (<see cref="PivotLineRole"/>) — <see cref="PivotLineRole.Standard"/> par
+    /// défaut (ligne ordinaire / adjudication), <see cref="PivotLineRole.BuyerFee"/> pour l'honoraire acheteur
+    /// d'un bordereau d'enchères. Émis au JSON canonique SEULEMENT quand non-défaut (hash-neutre). Voir le constructeur.
+    /// </summary>
+    public PivotLineRole Role { get; }
+
+    /// <summary>
+    /// TVA de frais SOURCE brute d'une ligne d'honoraire acheteur (F03 §2.8), <c>null</c> pour toute autre ligne.
+    /// Permet à la plateforme de recouvrer la base HT et de dé-plier la TVA d'une commission taxable. Émis au JSON
+    /// canonique SEULEMENT quand porté (hash-neutre). Voir le constructeur.
+    /// </summary>
+    public decimal? SourceTaxAmount { get; }
 }

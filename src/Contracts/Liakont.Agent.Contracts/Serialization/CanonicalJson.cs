@@ -273,6 +273,20 @@ public static class CanonicalJson
         // s'il est porté — une ligne sans unité produit le JSON canonique INCHANGÉ (hash identique
         // octet par octet ; l'unité neutre C62 est appliquée par l'émetteur, pas par le pivot).
         WriteOptionalString(writer, "UnitCode", line.UnitCode);
+
+        // Rôle de ligne (F03 §2.3 amendement, BUG-17 volet b) : champ ADDITIF en FIN (ADR-0007), émis SEULEMENT
+        // quand NON-défaut (≠ Standard) — une ligne ordinaire / d'adjudication produit le JSON canonique INCHANGÉ
+        // (hash identique octet par octet, pattern EXT01). Émis par son NOM (WriteEnum, garde RDL01).
+        if (line.Role != PivotLineRole.Standard)
+        {
+            writer.WritePropertyName("Role");
+            writer.WriteEnum(line.Role);
+        }
+
+        // TVA de frais source (F03 §2.8) d'une ligne d'honoraire acheteur : champ ADDITIF en FIN (ADR-0007),
+        // émis SEULEMENT s'il est porté — une ligne ordinaire (sans TVA de frais source) produit le JSON canonique
+        // INCHANGÉ octet par octet. Terme BRUT (recouvrement base HT / dé-pliage taxable), pas une ventilation 10.3.
+        WriteOptionalDecimal(writer, "SourceTaxAmount", line.SourceTaxAmount);
         writer.EndObject();
     }
 

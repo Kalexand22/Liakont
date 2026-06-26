@@ -201,25 +201,31 @@ public sealed class CheckTvaMappingTests
     [Fact]
     public void Evaluate_MarginDocument_Derives_B2cReportingDeclaration_Marker()
     {
-        // Adjudication exonérée mappée E + VATEX-EU-J (régime marge, table validée), frais acheteur, acheteur
-        // particulier, aucune TVA distincte (297 E) → le pivot enrichi porte le marqueur de déclaration de marge.
+        // Adjudication exonérée mappée E + VATEX-EU-J (régime marge, table validée), honoraire acheteur porté en
+        // LIGNE (rôle BuyerFee, même régime MARGE → mappé E + VATEX-EU-J, BUG-17 volet b), acheteur particulier,
+        // aucune TVA distincte (297 E) → le pivot enrichi porte le marqueur de déclaration de marge.
         var regimes = new[] { "MARGE" };
-        var line = new PivotLineDto(
+        var adjudication = new PivotLineDto(
             description: "Adjudication lot 1",
             netAmount: 2000m,
             sourceRegimeCodes: regimes,
             taxes: new[] { new PivotLineTaxDto(taxAmount: 0m, rate: 0m) });
+        var honoraire = new PivotLineDto(
+            description: "Honoraires acheteur",
+            netAmount: 401.28m,
+            sourceRegimeCodes: regimes,
+            taxes: new[] { new PivotLineTaxDto(taxAmount: 0m, rate: 0m) },
+            role: PivotLineRole.BuyerFee);
         var pivot = new PivotDocumentDto(
             sourceDocumentKind: "B",
             number: "100022",
             issueDate: new DateTime(2024, 1, 12),
             sourceReference: "encheresv6:ba:100022",
             supplier: null,
-            totals: new PivotTotalsDto(2000m, 0m, 2000m),
+            totals: new PivotTotalsDto(2401.28m, 0m, 2401.28m),
             operationCategory: null,
             customer: new PivotPartyDto("Acheteur Particulier"),
-            lines: new[] { line },
-            buyerFees: new[] { new PivotBuyerFeeDto("100022", 401.28m, sourceRegimeCode: "MARGE") });
+            lines: new[] { adjudication, honoraire });
         var plan = CheckTvaMapping.BuildPlan(pivot);
         var mapping = MarginMappedResult();
 
@@ -280,12 +286,24 @@ public sealed class CheckTvaMappingTests
             TableExists = true,
             IsValidated = true,
             MappingVersion = "cmp-v1",
+
+            // Deux lignes au régime MARGE (adjudication + honoraire acheteur en ligne, BUG-17 volet b), toutes
+            // deux mappées E + VATEX-EU-J : le pivot enrichi est homogène marge → marqueur dérivé.
             Lines = new[]
             {
                 new TvaLineMappingResult
                 {
                     SourceRegimeCode = "MARGE",
                     LineRef = "0",
+                    IsMapped = true,
+                    Category = "E",
+                    Rate = 0m,
+                    Vatex = "VATEX-EU-J",
+                },
+                new TvaLineMappingResult
+                {
+                    SourceRegimeCode = "MARGE",
+                    LineRef = "1",
                     IsMapped = true,
                     Category = "E",
                     Rate = 0m,

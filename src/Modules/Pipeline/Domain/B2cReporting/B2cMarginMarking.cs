@@ -64,7 +64,7 @@ public static class B2cMarginMarking
         }
 
         // (3) Frais de marge présents (commission acheteur et/ou vendeur, F03 §2.4).
-        bool hasFees = ((enrichedPivot.SellerFees?.Count ?? 0) > 0) || ((enrichedPivot.BuyerFees?.Count ?? 0) > 0);
+        bool hasFees = B2cAuctionFeeLines.HasAuctionFees(enrichedPivot);
         if (!hasFees)
         {
             return false;
@@ -87,14 +87,17 @@ public static class B2cMarginMarking
     }
 
     /// <summary>
-    /// Vrai si le document a la FORME d'une déclaration de marge B2C — frais de marge présents ET aucune TVA
-    /// distincte (art. 297 E : <see cref="PivotTotalsDto.TotalTax"/> = 0) — mais N'EST PAS classé marge par
-    /// <see cref="IsMarginDeclaration"/> (régime exonéré NON reconnu marge : E + VATEX non-marge / hors champ ;
-    /// ou acheteur PROFESSIONNEL sous régime exonéré). C'est le cas ambigu de F03 §6 décision #1 (« non
-    /// assujetti : marge ou hors champ ? ») ou un mapping incomplet. Transmis tel quel par la voie document, les
-    /// honoraires (DONNÉE DE CALCUL, portés HORS lignes) seraient PERDUS → marge sous-déclarée SANS message
-    /// opérateur. À BLOQUER au CHECK (fail-closed, CLAUDE.md n°3), jamais routé en silence — symétrique au
-    /// pré-filtre du job agrégé B4.
+    /// Vrai si le document a la FORME d'une marge/exonéré (frais présents ET aucune TVA distincte, art. 297 E :
+    /// <see cref="PivotTotalsDto.TotalTax"/> = 0) mais dont le RÉGIME n'est VÉRITABLEMENT PAS classé : ses lignes
+    /// ne sont reconnues NI marge (<c>E</c> + VATEX-EU-F/I/J) NI exonéré international (<c>G</c>/<c>K</c>). C'est le
+    /// cas ambigu de F03 §6 décision #1 (« non assujetti : marge ou hors champ ? ») ou un mapping incomplet — à
+    /// BLOQUER au CHECK (fail-closed, CLAUDE.md n°3), jamais émis avec une catégorie devinée.
+    /// <para><b>BUYER-INDÉPENDANT (BUG-17 volet a, F03 §2.10).</b> Un régime CLASSÉ (marge ou export) n'est JAMAIS
+    /// bloqué ici au seul motif d'un acheteur non-B2C : le CONTENU fiscal vient du régime, le CANAL de l'acheteur.
+    /// Un acheteur identifié sous un régime classé est ROUTÉ en aval (SIREN → facture B2B e-invoicing ; pseudo-pro
+    /// sans SIREN → <c>BuyerLooksProfessionalRule</c>), jamais happé par « marge non classée ». Le portage de
+    /// l'honoraire acheteur EN LIGNE (volet b) lève en outre la perte d'honoraire de la voie document : router
+    /// devient sûr.</para>
     /// <para>Un document TAXABLE (TVA distincte &gt; 0) n'est PAS visé : il s'émet par sa voie nominale ; la
     /// représentation de sa commission en ligne taxable relève de l'adaptateur source, hors de ce maillon.</para>
     /// <para>Un EXPORT HORS UE détaxé (catégorie <c>G</c>, art. 262 I — <see cref="B2cExportMarking"/>) partage la
@@ -111,11 +114,19 @@ public static class B2cMarginMarking
             return false;
         }
 
-        bool hasFees = ((enrichedPivot.SellerFees?.Count ?? 0) > 0) || ((enrichedPivot.BuyerFees?.Count ?? 0) > 0);
+        // BUYER-INDÉPENDANT (BUG-17 volet a, F03 §2.10) : on bloque UNIQUEMENT un régime VÉRITABLEMENT non classé —
+        // forme exonérée (frais + TotalTax == 0) dont les lignes ne sont reconnues NI marge (E + VATEX-EU-F/I/J) NI
+        // exonéré international (G/K). Un régime CLASSÉ (marge ou export) n'est JAMAIS bloqué ici au seul motif d'un
+        // acheteur non-B2C : le CONTENU est dérivé du régime (table validée), le CANAL de l'acheteur — un acheteur
+        // identifié est routé en aval (SIREN → facture B2B e-invoicing l.200 ; pseudo-pro sans SIREN → BuyerLooks-
+        // ProfessionalRule), jamais happé par « marge non classée ». Les checks de RÉGIME sont buyer-indépendants
+        // (AllLinesUnderMarginRegime / IsExoneratedInternationalRegime), à la différence de IsMarginDeclaration /
+        // IsExportDeclaration qui exigent en plus le B2C.
+        bool hasFees = B2cAuctionFeeLines.HasAuctionFees(enrichedPivot);
         return hasFees
             && enrichedPivot.Totals.TotalTax == 0m
-            && !IsMarginDeclaration(enrichedPivot)
-            && !B2cExportMarking.IsExportDeclaration(enrichedPivot);
+            && !AllLinesUnderMarginRegime(enrichedPivot.Lines)
+            && !B2cExportMarking.IsExoneratedInternationalRegime(enrichedPivot);
     }
 
     /// <summary>

@@ -18,6 +18,11 @@ using Liakont.Agent.Contracts.Pivot;
 /// <c>B2cMarginResolver</c> → <c>B2cTransactionAggregationCalculator</c> (ramène le TTC en HT,
 /// <c>HT = arrondi(TTC / (1 + taux))</c>). Ce type n'a AUCUN consommateur de production : NE PAS consommer
 /// <c>TotalMargin</c>/<c>MarginAmount</c> comme base HT (sur-déclarerait la base de TVA sur la marge — n°1/n°2).
+/// <para>⚠️ <b>Doublement obsolète depuis BUG-17 (volet b).</b> L'honoraire ACHETEUR est désormais porté en LIGNE
+/// (rôle <see cref="PivotLineRole.BuyerFee"/>), plus dans <see cref="PivotDocumentDto.BuyerFees"/> (que l'agent
+/// EncheresV6 ne peuple plus). Ce calculateur sommant encore <c>document.BuyerFees</c>, il SOUS-déclarerait la jambe
+/// acheteur (= 0) s'il était recâblé. La voie vive lit la ligne via <c>B2cAuctionFeeLines.BuyerFeeLines</c>
+/// (<c>B2cMarginAggregatorTenantJob</c>). À migrer ou supprimer si jamais réactivé — jamais consommer tel quel.</para>
 /// </para>
 /// </summary>
 /// <remarks>

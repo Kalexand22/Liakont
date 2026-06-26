@@ -67,7 +67,7 @@ public static class B2cExportMarking
         }
 
         // (3) Frais d'enchères présents (commission acheteur et/ou vendeur) — discriminant enchères.
-        bool hasFees = ((enrichedPivot.SellerFees?.Count ?? 0) > 0) || ((enrichedPivot.BuyerFees?.Count ?? 0) > 0);
+        bool hasFees = B2cAuctionFeeLines.HasAuctionFees(enrichedPivot);
         if (!hasFees)
         {
             return false;
@@ -98,6 +98,19 @@ public static class B2cExportMarking
     /// <returns>La catégorie détaxée homogène, ou <c>null</c>.</returns>
     public static VatCategory? ExoneratedCategory(PivotDocumentDto enrichedPivot) =>
         IsExportDeclaration(enrichedPivot) ? enrichedPivot.Lines[0].Taxes[0].CategoryCode : null;
+
+    /// <summary>
+    /// Vrai si TOUTES les lignes sont mappées à une catégorie détaxée internationale HOMOGÈNE (<c>G</c>/<c>K</c>)
+    /// issue de la TABLE VALIDÉE — signal de RÉGIME export RECONNU, **INDÉPENDANT de l'acheteur** (à la différence
+    /// de <see cref="IsExportDeclaration"/> qui exige EN PLUS le B2C + les frais d'enchères). Sert à la garde
+    /// « marge non classée » (<see cref="B2cMarginMarking.LooksLikeUnclassifiedMargin"/>) à NE PAS bloquer un export
+    /// CLASSÉ au seul motif d'un acheteur non-B2C : le CONTENU fiscal est dérivé du régime (table validée), le CANAL
+    /// de l'acheteur (F03 §2.10, BUG-17 volet a). Fail-closed : lignes hétérogènes / non détaxées → <c>false</c>.
+    /// </summary>
+    /// <param name="enrichedPivot">Le pivot enrichi par le mapping TVA (lignes portant catégorie).</param>
+    /// <returns><c>true</c> si le RÉGIME des lignes est un exonéré international reconnu (G/K homogène).</returns>
+    public static bool IsExoneratedInternationalRegime(PivotDocumentDto enrichedPivot) =>
+        enrichedPivot != null && AllLinesExonerated(enrichedPivot.Lines);
 
     /// <summary>
     /// Vrai si TOUTES les lignes (au moins une) sont mappées à UNE MÊME catégorie détaxée internationale

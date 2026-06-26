@@ -159,13 +159,36 @@ public sealed class B2cPlainTaxableMarkingTests
 
     private static PivotPartyDto ProfessionnelSiren() => new("AUTOSUD21", siren: "945678902");
 
+    // BUG-17 volet b : la présence de frais acheteur = bordereau d'enchères, désormais signalée par une LIGNE
+    // au rôle BuyerFee (et non plus le side-channel BuyerFees). Le helper Pivot transcrit chaque Fee() en LIGNE
+    // BuyerFee (régime miroir de l'adjudication, TVA de ligne nulle) ; sa présence rend HasAuctionFees vrai, donc
+    // le document ordinaire (Plain) n'est PAS marqué. Seule la construction de l'entrée change.
+    private static PivotLineDto BuyerFeeLine(IReadOnlyList<PivotLineDto> lines, PivotBuyerFeeDto fee)
+    {
+        var model = lines.Count > 0 ? lines[0].Taxes[0] : new PivotLineTaxDto(taxAmount: 0m, rate: null);
+        return new PivotLineDto(
+            description: "Honoraires acheteur",
+            netAmount: fee.NetAmount,
+            sourceRegimeCodes: lines.Count > 0 ? lines[0].SourceRegimeCodes : ["5"],
+            taxes: [new PivotLineTaxDto(taxAmount: 0m, rate: model.Rate, categoryCode: model.CategoryCode, vatexCode: model.VatexCode)],
+            role: PivotLineRole.BuyerFee,
+            sourceTaxAmount: fee.SourceTaxAmount);
+    }
+
     private static PivotDocumentDto Pivot(
         IReadOnlyList<PivotLineDto> lines,
         decimal totalTax,
         PivotPartyDto? customer,
         IReadOnlyList<PivotBuyerFeeDto>? buyerFees = null,
-        IReadOnlyList<PivotSellerFeeDto>? sellerFees = null) =>
-        new(
+        IReadOnlyList<PivotSellerFeeDto>? sellerFees = null)
+    {
+        var allLines = new List<PivotLineDto>(lines);
+        foreach (var fee in buyerFees ?? [])
+        {
+            allLines.Add(BuyerFeeLine(lines, fee));
+        }
+
+        return new(
             sourceDocumentKind: "F",
             number: "FC-100",
             issueDate: new System.DateTime(2024, 1, 12),
@@ -174,7 +197,7 @@ public sealed class B2cPlainTaxableMarkingTests
             totals: new PivotTotalsDto(totalNet: 1000m, totalTax: totalTax, totalGross: 1000m + totalTax),
             operationCategory: OperationCategory.LivraisonBiens,
             customer: customer,
-            lines: lines,
-            sellerFees: sellerFees,
-            buyerFees: buyerFees);
+            lines: allLines,
+            sellerFees: sellerFees);
+    }
 }

@@ -12,7 +12,7 @@ using Xunit;
 
 /// <summary>
 /// Tests SMOKE du nouvel extracteur ODBC BA/BV (<see cref="PervasiveExtractor"/>) sur le modèle marge :
-/// streaming des bordereaux acheteur (jambe BuyerFees), LECTURE SEULE STRICTE (aucune écriture, aucune
+/// streaming des bordereaux acheteur (honoraire en LIGNE BuyerFee, BUG-17 volet b), LECTURE SEULE STRICTE (aucune écriture, aucune
 /// transaction), filtre tenant <c>No_dossier</c>. La couverture fiscale détaillée du mapping vit dans
 /// <see cref="EncheresV6RowMapperTests"/> (transformation pure). NB : la suite ODBC exhaustive (avoirs,
 /// paiements, régimes, multi-lots) est à reconstruire sur le modèle BA/BV.
@@ -34,9 +34,12 @@ public class PervasiveExtractorTests
         ba.Number.Should().Be("100022");
         ba.SourceReference.Should().Be("encheresv6:ba:100022");
         ba.Supplier.Should().BeNull("FilledByPlatform : l'agent ne porte pas l'émetteur");
-        ba.BuyerFees.Should().ContainSingle();
-        ba.BuyerFees![0].NetAmount.Should().Be(401.28m, "commission acheteur TTC = 334.40 + 66.88");
-        ba.Lines.Should().ContainSingle().Which.NetAmount.Should().Be(2000.00m);
+
+        // BUG-17 volet b : la commission acheteur est portée en LIGNE au rôle BuyerFee (TTC), plus dans BuyerFees.
+        ba.BuyerFees.Should().BeNull("l'honoraire acheteur n'est plus dans le side-channel BuyerFees (BUG-17 volet b)");
+        ba.Lines.Should().ContainSingle(l => l.Role == PivotLineRole.Standard).Which.NetAmount.Should().Be(2000.00m);
+        ba.Lines.Should().ContainSingle(l => l.Role == PivotLineRole.BuyerFee)
+            .Which.NetAmount.Should().Be(401.28m, "commission acheteur TTC = 334.40 + 66.88");
     }
 
     [Fact]
@@ -113,9 +116,11 @@ public class PervasiveExtractorTests
 
         PivotDocumentDto ba = extractor.ExtractDocuments(From, To).ToList().Should().ContainSingle().Subject;
 
-        ba.Lines.Should().ContainSingle().Which.SourceRegimeCodes.Should().Contain(
+        // Adjudication ET honoraire (ligne BuyerFee) partagent le régime résolu par la jointure no_ligne_tout_pv.
+        ba.Lines.Should().ContainSingle(l => l.Role == PivotLineRole.Standard).Which.SourceRegimeCodes.Should().Contain(
             "6", "le régime du lot est résolu par la jointure no_ligne_tout_pv malgré ligne_pv.no_ba=0");
-        ba.BuyerFees.Should().ContainSingle().Which.SourceRegimeCode.Should().Be("6");
+        ba.Lines.Should().ContainSingle(l => l.Role == PivotLineRole.BuyerFee)
+            .Which.SourceRegimeCodes.Should().Contain("6", "l'honoraire porte le même régime que son adjudication (BUG-17 volet b)");
     }
 
     [Fact]

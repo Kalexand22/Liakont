@@ -199,6 +199,10 @@ internal static class CheckTvaMapping
             categoryCode: category,
             vatexCode: result.Vatex);
 
+        // Métadonnées de ligne PRÉSERVÉES à l'enrichissement (l'enrichissement ne repose QUE la ventilation TVA) :
+        // le rôle (adjudication vs honoraire acheteur) et la TVA de frais source sont REQUIS en aval — B4 lit la ligne
+        // au rôle BuyerFee, et la base HT export lit SourceTaxAmount (un futur dé-pliage taxable aussi — déféré, F03
+        // §2.3 amendement, BUG-17 volet b). Sans cette recopie, ils seraient perdus ici (silencieux).
         return new PivotLineDto(
             description: line.Description,
             netAmount: line.NetAmount,
@@ -207,7 +211,9 @@ internal static class CheckTvaMapping
             sourceRegimeCodes: line.SourceRegimeCodes,
             taxes: new[] { enrichedTax },
             sourceLineRef: line.SourceLineRef,
-            sourceData: line.SourceData);
+            sourceData: line.SourceData,
+            role: line.Role,
+            sourceTaxAmount: line.SourceTaxAmount);
     }
 
     private static PivotDocumentDto Rebuild(PivotDocumentDto pivot, IReadOnlyList<PivotLineDto> lines, bool isB2cReportingDeclaration)

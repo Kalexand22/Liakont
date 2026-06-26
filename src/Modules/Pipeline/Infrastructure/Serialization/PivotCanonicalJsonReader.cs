@@ -90,6 +90,8 @@ public static class PivotCanonicalJsonReader
         totalGross: Dec(element, "TotalGross"),
         sourceTotalGross: DecimalOrNull(element, "SourceTotalGross"));
 
+    // Rôle (F03 §2.3 amendement) : optionnel ABSENT → Standard (le writer omet le rôle par défaut, hash-neutre) ;
+    // SourceTaxAmount : optionnel ABSENT → null (omis par le writer). Miroir EXACT du writer pour le round-trip.
     private static PivotLineDto ReadLine(JsonElement element) => new(
         description: Str(element, "Description"),
         netAmount: Dec(element, "NetAmount"),
@@ -99,7 +101,9 @@ public static class PivotCanonicalJsonReader
         taxes: ReadList(element, "Taxes", ReadLineTax),
         sourceLineRef: StrOrNull(element, "SourceLineRef"),
         sourceData: StrOrNull(element, "SourceData"),
-        unitCode: StrOrNull(element, "UnitCode"));
+        unitCode: StrOrNull(element, "UnitCode"),
+        role: TryString(element, "Role", out string role) ? EnumByName<PivotLineRole>(role) : PivotLineRole.Standard,
+        sourceTaxAmount: DecimalOrNull(element, "SourceTaxAmount"));
 
     private static PivotLineTaxDto ReadLineTax(JsonElement element) => new(
         taxAmount: Dec(element, "TaxAmount"),

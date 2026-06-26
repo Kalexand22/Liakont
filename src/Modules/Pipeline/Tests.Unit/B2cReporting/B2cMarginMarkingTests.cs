@@ -181,13 +181,16 @@ public sealed class B2cMarginMarkingTests
     }
 
     [Fact]
-    public void LooksLikeUnclassifiedMargin_ExemptMargin_ButProfessionalBuyer_IsTrue()
+    public void LooksLikeUnclassifiedMargin_ExemptMargin_ButProfessionalBuyer_IsFalse()
     {
-        // Adjudication marge (E + VATEX-EU-J) MAIS acheteur professionnel (SIREN) → non classé marge (B2C requis),
-        // forme marge (frais + TVA=0) → à bloquer (jamais routé en facture qui perdrait les honoraires).
+        // BUG-17 volet a (buyer-indépendant, F03 §2.10) : un régime CLASSÉ marge (E + VATEX-EU-J) avec un
+        // acheteur PROFESSIONNEL (SIREN) n'est PLUS « marge non classée ». Le CONTENU fiscal vient du régime
+        // (classé), le CANAL de l'acheteur : l'acheteur identifié est ROUTÉ en aval (SIREN → facture B2B
+        // e-invoicing), jamais happé par cette garde. Le portage de l'honoraire EN LIGNE (volet b) lève la perte
+        // d'honoraire de la voie document : router devient sûr. ANCIEN attendu : true (bloqué) ; NOUVEAU : false.
         var pivot = Pivot([MarginLine("VATEX-EU-J")], totalTax: 0m, customer: ProfessionnelSiren(), buyerFees: [Fee()]);
 
-        B2cMarginMarking.LooksLikeUnclassifiedMargin(pivot).Should().BeTrue();
+        B2cMarginMarking.LooksLikeUnclassifiedMargin(pivot).Should().BeFalse();
     }
 
     [Fact]
@@ -239,13 +242,37 @@ public sealed class B2cMarginMarkingTests
 
     private static PivotPartyDto ProfessionnelSiren() => new("AUTOSUD21", siren: "945678902");
 
+    // BUG-17 volet b : l'honoraire acheteur est désormais porté en LIGNE (rôle BuyerFee), non plus dans le
+    // side-channel hors-lignes BuyerFees. Le helper Pivot transcrit chaque Fee() en LIGNE BuyerFee : elle porte
+    // la MÊME ventilation (catégorie/VATEX) que l'adjudication (le mapping plateforme classe l'honoraire au même
+    // régime que le lot) avec une TVA de ligne nulle (art. 297 E). Seule la construction de l'entrée change ; les
+    // RÉSULTATS attendus (marquage) sont inchangés.
+    private static PivotLineDto BuyerFeeLine(IReadOnlyList<PivotLineDto> lines, PivotBuyerFeeDto fee)
+    {
+        var model = lines.Count > 0 ? lines[0].Taxes[0] : new PivotLineTaxDto(taxAmount: 0m, rate: null);
+        return new PivotLineDto(
+            description: "Honoraires acheteur",
+            netAmount: fee.NetAmount,
+            sourceRegimeCodes: lines.Count > 0 ? lines[0].SourceRegimeCodes : ["6"],
+            taxes: [new PivotLineTaxDto(taxAmount: 0m, rate: model.Rate, categoryCode: model.CategoryCode, vatexCode: model.VatexCode)],
+            role: PivotLineRole.BuyerFee,
+            sourceTaxAmount: fee.SourceTaxAmount);
+    }
+
     private static PivotDocumentDto Pivot(
         IReadOnlyList<PivotLineDto> lines,
         decimal totalTax,
         PivotPartyDto? customer,
         IReadOnlyList<PivotBuyerFeeDto>? buyerFees = null,
-        IReadOnlyList<PivotSellerFeeDto>? sellerFees = null) =>
-        new(
+        IReadOnlyList<PivotSellerFeeDto>? sellerFees = null)
+    {
+        var allLines = new List<PivotLineDto>(lines);
+        foreach (var fee in buyerFees ?? [])
+        {
+            allLines.Add(BuyerFeeLine(lines, fee));
+        }
+
+        return new(
             sourceDocumentKind: "B",
             number: "100022",
             issueDate: new DateTime(2024, 1, 12),
@@ -254,7 +281,7 @@ public sealed class B2cMarginMarkingTests
             totals: new PivotTotalsDto(totalNet: 2000m, totalTax: totalTax, totalGross: 2000m + totalTax),
             operationCategory: null,
             customer: customer,
-            lines: lines,
-            sellerFees: sellerFees,
-            buyerFees: buyerFees);
+            lines: allLines,
+            sellerFees: sellerFees);
+    }
 }

@@ -359,3 +359,123 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
   (consigner la provenance si on touche `Stratum.*`).
 - **Fichiers (pistes)** : `Stratum.Common.UI` (composant densité / layout), `Identity` préférences
   (`UserPreferences`, `PostgresUserPreferencesService`). Règle review 19/20 (socle).
+
+## BUG-17 (MAJEUR — aiguillage) — La garde « marge non classée » bloque TOUT acheteur identifié au lieu de router vers son canal (relevé Karl 26/06)
+
+- **Symptôme** : doc n°2000026 (acheteur VARRA Rosaria, **SIREN 998877666**, lot 22 **régime 6 = marge**) → **bloqué**
+  « marge non classée … acheteur professionnel ». Or le **Livre Blanc SYMEV**
+  (`C:\Source\Liakont-GoToMarket\Metiers\Encheres\Livre-Blanc-SYMEV\Livre-Blanc-SYMEV-Facturation-Electronique-Encheres.pdf`,
+  **tableau maître p.7**) dit qu'une **marge vendue à un acheteur pro France** part en **e-invoicing** (facture B2B
+  portant la mention « Régime particulier » E + VATEX-EU-F/I/J, TVA 0), **jamais bloquée**. Conforme aussi à la
+  décision Karl actée plus haut (ligne 19) : **SIREN → facture B2B**. La garde marge ne respecte pas cette décision.
+- **L'aiguillage de référence (tableau maître p.7) — 2 axes INDÉPENDANTS** :
+  - **Régime du lot** (table TVA, fixé par le vendeur) → CONTENU fiscal : marge = E + VATEX-EU-F/I/J, TVA 0 ;
+    prix total = S, 20 % (ou 5,5 % œuvre d'art).
+  - **Profil acheteur** (tiers) → CANAL : particulier FR → e-reporting agrégé/jour (B2C) ; pro FR (SIREN) →
+    e-invoicing B2B ; assujetti UE (n° TVA) → e-reporting unitaire B2B (+ intracom 262 ter exonéré / VIES / 289 B
+    au prix total) ; hors UE → e-reporting unitaire exonéré (262 I).
+
+  | Régime ↓ \ Acheteur → | particulier FR | pro FR (SIREN) | assujetti UE | hors UE |
+  |---|---|---|---|---|
+  | **Marge** (E+VATEX) | ✅ B4 marge agrégé | ⛔ **bloqué** (l.146) → e-invoicing | ⛔ **bloqué** → unitaire B2B | ⚠️ export gate B2C → acheteur identifié = bloqué |
+  | **Prix total 20 %/5,5 %** (S) | ✅ B4 taxable agrégé | ✅ e-invoicing (passe car TVA>0) | ⛔ intracom 262 ter + VIES/289 B → non traité | ⚠️ export gate B2C |
+
+  Seules cellules vraiment vertes : colonne B2C-particulier (tous régimes) + prix-total-pro-FR (qui marche **par
+  accident**, n'étant pas happé par la garde marge car TVA>0).
+- **Diagnostic (cause UNIQUE)** : toutes les markings (`B2cMarginMarking`, `B2cTaxableMarking`, `B2cExportMarking`,
+  `B2cPlainTaxableMarking`) gardent sur le **même** prédicat `B2cBuyerClassification.IsNonProfessional`. Donc tout
+  acheteur IDENTIFIÉ (pro FR, assujetti UE, étranger identifié) sur un document à **forme exonérée** (TVA 0 + frais)
+  → `IsMarginDeclaration`/`IsExportDeclaration` = false → `LooksLikeUnclassifiedMargin` (`DocumentCheckEvaluator`
+  **l.146**) = true → **BLOCK**, **AVANT** la validation (l.152, où `BuyerLooksProfessionalRule` laisserait passer le
+  SIREN) et **AVANT** la garde de transmission B2B (l.200, qui route les SIREN vers e-invoicing). Le code a collé
+  « canal = B2C ou pas » sur l'axe régime → il bloque tout ce qui n'est pas B2C-particulier.
+- **Sous-issue STRUCTURELLE (2ᵉ volet du fix)** : les **frais acheteur** vivent dans `BuyerFees` (HORS lignes,
+  ajoutés pour l'agrégat B4). Pour l'e-invoice marge-pro (cas d'usage n°33, p.17), le bordereau doit montrer
+  **adjudication + frais acheteur TTC** en catégorie E. **À vérifier** : la voie document / le sérialiseur Factur-X
+  lit-il `BuyerFees` ? Sinon l'e-invoice marge-pro serait **incomplète** (frais acheteur perdus) — c'est la peur
+  légitime de la garde l.146. Fix = (a) router au lieu de bloquer **ET** (b) porter les frais acheteur en lignes sur
+  la voie document.
+- **Cellules OUVERTES — NE PAS TRANCHER** (p.7 les renvoie en annexe D, CLAUDE.md n°2) : intracom UE prix total
+  (262 ter / VIES / état récap 289 B) ; export justif. de sortie / consignation-restitution. Les signaler, jamais
+  inventer.
+- **Fichiers (pistes)** : `src/Modules/Pipeline/Domain/B2cReporting/B2cMarginMarking.cs` (`IsMarginDeclaration`
+  étape 4 + `LooksLikeUnclassifiedMargin`), `DocumentCheckEvaluator.cs` (garde l.146 + ordre vs l.152/l.200),
+  `B2cBuyerClassification.cs` (prédicat partagé), `B2cTaxableMarking`/`B2cExportMarking`/`B2cPlainTaxableMarking`,
+  la voie document / sérialiseur Factur-X (frais acheteur en lignes), `docs/conception/F03-Mapping-TVA.md`
+  (amendement : matrice d'aiguillage).
+- **Critère d'acceptation** : chaque cellule du tableau p.7 est routée vers SON canal (**test matriciel** régime ×
+  acheteur) ; aucune cellule légitime n'est bloquée ; marge-pro / marge-UE partent en facture B2B avec mention
+  « Régime particulier » + frais acheteur portés ; cellules ouvertes (289 B, consignation) explicitement signalées,
+  jamais devinées.
+- **Repros (cellules DISTINCTES de la matrice — le code les bloque à l'identique, elles visent des canaux différents)** :
+  - **Marge × pro FR → e-invoicing** : doc n°2000026 (volontaire), n°100348 (judiciaire, Type A = **avoir** → le fix
+    doit couvrir aussi les avoirs / PIP02). Acheteur SIREN 998877666.
+  - **Marge × assujetti UE → e-reporting unitaire international** : doc n°100351 (acheteur n° TVA **BE**123456798,
+    Belgique = UE). Marge taxée en France, **pas** d'exonération intra ; **jamais** e-invoicing domestique.
+  Ces deux repros prouvent que BUG-17 ne se réduit PAS au cas pro-FR : tout acheteur identifié (FR / UE / hors UE) est
+  bloqué à tort par la même garde l.146.
+- **Approche recommandée (prêt-à-coder sans risque)** : rédiger d'abord la **matrice d'aiguillage complète en
+  amendement F03** (fidèle à p.7, cellules ouvertes marquées), puis dériver **UN lot de code** (séparer
+  `contenu = f(table, lot)` de `canal = f(acheteur)`) + test matriciel. **Décision Karl en attente** : spec F03
+  d'abord, ou code direct en suivant p.7.
+- **✅ RÉSOLU (2026-06-26, lot interactif, validé Karl « go amendement puis code »)** — en DEUX volets :
+  - **Volet b (fondation)** — l'honoraire acheteur est porté en **VRAIE LIGNE** (rôle `PivotLineRole.BuyerFee`)
+    et non plus dans le side-channel `BuyerFees` : total de pièce réel (adjudication + honoraire), Factur-X la
+    porte (le sérialiseur ne lit que les lignes), perte d'honoraire de la voie document **levée**. Contrat
+    (`PivotLineDto.Role` + `SourceTaxAmount`, additifs/hash-neutres), agent `EncheresV6RowMapper.MapBaDocument`,
+    et **10 sites B2C** re-câblés par rôle via le helper partagé `B2cAuctionFeeLines` (markings marge/taxable/
+    export/ordinaire, découverte, 2 prédicats d'aiguillage, base export, jobs B4 marge+taxable) — zéro
+    double-comptage, zéro break silencieux. Amendement **F03 §2.3** (réconcilié 297 E) + **§2.10 règle 4**.
+  - **Volet a (l'aiguillage)** — `B2cMarginMarking.LooksLikeUnclassifiedMargin` rendu **buyer-indépendant**
+    (bloque UNIQUEMENT un régime vraiment non classé : E sans VATEX de marge ou catégories mêlées ; check de
+    régime export buyer-indépendant `B2cExportMarking.IsExoneratedInternationalRegime`). Cellules : marge × **pro
+    FR (SIREN)** → route **e-invoicing** (garde l.200) ; marge × **assujetti UE** (n° TVA sans SIREN, doc 100351)
+    → **fail-close** via `BuyerLooksProfessionalRule` (« facture B2B requise, traitez manuellement ») ; **régime
+    non classé** → reste bloqué. Pas de garde nouvelle (les gardes aval aiguillent).
+  - **Trou de prod trouvé + corrigé** (garde de complétude par réflexion des tests de contrat) : le binder STJ du
+    Host (`AgentApiJson.ConfigureContractBinding`) n'enregistrait pas `PivotLineRole` → un push agent portant une
+    ligne BuyerFee serait rejeté en 400. Convertisseur ajouté (binding strict, RDL01).
+  - **DÉFÉRÉ (suivi séparé)** : le **dé-pliage HT/TVA** d'un honoraire **taxable** (régime 5) en facture **B2B**
+    Factur-X (la ligne reste TTC/taxe 0, correcte pour la marge + l'agrégat B2C, mais une e-invoice B2B taxable
+    devrait montrer HT + 20 %). Aujourd'hui gaté par la capacité de transmission de la PA. À border avec la
+    cellule « prix total × pro/UE » et BUG-18 (pays fiable).
+
+## BUG-18 (P2 robustesse) — Normalisation des codes pays non-ISO : passer de la liste codée en dur à une table de correspondance (relevé Karl 26/06)
+
+- **Symptôme** : doc n°2000020 bloqué « code pays de l'acheteur (« JAP ») … n'est pas un code pays ISO 3166-1
+  alpha-2 valide ». `JAP` = Japon (ISO alpha-2 = `JP`). Donnée source EncheresV6 non-ISO, comme `ENG`/`EURO` avant.
+- **Contexte** : **BUG-9** a déjà normalisé `ENG/SCO/WAL/NIR → GB` **en dur dans l'agent**
+  (`EncheresV6RowMapper`). `JAP→JP` est le même besoin. Mais une **liste codée en dur qui grossit** à chaque
+  nouveau code n'est pas tenable → d'où la proposition Karl d'une **table de correspondance**.
+- **À corriger** :
+  - **Immédiat (cheap)** : ajouter `JAP→JP` à la liste existante de BUG-9 (débloque 2000020).
+  - **Structurel** : remplacer la liste en dur par une **table de correspondance** `code source → ISO alpha-2`.
+    **Décision de placement** : (a) côté agent (extension de l'actuel, mais garde du « savoir client » dans l'agent),
+    ou (b) **paramétrage plateforme par tenant** appliqué à l'ingestion — cohérent avec la table TVA (mapping
+    validé, versionné, auditable ; l'agent transporte le brut, CLAUDE.md n°6). **Recommandation : (b).**
+  - **Fail-closed** : un code non-ISO **non mappé** continue de **bloquer** (jamais deviné, CLAUDE.md n°2).
+    Important car le pays **pilote l'aiguillage fiscal** (UE vs hors UE, p.7 / chap. 7) : une normalisation fausse
+    mis-route fiscalement → elle doit être **déclarée et tracée**, jamais inférée.
+- **Fichiers (pistes)** : `agent/src/Liakont.Agent.Adapters.EncheresV6/EncheresV6RowMapper.cs` (liste actuelle
+  BUG-9) ; si (b) : normaliseur pays plateforme + table paramétrage tenant + UI (règle review 19) ;
+  `src/Modules/Validation/Domain/Identity/CountryCodeValidator.cs` (inchangé — reste la garde finale ISO).
+- **Critère d'acceptation** : `JAP→JP` débloque 2000020 ; la normalisation est une table extensible (pas une liste
+  en dur) ; un code inconnu reste **bloqué** (fail-closed) ; test sur `JAP→JP` + un code inconnu laissé bloqué.
+
+## BUG-19 (P2 UX — transverse) — Pas de navigation document-à-document (préc./suiv.) sur les vues détail (relevé Karl 26/06)
+
+- **Symptôme** : depuis le détail d'un document, pour passer au document **suivant** il faut **revenir à la grille à
+  chaque fois**. Aucun préc./suiv. sur la vue détail. Très pénible en recette (parcourir les bloqués un par un).
+- **Besoin** : navigation **préc./suiv.** sur les vues DÉTAIL, parcourant la liste **filtrée/triée telle qu'affichée
+  dans la grille** (le contexte de la grille — filtres, tri, page — est **conservé**). **TRANSVERSE à toute l'app**
+  (documents, agents, émissions…), pas un one-off sur la page documents.
+- **Conception** : c'est un comportement du **gabarit Stratum** (`DeclaredListPage` / vue détail), cohérent avec la
+  règle « pas de grille maison, le pattern vit dans le socle » ([[console-web-stratum-design-system]]). Probable
+  **modif socle vendored** (`Stratum.*`) → **consigner la provenance** ([[socle-stratum-modifiable]]). Conserver le
+  **contexte de liste** (curseur + filtres) côté navigation — pas un naïf `id+1` (qui casserait dès qu'un filtre/tri
+  est actif). Réutiliser `DocumentsListFilterMemory` (existe déjà) comme source du curseur.
+- **Fichiers (pistes)** : socle Stratum (`DeclaredListPage` / routing détail), Host détail document
+  (`DocumentDetailView`), `src/Host/Liakont.Host/Documents/DocumentsListFilterMemory.cs` (mémoire de filtre).
+- **Critère d'acceptation** : depuis une vue détail, préc./suiv. parcourt la **liste filtrée** sans repasser par la
+  grille ; bornes gérées (1er/dernier) ; contexte (filtre/tri) préservé ; **transverse** (≥ documents + une 2ᵉ
+  entité) ; test bUnit (règle review 19) ; provenance socle consignée si `Stratum.*` modifié.

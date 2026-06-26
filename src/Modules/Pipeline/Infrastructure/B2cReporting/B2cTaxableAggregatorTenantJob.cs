@@ -232,8 +232,9 @@ public sealed partial class B2cTaxableAggregatorTenantJob : ITenantJob
         CancellationToken cancellationToken)
     {
         // Adjudication : HT/TVA et taux lus sur les lignes ENRICHIES (le marquage garantit 1 ventilation taxable
-        // par ligne) — montants sourcés, jamais recalculés.
-        var adjudicationLines = pivot.Lines
+        // par ligne) — montants sourcés, jamais recalculés. Partition par RÔLE (BUG-17 volet b) : on EXCLUT les
+        // lignes d'honoraire acheteur (rôle BuyerFee), sinon la commission serait comptée DEUX fois (ligne + ci-dessous).
+        var adjudicationLines = B2cAuctionFeeLines.AdjudicationLines(pivot)
             .Select(line => new B2cTaxableLineAmount
             {
                 RatePercent = line.Taxes[0].Rate,
@@ -242,14 +243,18 @@ public sealed partial class B2cTaxableAggregatorTenantJob : ITenantJob
             })
             .ToList();
 
-        // Commission ACHETEUR uniquement (F03 §2.7) → taux mappé Part.Frais (jamais inventé, fail-closed).
-        var buyerFees = (pivot.BuyerFees ?? Enumerable.Empty<PivotBuyerFeeDto>()).ToList();
-        var requests = buyerFees
-            .Select(f => new TvaLineMappingRequest
+        // Commission ACHETEUR (F03 §2.7) : lue sur les LIGNES au rôle BuyerFee (BUG-17 volet b) → taux mappé Part.Frais
+        // (jamais inventé, fail-closed). Montant TTC recouvré PAR CONSTRUCTION = NetAmount + TVA de ligne. Aujourd'hui la
+        // ligne honoraire reste TTC-pliée (taxe de ligne 0) sous TOUT régime — le dé-pliage HT/TVA d'un honoraire au
+        // régime du PRIX TOTAL (facture B2B Factur-X) est DÉFÉRÉ (BUG-17, suivi séparé) ; le « +TVA de ligne » garde la
+        // formule robuste si ce dé-pliage est ajouté plus tard. Le taux de la commission vient ici du mapping Part.Frais.
+        var buyerFeeLines = B2cAuctionFeeLines.BuyerFeeLines(pivot).ToList();
+        var requests = buyerFeeLines
+            .Select(line => new TvaLineMappingRequest
             {
-                SourceRegimeCode = f.SourceRegimeCode ?? string.Empty,
+                SourceRegimeCode = line.SourceRegimeCodes.Count > 0 ? line.SourceRegimeCodes[0] : string.Empty,
                 Part = TvaMappingPart.Frais,
-                LineRef = f.SourceLineRef,
+                LineRef = line.SourceLineRef,
             })
             .ToList();
 
@@ -257,14 +262,15 @@ public sealed partial class B2cTaxableAggregatorTenantJob : ITenantJob
             ? await tvaMapping.MapAsync(companyId, requests, cancellationToken)
             : null;
 
-        var honoraires = new List<B2cResolvedHonoraire>(buyerFees.Count);
-        for (var i = 0; i < buyerFees.Count; i++)
+        var honoraires = new List<B2cResolvedHonoraire>(buyerFeeLines.Count);
+        for (var i = 0; i < buyerFeeLines.Count; i++)
         {
             // Index 1:1 requête→résultat ; table absente / code non mappé → taux null → B2cTaxableResolver bloque
             // (UnmappedRate), jamais un taux deviné.
             var line = mapping is { TableExists: true } && i < mapping.Lines.Count ? mapping.Lines[i] : null;
             var rate = line is { IsMapped: true } ? line.Rate : null;
-            honoraires.Add(new B2cResolvedHonoraire { AmountTtc = buyerFees[i].NetAmount, RatePercent = rate });
+            decimal amountTtc = buyerFeeLines[i].NetAmount + buyerFeeLines[i].Taxes.Sum(t => t.TaxAmount);
+            honoraires.Add(new B2cResolvedHonoraire { AmountTtc = amountTtc, RatePercent = rate });
         }
 
         return B2cTaxableResolver.Resolve(adjudicationLines, honoraires);

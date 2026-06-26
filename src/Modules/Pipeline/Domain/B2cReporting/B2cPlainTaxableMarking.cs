@@ -60,7 +60,7 @@ public static class B2cPlainTaxableMarking
         }
 
         // (1) AUCUN frais d'enchères — discriminant « document ordinaire » (inverse du taxable/marge enchères).
-        bool hasFees = ((enrichedPivot.SellerFees?.Count ?? 0) > 0) || ((enrichedPivot.BuyerFees?.Count ?? 0) > 0);
+        bool hasFees = B2cAuctionFeeLines.HasAuctionFees(enrichedPivot);
         if (hasFees)
         {
             return false;

@@ -12,7 +12,8 @@ using Xunit;
 /// <summary>
 /// Tests SMOKE du mode FIXTURES (<see cref="EncheresV6FixtureExtractor"/>) sur le modèle BA/BV : un
 /// snapshot JSON (bordereaux acheteur + vendeur) rejoue exactement la transformation du mode ODBC —
-/// le BA porte la commission acheteur (BuyerFees), le BV la commission vendeur (SellerFees). Couverture
+/// le BA porte la commission acheteur en LIGNE (rôle BuyerFee, BUG-17 volet b), le BV la commission
+/// vendeur (SellerFees). Couverture
 /// fiscale détaillée dans <see cref="EncheresV6RowMapperTests"/>. NB : suite fixtures exhaustive
 /// (avoirs lettrés, paiements, régimes, fusion de répertoire) à reconstruire sur le modèle BA/BV.
 /// </summary>
@@ -49,8 +50,11 @@ public class EncheresV6FixtureExtractorTests
         docs.Should().HaveCount(2);
 
         PivotDocumentDto ba = docs.Single(d => d.SourceReference.StartsWith("encheresv6:ba:", StringComparison.Ordinal));
-        ba.BuyerFees.Should().ContainSingle();
-        ba.BuyerFees![0].NetAmount.Should().Be(401.28m, "commission acheteur TTC");
+
+        // BUG-17 volet b : la commission acheteur est portée en LIGNE au rôle BuyerFee (TTC), plus dans BuyerFees.
+        var honoraire = ba.Lines.Should().ContainSingle(l => l.Role == PivotLineRole.BuyerFee).Subject;
+        honoraire.NetAmount.Should().Be(401.28m, "commission acheteur TTC");
+        ba.BuyerFees.Should().BeNull("l'honoraire acheteur n'est plus dans le side-channel BuyerFees (BUG-17 volet b)");
 
         PivotDocumentDto bv = docs.Single(d => d.SourceReference.StartsWith("encheresv6:bv:", StringComparison.Ordinal));
         bv.SellerFees.Should().ContainSingle();

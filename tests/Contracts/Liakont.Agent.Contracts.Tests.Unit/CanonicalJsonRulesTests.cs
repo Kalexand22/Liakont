@@ -584,7 +584,9 @@ public sealed class CanonicalJsonRulesTests
             taxes: new[] { lineTax },
             sourceLineRef: "LIG-001",
             sourceData: "{\"raw\":\"line\"}",
-            unitCode: "C62");
+            unitCode: "C62",
+            role: PivotLineRole.BuyerFee,
+            sourceTaxAmount: 9.00m);
 
         var creditNoteRef = new PivotDocumentRefDto(
             number: "FA-2026-001",
