@@ -268,6 +268,14 @@ public sealed class PipelineSendHarness : IAsyncLifetime
         await job.ExecuteAsync(new Stratum.Common.Abstractions.Jobs.TenantJobContext(TenantSlug, scope.ServiceProvider));
     }
 
+    /// <summary>Exécute le job e-reporting B2C des documents ORDINAIRES taxables (TLB1/TPS1, #7) pour le tenant.</summary>
+    public async Task RunB2cPlainAsync()
+    {
+        await using var scope = _provider!.CreateAsyncScope();
+        var job = new Liakont.Modules.Pipeline.Infrastructure.B2cReporting.B2cPlainTaxableReportingTenantJob(PipelineRunTrigger.Scheduled);
+        await job.ExecuteAsync(new Stratum.Common.Abstractions.Jobs.TenantJobContext(TenantSlug, scope.ServiceProvider));
+    }
+
     /// <summary>
     /// Entrées du journal d'émission B2C marge (<c>pipeline.b2c_margin_emissions</c>) pour un document, dans
     /// l'ordre d'insertion (seq). Prouve l'attempt-once (Pending écrit avant le POST) et l'issue (Issued + id PA).

@@ -33,6 +33,12 @@ internal static class CheckIntegrationFixtures
         // un appelant passe `null` pour exercer la suspension « nature d'opération non paramétrée » du CHECK
         // (la plateforme remplit la nature à l'ingestion depuis le paramétrage fiscal — absente = bloqué,
         // jamais devinée, CLAUDE.md n°2/n°3 ; cf. DocumentCheckEvaluator.OperationCategoryMissingReason).
+        //
+        // Acheteur par défaut B2B (à SIREN) : ce pivot « facture ordinaire » exerce la VOIE DOCUMENT (e-invoicing),
+        // qui est par construction du B2B (acheteur identifié — cf. [[b2c-egale-ereporting-partout]]). Un acheteur
+        // SANS SIREN serait un B2C → e-reporting (différé de la voie document), ce qui n'est PAS ce que testent les
+        // scénarios de transmission par-document. Un test B2C explicite passe son propre `customer` anonyme ou
+        // utilise une fixture B2C dédiée (BuildPlainTaxableInvoice / BuildB2cReportingDeclaration).
         return new PivotDocumentDto(
             sourceDocumentKind: "F",
             number: "F-2026-" + ((uint)sourceReference.GetHashCode(StringComparison.Ordinal)).ToString("D10", CultureInfo.InvariantCulture),
@@ -41,9 +47,17 @@ internal static class CheckIntegrationFixtures
             supplier: new PivotPartyDto("Étude Fictïve SVV"),
             totals: new PivotTotalsDto(120.00m, 24.00m, 144.00m, 144.00m),
             operationCategory: operationCategory,
-            customer: customer,
+            customer: customer ?? BusinessBuyer(),
             lines: new[] { line });
     }
+
+    /// <summary>
+    /// Acheteur PROFESSIONNEL identifié (SIREN) — un B2B émettable par la voie document (e-invoicing). Sert de
+    /// défaut aux fixtures de transmission par-document (un B2C anonyme serait, lui, différé vers l'e-reporting).
+    /// SIREN fictif Luhn-valide (CLAUDE.md n°7).
+    /// </summary>
+    public static PivotPartyDto BusinessBuyer() =>
+        new("Acheteur Pro SARL", siren: "945678902", address: new PivotAddressDto(city: "Nantes", countryCode: "FR"));
 
     /// <summary>
     /// Acheteur présentant un indice « professionnel » (champ société + forme juridique « SARL ») — déclenche
@@ -76,6 +90,7 @@ internal static class CheckIntegrationFixtures
             supplier: new PivotPartyDto("Armement Mandant Fictif", siren: mandantSiren, vatNumber: mandantVatNumber),
             totals: new PivotTotalsDto(120.00m, 24.00m, 144.00m, 144.00m),
             operationCategory: OperationCategory.LivraisonBiens,
+            customer: BusinessBuyer(),
             lines: new[] { line },
             invoicer: new PivotPartyDto("Étude Mandataire Fictïve", siren: "404833048"),
             isSelfBilled: true);
@@ -107,6 +122,7 @@ internal static class CheckIntegrationFixtures
             supplier: new PivotPartyDto("Étude Fictïve SVV"),
             totals: new PivotTotalsDto(120.00m, 24.00m, 144.00m, 144.00m),
             operationCategory: OperationCategory.LivraisonBiens,
+            customer: BusinessBuyer(),
             lines: new[] { line },
             creditNoteRefs: originRefs);
     }
@@ -251,6 +267,38 @@ internal static class CheckIntegrationFixtures
             operationCategory: OperationCategory.LivraisonBiens,
             lines: new[] { adjudication },
             buyerFees: new[] { new PivotBuyerFeeDto("lot-7", 60.00m, regimeCode, "ba#1") });
+    }
+
+    /// <summary>
+    /// Construit un document B2C ORDINAIRE taxable (F03 §2.9, #7) — facture client ou note d'honoraires — tel que
+    /// la SOURCE le produit : lignes taxables (« NORMAL » → S 20 %, TVA distincte), acheteur particulier (B2C),
+    /// AUCUN frais d'enchères (discriminant « document ordinaire »). La <paramref name="operationCategory"/> porte
+    /// la NATURE de l'opération, d'où le job dérive la TT-81 : <c>LivraisonBiens</c> → TLB1 (facture client),
+    /// <c>PrestationServices</c> → TPS1 (note d'honoraires), <c>Mixte</c> → fail-closed. Valeurs fictives (CLAUDE.md n°7).
+    /// </summary>
+    public static PivotDocumentDto BuildPlainTaxableInvoice(
+        string sourceReference,
+        OperationCategory operationCategory,
+        string regimeCode = "NORMAL")
+    {
+        var line = new PivotLineDto(
+            description: "Ligne ordinaire taxable (S 20 %)",
+            netAmount: 1000.00m,
+            quantity: 1m,
+            unitPriceNet: 1000.00m,
+            sourceRegimeCodes: new[] { regimeCode },
+            taxes: new[] { new PivotLineTaxDto(200.00m, 20m) },
+            sourceLineRef: "ligne#1");
+
+        return new PivotDocumentDto(
+            sourceDocumentKind: "F",
+            number: "FC-2026-" + ((uint)sourceReference.GetHashCode(StringComparison.Ordinal)).ToString("D10", CultureInfo.InvariantCulture),
+            issueDate: new DateTime(2026, 1, 20),
+            sourceReference: sourceReference,
+            supplier: new PivotPartyDto("Étude Fictïve SVV"),
+            totals: new PivotTotalsDto(1000.00m, 200.00m, 1200.00m, 1200.00m),
+            operationCategory: operationCategory,
+            lines: new[] { line });
     }
 
     public static IntegrationEvent<DocumentReceivedV1> Event(Guid documentId, string sourceReference, string payloadHash)

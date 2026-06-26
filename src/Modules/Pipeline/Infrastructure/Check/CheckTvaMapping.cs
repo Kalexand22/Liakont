@@ -126,16 +126,19 @@ internal static class CheckTvaMapping
         // heuristique (F03 §3 : jamais déduit du code source). Posé sur l'enrichi (jamais porté par l'agent ni
         // persisté — pattern émetteur/TVA) : SEND (ReadStagedPivotAsync) et les jobs agrégés (B4) obtiennent le
         // pivot marqué via CETTE évaluation, et B2cAggregatedDeclaration.Matches l'aiguille hors voie document.
-        // TROIS cas symétriques (même flux 10.3, même canal acheteur particulier) : MARGE (B2cMarginMarking,
-        // TMA1, TotalTax == 0), PRIX TOTAL TAXABLE (B2cTaxableMarking, TLB1, TotalTax > 0, F03 §2.7) et EXPORT
-        // HORS UE détaxé (B2cExportMarking, TLB1 unitaire, TotalTax == 0 + catégorie G, art. 262 I, F03 §2.8).
-        // Marge et export partagent TotalTax == 0 : ils se distinguent par la catégorie de ligne (E vs G), d'où
-        // un marquage dédié pour chacun. Critère sourcé : voir chaque marquage. Idempotent (re-CHECK redérive le
-        // même résultat). Fail-closed : un document ni marge ni taxable ni export n'est jamais marqué.
+        // QUATRE cas symétriques (même flux 10.3, même canal acheteur particulier) : MARGE (B2cMarginMarking,
+        // TMA1, TotalTax == 0), PRIX TOTAL TAXABLE enchères (B2cTaxableMarking, TLB1, TotalTax > 0 + frais, F03 §2.7),
+        // EXPORT HORS UE détaxé (B2cExportMarking, TLB1/TNT1 unitaire, TotalTax == 0 + catégorie G/K + frais, F03 §2.8)
+        // et DOCUMENT ORDINAIRE taxable SANS frais (B2cPlainTaxableMarking, TLB1/TPS1 selon OperationCategory, F03 §2.9 —
+        // facture client / note d'honoraires). Les TROIS premiers EXIGENT des frais (signature enchères) ; le 4e les
+        // EXCLUT (partition nette). Marge et export partagent TotalTax == 0 : ils se distinguent par la catégorie de
+        // ligne (E vs G), d'où un marquage dédié pour chacun. Critère sourcé : voir chaque marquage. Idempotent
+        // (re-CHECK redérive le même résultat). Fail-closed : un document non reconnu n'est jamais marqué.
         if (!enriched.IsB2cReportingDeclaration
             && (B2cMarginMarking.IsMarginDeclaration(enriched)
                 || B2cTaxableMarking.IsTaxableB2cDeclaration(enriched)
-                || B2cExportMarking.IsExportDeclaration(enriched)))
+                || B2cExportMarking.IsExportDeclaration(enriched)
+                || B2cPlainTaxableMarking.IsPlainTaxableB2cDeclaration(enriched)))
         {
             enriched = Rebuild(pivot, enrichedLines, isB2cReportingDeclaration: true);
         }

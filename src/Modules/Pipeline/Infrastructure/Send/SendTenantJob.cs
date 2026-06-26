@@ -509,27 +509,26 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
-        // Garde D1 (B4) : une déclaration e-reporting B2C AGRÉGÉE (frais acheteur/vendeur) — qu'elle soit au
-        // régime de la MARGE (297 E, TMA1) ou au RÉGIME DU PRIX TOTAL taxable (TLB1, F03 §2.7) — est transmise
-        // EXCLUSIVEMENT par un job agrégé B2C (b2c_transactions, jour×devise×taux) — jamais par cette voie
-        // document (SendDocumentAsync la rejetterait : pas de destinataire identifié). On la DIFFÈRE ici (reste
-        // ReadyToSend ; jamais émise par-document, jamais Sending). Placée AVANT la garde de capacité 10.3 : elle
-        // est déférée quelle que soit la capacité (la capacité est gardée DANS le job agrégé). La discrimination
-        // marge ↔ taxable (quel job la ramasse) se fait côté job, par TotalTax (B2cMarginDeclaration / B2cTaxableDeclaration).
-        if (B2cAggregatedDeclaration.Matches(staged.Pivot!))
+        // Garde D1 (B4) : TOUTE déclaration e-reporting B2C (flux 10.3, marqueur IsB2cReportingDeclaration) est
+        // transmise EXCLUSIVEMENT par un job B2C dédié (b2c_transactions) — JAMAIS par cette voie document
+        // (SendDocumentAsync la rejetterait : pas de destinataire identifié). On la DIFFÈRE ici (reste ReadyToSend ;
+        // jamais émise par-document, jamais Sending). Invariant FUTURE-PROOF : on défère sur le MARQUEUR lui-même,
+        // pas sur une forme particulière — qu'elle porte des frais (bordereau d'enchères AGRÉGÉ : marge/TMA1, prix
+        // total/TLB1, export/TLB1-TNT1 unitaire) ou AUCUN frais (document ORDINAIRE : facture client TLB1 / note
+        // d'honoraires TPS1, F03 §2.9) ; tout marquage 10.3 futur est ainsi couvert sans risque de fuite vers la
+        // voie document. Placée AVANT la garde de capacité 10.3 : déférée quelle que soit la capacité (gardée DANS
+        // le job). QUEL job la ramasse se décide en aval (B2cMarginDeclaration / B2cTaxableDeclaration /
+        // B2cExportDeclaration / B2cPlainTaxableDeclaration), jamais ici.
+        if (staged.Pivot!.IsB2cReportingDeclaration)
         {
             LogB2cAggregatedDeclarationDeferred(logger, documentId);
             return SendOutcome.Skipped;
         }
 
-        // Garde-fou déclaration 10.3 : une déclaration e-reporting B2C vers une PA sans capacité B2C reste
-        // ReadyToSend (jamais transmise sans la capacité — résultat typé journalisé, CLAUDE.md n°3). CIBLÉE
-        // sur le marqueur 10.3 : une facture B2C / un avoir ordinaire (marqueur faux) n'est jamais touché.
-        if (IsUnsendableB2cReportingDeclaration(staged.Pivot!, paClient))
-        {
-            LogB2cReportingDeclarationHeld(logger, paClient, documentId);
-            return SendOutcome.Skipped;
-        }
+        // NB : la garde de capacité B2C (IsUnsendableB2cReportingDeclaration) n'est PLUS nécessaire ICI — la garde
+        // D1 ci-dessus défère TOUTE déclaration 10.3 hors voie document (la capacité est gardée DANS le job
+        // d'e-reporting). Elle reste appliquée sur les chemins de REPRISE (Sending / TechnicalError), où un document
+        // a pu être transmis avant un retrait de capacité.
 
         // Garde autofacturation 389 (MND07) : self-billed sans capacité PA ou sans BT-1 fiscal alloué (MND05)
         // → maintenu ReadyToSend (jamais émis faux ni dégradé en facture standard — CLAUDE.md n°3/8).
@@ -1285,7 +1284,7 @@ public sealed partial class SendTenantJob : ITenantJob
     private static partial void LogAntiDuplicateJournalFinalized(ILogger logger, Guid documentId);
 
     [LoggerMessage(EventId = 7224, Level = LogLevel.Information,
-        Message = "SEND : déclaration e-reporting B2C agrégée {DocumentId} (marge ou prix total) non transmise par la voie document — différée vers le job agrégé B2C (b2c_transactions, agrégation jour×devise×taux). Comportement nominal (D1, B4).")]
+        Message = "SEND : déclaration e-reporting B2C {DocumentId} (flux 10.3 — bordereau d'enchères agrégé OU document ordinaire facture/note) non transmise par la voie document — différée vers son job B2C dédié (b2c_transactions). Comportement nominal (D1, B4).")]
     private static partial void LogB2cAggregatedDeclarationDeferred(ILogger logger, Guid documentId);
 
     /// <summary>Issue de la résolution self-billed (MND07) : émettre (avec/sans projection) ou maintenir (hold).</summary>

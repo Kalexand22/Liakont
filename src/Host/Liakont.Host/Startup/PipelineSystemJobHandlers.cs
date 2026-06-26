@@ -57,6 +57,10 @@ internal static class PipelineSystemJobHandlers
         services.AddJobHandler<AggregateB2cExportAllTrigger, AggregateB2cExportAllFanOutHandler>(
             "E-reporting B2C export hors UE (tous les tenants)");
 
+        // E-REPORTING B2C DOCUMENT ORDINAIRE (#7, flux 10.3, F03 §2.9) : agrégation N→1 jour×devise×taux par catégorie + transmission PA (facture/TLB1, note hono/TPS1, SE).
+        services.AddJobHandler<AggregateB2cPlainTaxableAllTrigger, AggregateB2cPlainTaxableAllFanOutHandler>(
+            "E-reporting B2C document ordinaire (tous les tenants)");
+
         return services;
     }
 }

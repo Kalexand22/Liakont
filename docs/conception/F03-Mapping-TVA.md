@@ -509,6 +509,47 @@ comme §2.4/§2.5/§2.7.
   Mapping-TVA.md`) ; **VPAuto / open-auction** (groupes TVA `ASS/NASS/INTRA/EXP/EXO`, mentions 297-A/262-1/262 Ter-1/
   275, mécanisme de caution `CountryExit`) — **taxonomie cible**.
 
+### 2.9 Document B2C ORDINAIRE taxable (hors spine enchères) → `TLB1` (bien) / `TPS1` (service) — ✅ VALIDÉ PO (2026-06-26)
+
+> **Périmètre.** §2.4–§2.8 traitent le **bordereau d'enchères** (spine BA/BV, frais acheteur/vendeur, opacité 256 V).
+> Cette section traite les documents que l'OVV émet **DIRECTEMENT**, hors mécanisme d'enchères opaque — une vente ou une
+> prestation facturée en propre, **sans frais d'enchères** : **factures clients** (`entete_facture_clien`) et **notes
+> d'honoraires** (`entete_notes_hono`). Ce sont des factures EN 16931 ordinaires (lignes + TVA distincte), PAS des
+> agrégats de marge.
+
+**Nature fiscale (validée Karl, opérateur enchères — SOURCE fiscale) :**
+- **Factures clients** : **régime STANDARD, prix total taxable S/20 %, JAMAIS de marge.** Ventilation TVA propre en
+  source (`montant_ht`/`montant_tva`/`montant_ttc`).
+- **Notes d'honoraires** : **honoraires d'INVENTAIRE** (estimation de valeur avant mise en vente potentielle — souvent
+  judiciaire, parfois volontaire). **Prestation de services AUTONOME** de l'OVV (≠ commission vendeur du BV, ≠ 389,
+  ≠ autofacturation). L'OVV est l'émetteur, le client le destinataire.
+
+**Aiguillage = STATUT DU TIERS** (jamais la nature du bien, invariant produit) : client à **SIREN → facture B2B**
+(e-invoicing Factur-X, voie document) ; **particulier → e-reporting B2C** flux 10.3.
+
+**Catégorie TT-81 = NATURE DE L'OPÉRATION** (G1.68, Annexe 7) :
+
+| Nature (`OperationCategory`) | TT-81 | Base | Source |
+|---|---|---|---|
+| **Livraison de biens** (`LivraisonBiens`) | **`TLB1`** | prix total HT par taux (Σ lignes), TVA distincte SOURCÉE | G1.68 « livraison de biens soumise » |
+| **Prestation de services** (`PrestationServices`) | **`TPS1`** | prix total HT par taux (Σ lignes), TVA distincte SOURCÉE | G1.68 « prestation de services soumise » |
+| **Mixte** (`Mixte`) ou inconnu (`null`) | — | — | **fail-closed tracé** (le pivot ne porte pas le bien/service PAR LIGNE → ventilation TT-81 non déterminable → bloqué, jamais deviné — n°2) |
+
+Rôle déclarant **`SE`** (G7.52 — l'OVV reporte ses propres ventes/prestations). Base = **prix total HT** par taux
+(somme des lignes taxables), TVA distincte **reprise telle quelle de la source** (ADR-0015, aucun recalcul — contrairement
+à la marge §2.5 il n'y a PAS de « ramené HT »). Agrégé **jour×devise×taux** comme le domestique (§2.7), un POST par TT-81
+(un run mêlant biens/services émet un `TLB1` ET un `TPS1`).
+
+**Discriminant d'aiguillage = ABSENCE de frais.** Le marquage plateforme `B2cPlainTaxableMarking` exige : acheteur non-pro
+(B2C) + `TotalTax>0` + toutes lignes mappées `S`/`AA`/`AAA` (TABLE VALIDÉE, §2.1/§3) + **aucun frais acheteur/vendeur**
+(≥1 ligne). Les frais sont le discriminant ENCHÈRES (§2.7) : leur ABSENCE distingue la facture/note ordinaire du
+bordereau. Une ligne exonérée/hors-champ mêlée → NON marquée (fail-closed). La catégorie/le taux viennent de la **table
+validée** (plateforme), jamais devinés. Figeage PROD subordonné à la validation de la table par le tenant (comme §2.4–§2.8).
+
+**Sources additionnelles :** **G1.68** (`TLB1` biens / `TPS1` services) ; classification factures/notes = **Karl** (opérateur
+enchères), cf. [[modele-reporting-encheres-opaque]] ; `OperationCategory` (`Liakont.Agent.Contracts.Pivot`) déjà fiable
+(bloquant au CHECK, déjà discriminant bien/service pour le flux 10.4 paiement).
+
 ## 3. La subtilité métier (cœur du risque — cf. Analyse-Donnees §5)
 
 **On ne peut pas déduire mécaniquement le bon VATEX du seul code régime du logiciel.** Trois situations produisent une adjudication « sans TVA apparente » pour des raisons juridiques **différentes** :

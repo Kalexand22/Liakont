@@ -214,11 +214,11 @@ public sealed class SendTenantJobTests
     }
 
     [Fact]
-    public async Task B2cReportingDeclaration_To_Pa_With_Capability_Is_Routed_And_Issued()
+    public async Task B2cReportingDeclaration_Is_Deferred_From_The_Document_Path_Even_With_Capability()
     {
-        // B2C01 — chemin NOMINAL POSITIF : une déclaration 10.3 vers une PA qui DÉCLARE SupportsB2cReporting est
-        // routée par la voie document unique (SendDocumentAsync) et émise. Preuve que la garde est CIBLÉE (ne
-        // bloque pas quand la capacité est présente) et que le marqueur n'empêche pas le routage.
+        // Garde D1 (généralisée à IsB2cReportingDeclaration) : une déclaration 10.3 est DIFFÉRÉE de la voie document
+        // (e-reportée par son JOB B2C, jamais e-invoicée par-document) — y compris quand la PA DÉCLARE
+        // SupportsB2cReporting. La voie document est l'e-invoicing B2B ; le B2C = e-reporting (cf. [[b2c-egale-ereporting-partout]]).
         var id = Guid.NewGuid();
         var document = SendTestData.Document(id, "ReadyToSend");
         var queries = new SendTestDoubles.ConfigurableDocumentQueries();
@@ -235,8 +235,10 @@ public sealed class SendTenantJobTests
 
         await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
 
-        lifecycle.Issued.Should().ContainSingle().Which.Should().Be(id, "une déclaration 10.3 vers une PA capable est routée et émise.");
-        fake.IssuedDocumentNumbers.Should().Contain(document.DocumentNumber);
+        lifecycle.BeganSending.Should().BeEmpty("une déclaration 10.3 n'est jamais transmise par la voie document (différée D1).");
+        lifecycle.Issued.Should().BeEmpty("une déclaration 10.3 est e-reportée par son job, jamais émise par-document.");
+        fake.IssuedDocumentNumbers.Should().BeEmpty();
+        fake.Calls.Should().NotContain(c => c.Method == nameof(IPaClient.SendDocumentAsync), "la voie document (e-invoicing) ne transmet jamais une déclaration B2C 10.3, capacité présente ou non.");
     }
 
     [Fact]

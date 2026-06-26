@@ -30,4 +30,7 @@ public enum PipelineRunType
 
     /// <summary>E-reporting B2C d'export hors UE détaxé (flux 10.3, enchères, TLB1 UNITAIRE, art. 262 I) : une transaction par opération + transmission PA (BUG-11).</summary>
     B2cExportReporting = 7,
+
+    /// <summary>E-reporting B2C d'un document ORDINAIRE taxable (flux 10.3, hors enchères — facture client/TLB1, note d'honoraires/TPS1, F03 §2.9) : agrégation N→1 jour×devise×taux par catégorie + transmission PA (#7).</summary>
+    B2cPlainTaxableAggregate = 8,
 }
