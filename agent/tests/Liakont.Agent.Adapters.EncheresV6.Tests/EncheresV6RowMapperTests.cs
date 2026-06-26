@@ -309,7 +309,7 @@ public class EncheresV6RowMapperTests
         doc.Lines[0].Taxes[0].TaxAmount.Should().Be(20.00m, "TVA ligne = HT × taux_tva, comme la source la calcule (transport, pas une règle)");
         doc.Lines[0].Taxes[0].Rate.Should().BeNull("le taux validé est posé par la plateforme (R3)");
         doc.Lines[0].Taxes[0].CategoryCode.Should().BeNull("le mapping TVA est plateforme");
-        doc.Lines[0].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("1", "code_tva transporté brut en clé de régime");
+        doc.Lines[0].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("20", "clé de régime = taux effectif (taux_tva), pas code_tva (non fiable)");
         doc.Lines[1].NetAmount.Should().Be(144.00m);
         doc.Lines[1].Taxes[0].TaxAmount.Should().Be(28.80m);
 
@@ -332,7 +332,22 @@ public class EncheresV6RowMapperTests
 
         doc.Lines[1].NetAmount.Should().Be(200.00m);
         doc.Lines[1].Taxes[0].TaxAmount.Should().Be(11.00m, "5,5 % de 200");
-        doc.Lines[1].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("2");
+        doc.Lines[1].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("5.5", "le taux 5,5 % donne le jeton « 5.5 » sans erreur d'arrondi (formaté depuis taux_tva, pas recouvré de la TVA arrondie)");
+    }
+
+    [Fact]
+    public void MapFactureClientDocument_keys_on_rate_not_unreliable_code_tva()
+    {
+        // Cas réel (facture 00100007) : code_tva=0 MAIS taux 20 % et TVA 28,80 → la clé doit suivre le TAUX (« 20 »),
+        // jamais code_tva (« 0 », qui mapperait exonéré et bloquerait à tort une vente taxable à 20 %).
+        EncheresV6FactureClient f = StandardFacture();
+        f.Lignes[0].CodeTva = 0; // code_tva « ment »
+        f.Lignes[0].TauxTva = 20.0;
+
+        PivotDocumentDto doc = EncheresV6RowMapper.MapFactureClientDocument(f, null);
+
+        doc.Lines[0].Taxes[0].TaxAmount.Should().Be(20.00m, "20 % de 100, piloté par le taux source");
+        doc.Lines[0].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("20", "la clé suit le taux réel, pas le code_tva non fiable");
     }
 
     [Fact]

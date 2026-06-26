@@ -11,8 +11,9 @@ using Newtonsoft.Json;
 /// <para>
 /// Il n'y a PAS de <c>montant_tva</c> par ligne : la TVA de la ligne se calcule comme la source elle-même le
 /// fait (HT × <c>taux_tva</c>), arithmétique de transport au centime half-up par le mapper (CLAUDE.md n°1).
-/// Le <c>code_tva</c> (smallint) est transporté BRUT en clé de régime — la plateforme le mappe vers une
-/// catégorie/taux par la table validée (jamais interprété ici, R3).
+/// La clé de régime est le <c>taux_tva</c> (formaté brut), PAS le <c>code_tva</c> : ce dernier est NON FIABLE
+/// dans la donnée réelle (il diverge du taux appliqué — p. ex. <c>code_tva=0</c> avec un taux 20 %) ; il est
+/// transporté en SourceData pour l'audit. La plateforme mappe le taux vers une catégorie par la table validée (R3).
 /// </para>
 /// </summary>
 internal sealed class EncheresV6FactureClientLigne

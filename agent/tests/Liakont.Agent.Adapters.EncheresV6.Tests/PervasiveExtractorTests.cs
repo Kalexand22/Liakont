@@ -138,7 +138,7 @@ public class PervasiveExtractorTests
         fc.OperationCategory.Should().BeNull("la nature est plateforme (profil tenant)");
         fc.Lines.Should().ContainSingle().Which.NetAmount.Should().Be(144.00m);
         fc.Lines[0].Taxes[0].TaxAmount.Should().Be(28.80m);
-        fc.Lines[0].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("1");
+        fc.Lines[0].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("20", "clé = taux effectif (taux_tva)");
 
         connection.ExecutedCommandTexts.Should().Contain(
             sql => sql.Contains(EncheresV6Schema.TableEnteteFactureClient) && sql.Contains(EncheresV6Schema.ColDossierCpt),

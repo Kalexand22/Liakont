@@ -86,7 +86,7 @@ public class EncheresV6FixtureExtractorTests
         fc.Lines.Should().ContainSingle("le règlement (type 2) est écarté");
         fc.Lines[0].NetAmount.Should().Be(144.00m);
         fc.Lines[0].Taxes[0].TaxAmount.Should().Be(28.80m, "TVA ligne = HT × taux_tva source");
-        fc.Lines[0].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("1");
+        fc.Lines[0].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("20", "clé = taux effectif (taux_tva)");
         fc.Totals.SourceTotalGross.Should().Be(172.80m);
     }
 

@@ -239,8 +239,10 @@ internal static class EncheresV6RowMapper
     /// <c>SellerFees</c> — discriminant « document ordinaire » de <c>B2cPlainTaxableMarking</c>). Lines =
     /// lignes FACTURÉES (type 1, hors lignes de pur commentaire) au PRIX TOTAL : <c>netAmount</c> = HT ligne
     /// (<c>qte × prix_unitaire_ht</c>), TVA ligne = HT × <c>taux_tva</c> (la source elle-même calcule ainsi —
-    /// transport, pas une règle inventée), <c>code_tva</c> brut en clé de régime (la plateforme mappe la
-    /// catégorie/taux par la table validée). La NATURE d'opération (TLB1 bien / TPS1 service) est laissée à la
+    /// transport, pas une règle inventée). Clé de régime = le TAUX (<c>taux_tva</c>) formaté brut (PAS
+    /// <c>code_tva</c>, NON fiable dans la donnée — il diverge du taux appliqué ; conservé en SourceData) ; même
+    /// clé de taux UNIFIÉE que les notes — la plateforme mappe la catégorie/taux par la table validée. La NATURE
+    /// d'opération (TLB1 bien / TPS1 service) est laissée à la
     /// PLATEFORME (operationCategory <c>null</c>, remplie au read-time depuis le profil tenant — parité BA,
     /// CLAUDE.md n°6). Pour un avoir, <paramref name="creditNoteOrigin"/> DOIT être l'origine résolue.
     /// </summary>
@@ -275,18 +277,21 @@ internal static class EncheresV6RowMapper
 
             // TVA de la ligne reconstruite comme la source la calcule (HT × taux_tva) : transport d'une
             // arithmétique source (taux_tva est un champ source), JAMAIS une règle fiscale inventée (CLAUDE.md
-            // n°6). La plateforme reprend cette TVA telle quelle (ADR-0015) et mappe la catégorie/taux par
-            // code_tva (table validée). Arrondi half-up au centime (CLAUDE.md n°1).
+            // n°6). La plateforme reprend cette TVA telle quelle (ADR-0015). Arrondi half-up au centime (n°1).
             decimal lineTax = PivotRounding.RoundAmount(lineNet * (decimal)ligne.TauxTva / 100m);
             totalNet += lineNet;
             totalTax += lineTax;
 
+            // Clé de régime = TAUX effectif de la ligne (taux_tva source, formaté brut), PAS code_tva : code_tva
+            // est NON FIABLE dans la donnée réelle (il diverge du taux appliqué — p. ex. code_tva=0 avec taux 20 %,
+            // ou code_tva=1 avec taux 0 %). Le taux PILOTE la TVA, c'est donc lui la vérité — même clé unifiée que
+            // les notes. code_tva reste en SourceData (audit). La plateforme tranche la catégorie (table validée, R3).
             lines.Add(new PivotLineDto(
                 description: LineDescription(ligne.Designation, "Ligne", ligne.NoLigne),
                 netAmount: lineNet,
                 quantity: ligne.Qte,
                 unitPriceNet: null,
-                sourceRegimeCodes: RegimeCodes(ligne.CodeTva.ToString(CultureInfo.InvariantCulture)),
+                sourceRegimeCodes: RegimeCodes(FormatRateToken((decimal)ligne.TauxTva)),
                 taxes: new[] { new PivotLineTaxDto(taxAmount: lineTax, rate: null, categoryCode: null, vatexCode: null) },
                 sourceLineRef: ligne.NoLigne,
                 sourceData: BuildFactureLineSourceData(ligne)));
@@ -477,25 +482,28 @@ internal static class EncheresV6RowMapper
 
     /// <summary>
     /// Recouvre le TAUX EFFECTIF d'une ligne de note (<c>TVA / HT × 100</c>) comme clé de régime BRUTE — la note
-    /// d'honoraires ne porte AUCUN code de régime TVA en source, le taux est donc reconstruit depuis deux champs
-    /// source (arithmétique de TRANSPORT, jamais une catégorie fiscale : la plateforme tranche la catégorie via
-    /// la table validée, arbitrage PO). Base nulle → « 0 » (taux non recouvrable sans base : ligne exonérée /
-    /// hors champ, qui rend une note à taux MIXTES fail-closed côté plateforme). Arrondi à 2 décimales (couvre
-    /// 20 / 5.5 / 2.1 / 0), formaté invariant sans zéro superflu (« 20 », « 5.5 », « 0 »).
+    /// d'honoraires ne porte AUCUN code de régime TVA NI taux explicite en source, le taux est donc reconstruit
+    /// depuis deux champs source (arithmétique de TRANSPORT, jamais une catégorie fiscale : la plateforme tranche
+    /// la catégorie via la table validée, arbitrage PO). Base nulle → « 0 » (taux non recouvrable sans base :
+    /// ligne exonérée / hors champ, qui rend une note à taux MIXTES fail-closed côté plateforme).
     /// </summary>
     /// <param name="lineNet">HT de la ligne (arrondi au centime).</param>
     /// <param name="lineTax">TVA distincte de la ligne (arrondie au centime).</param>
     /// <returns>Le jeton de taux effectif (clé de régime brute).</returns>
-    internal static string RecoverRateToken(decimal lineNet, decimal lineTax)
-    {
-        if (lineNet == 0m)
-        {
-            return "0";
-        }
+    internal static string RecoverRateToken(decimal lineNet, decimal lineTax) =>
+        lineNet == 0m ? "0" : FormatRateToken(lineTax / lineNet * 100m);
 
-        decimal ratePct = Math.Round(lineTax / lineNet * 100m, 2, MidpointRounding.AwayFromZero);
-        return ratePct.ToString("0.##", CultureInfo.InvariantCulture);
-    }
+    /// <summary>
+    /// Formate un TAUX de TVA (en %) en clé de régime BRUTE invariante (« 20 », « 5.5 », « 2.1 », « 0 ») — clé de
+    /// régime UNIFIÉE factures + notes. Arrondi à 2 décimales (couvre les taux français 20 / 10 / 5.5 / 2.1 / 0)
+    /// puis format sans zéro superflu. Transport d'un taux source (les factures portent <c>taux_tva</c> explicite ;
+    /// les notes le recouvrent — voir <see cref="RecoverRateToken"/>), JAMAIS une catégorie fiscale : la plateforme
+    /// tranche la catégorie via la table validée (R3, arbitrage PO).
+    /// </summary>
+    /// <param name="ratePercent">Le taux de TVA en pourcentage (p. ex. 20, 5.5, 0).</param>
+    /// <returns>Le jeton de taux (clé de régime brute).</returns>
+    internal static string FormatRateToken(decimal ratePercent) =>
+        Math.Round(ratePercent, 2, MidpointRounding.AwayFromZero).ToString("0.##", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Conversion OBLIGATOIRE flottant legacy → <c>decimal</c> au centime, arrondi commercial (half-up) —
