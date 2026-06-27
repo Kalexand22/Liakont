@@ -10,9 +10,11 @@ using FluentAssertions;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Localization;
+using Microsoft.JSInterop;
 using Stratum.Common.Abstractions.Grid;
 using Stratum.Common.Abstractions.Security;
 using Stratum.Common.UI;
+using Stratum.Common.UI.Time;
 using Stratum.Modules.Job.Contracts;
 using Stratum.Modules.Job.Contracts.DTOs;
 using Stratum.Modules.Job.Contracts.Queries;
@@ -52,9 +54,28 @@ public sealed class AdminJobSchedulesTests : BunitContext
         cut.Markup.Should().Contain("Évaluation de la supervision");
         cut.Markup.Should().NotContain(SupervisionKey, "la colonne affiche le libellé FR, jamais le FullName .NET");
 
-        // RB6 : NextRunAt = PRÉVISION serveur (cron interprété en UTC) → UTC EXPLICITE (jamais l'heure SERVEUR
-        // muette de l'ancien ToLocalTime()). Les ÉVÉNEMENTS (LastRunAt) sont, eux, au fuseau du navigateur.
+        // BUG-25 : NextRunAt passe par LiakontDate (fuseau navigateur), comme LastRunAt. Ici le fuseau n'est pas
+        // résolu (pas de sonde JS en bUnit) → repli UTC EXPLICITE (jamais une heure SERVEUR muette). Le rendu au
+        // fuseau navigateur résolu est prouvé par Next_And_Last_Run_Render_In_The_Same_Browser_Timezone.
         cut.Markup.Should().Contain("11/06/2026 08:15 UTC");
+    }
+
+    [Fact]
+    public void Next_And_Last_Run_Render_In_The_Same_Browser_Timezone()
+    {
+        // BUG-25 : « Prochaine » et « Dernière exécution » au MÊME fuseau (navigateur) — sinon la prochaine (UTC)
+        // paraissait ANTÉRIEURE à la dernière (locale) pour un job qui vient de tourner. Fuseau navigateur résolu
+        // (Europe/Paris, UTC+2 en juin) : les DEUX instants UTC sont convertis en heure locale, aucun suffixe UTC.
+        var paris = TimeZoneInfo.FindSystemTimeZoneById(OperatingSystem.IsWindows() ? "Romance Standard Time" : "Europe/Paris");
+        Services.AddScoped<IBrowserTimeZone>(_ => new ResolvedBrowserTimeZone(paris));
+        Services.AddScoped<IScheduleQueries>(_ => new FakeScheduleQueries(ScheduleWithLastRun(SupervisionKey)));
+
+        var cut = Render<AdminJobSchedules>();
+
+        // 08:15 UTC → 10:15 Paris (prochaine) ; 07:50 UTC → 09:50 Paris (dernière) : tous deux LOCAUX.
+        cut.Markup.Should().Contain("11/06/2026 10:15").And.Contain("11/06/2026 09:50");
+        cut.Markup.Should().NotContain("08:15 UTC", "la prochaine exécution n'est plus rendue en UTC mais au fuseau navigateur")
+            .And.NotContain("07:50 UTC", "la dernière exécution reste au fuseau navigateur");
     }
 
     [Fact]
@@ -104,6 +125,14 @@ public sealed class AdminJobSchedulesTests : BunitContext
         UpdatedAt = new DateTimeOffset(2026, 6, 11, 8, 0, 0, TimeSpan.Zero),
     };
 
+    // BUG-25 : planification avec une DERNIÈRE exécution (07:50 UTC) ET une PROCHAINE (08:15 UTC) pour comparer
+    // les deux colonnes au même fuseau navigateur.
+    private static ScheduleDto ScheduleWithLastRun(string jobType)
+    {
+        var schedule = Schedule(jobType);
+        return schedule with { LastRunAt = new DateTimeOffset(2026, 6, 11, 7, 50, 0, TimeSpan.Zero) };
+    }
+
     private sealed class FakeScheduleQueries : IScheduleQueries
     {
         private readonly IReadOnlyList<ScheduleDto> _rows;
@@ -142,6 +171,24 @@ public sealed class AdminJobSchedulesTests : BunitContext
         public Guid? CrossTenantHostCompanyId => HostCompany;
 
         public Guid? ResolveHostCompanyId(string jobType) => null;
+    }
+
+    // BUG-25 : fuseau navigateur DÉJÀ résolu (LiakontDate rend alors en heure locale, sans suffixe UTC).
+    private sealed class ResolvedBrowserTimeZone : IBrowserTimeZone
+    {
+        public ResolvedBrowserTimeZone(TimeZoneInfo zone) => Zone = zone;
+
+        public event Action? Resolved
+        {
+            add { }
+            remove { }
+        }
+
+        public TimeZoneInfo? Zone { get; }
+
+        public bool IsResolved => true;
+
+        public Task EnsureResolvedAsync(IJSRuntime js, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private sealed class FakeCatalog : IJobTypeCatalog

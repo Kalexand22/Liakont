@@ -904,7 +904,8 @@ horodatages d'ÉVÉNEMENT vers `<LiakontDate>` (composant socle, §4.31).
 restent en UTC EXPLICITE (le cron est interprété en UTC — afficher une prévision en heure locale induirait en
 erreur, car le job fire à l'heure UTC ; cohérence + honnêteté du fuseau) :
 - `AdminJobSchedules.razor` : LastRunAt (ÉVÉNEMENT) → `<LiakontDate>` ; NextRunAt (PRÉVISION cron) → UTC explicite.
-  DÉJÀ au bloc `SOCLE-CONSIGNED-DRIFT` (items Job antérieurs).
+  DÉJÀ au bloc `SOCLE-CONSIGNED-DRIFT` (items Job antérieurs). **⚠️ NextRunAt SUPERSÉDÉ par §4.41 (BUG-25)** :
+  passé au fuseau navigateur (`<LiakontDate>`) pour rester cohérent avec LastRunAt en recette.
 - `AdminJobScheduleForm.razor` : Créé/Modifié le (ÉVÉNEMENTS) → `<LiakontDate>` ; aperçu cron (PRÉVISION) → UTC
   explicite (cohérent avec le titre « (UTC) » et avec NextRunAt). DÉJÀ au bloc.
 - `AdminJobExecutions.razor` : CreatedAt/StartedAt/CompletedAt (exécutions = ÉVÉNEMENTS) → `<LiakontDate>` (helper
@@ -1138,6 +1139,27 @@ APRÈS `AddJobModule` (gagne la résolution sur le défaut socle) ; `DevJobSched
 cette MÊME porteuse (au lieu de `DevTenantSeed:CompanyId`). **Vérification** : verify-fast (Debug + Release),
 run-tests, tests bUnit `AdminJobScheduleFormTests`/`AdminJobSchedulesTests` (planif + liste d'un opérateur
 plateforme) + `LiakontSystemScheduleHostTests` (résolution + cohérence du sentinel).
+
+### 4.41 BUG-25 — `AdminJobSchedules` : « Prochaine exécution » au fuseau du navigateur (cohérence avec « Dernière »)
+
+Recette EncheresV6 (Karl, 27/06) : la colonne **« Prochaine exécution »** (`NextRunAt`) s'affichait en **UTC
+explicite** (suffixe « UTC ») tandis que **« Dernière exécution »** (`LastRunAt`) passait au fuseau du
+**navigateur** (`<LiakontDate>`, RB6 §4.32). Résultat trompeur : pour un job qui vient de tourner, la prochaine
+(UTC) *paraissait antérieure* à la dernière (locale) — alors qu'en UTC elle est bien postérieure. Pur mélange de
+fuseaux à l'affichage (l'ordonnancement `*/n` est correct).
+
+**Changement** — `src/Modules/Job/Web/Pages/AdminJobSchedules.razor` : le `ColumnTemplate` de `NextRunAt` passe
+de la mise en forme UTC inline (`UtcDateTime.ToString(... 'UTC')`) à `<LiakontDate Value="item.NextRunAt" />` —
+**même composant, même fuseau (navigateur)** que `LastRunAt`. **SUPERSÈDE** la règle « PRÉVISION serveur → UTC
+explicite » posée en §4.32 pour CETTE colonne : la cohérence visuelle entre les deux colonnes (et la non-confusion
+de l'opérateur) prime sur le distinguo prévision/événement. `LiakontDate` conserve le repli UTC EXPLICITE tant que
+le fuseau navigateur n'est pas résolu (pré-rendu) — aucune heure locale fausse. Fichier DÉJÀ au bloc
+`SOCLE-CONSIGNED-DRIFT` (items Job antérieurs) ; aucun nouveau pin.
+
+**Vérification** : bUnit `AdminJobSchedulesTests.Next_And_Last_Run_Render_In_The_Same_Browser_Timezone` (fuseau
+Europe/Paris résolu → 08:15 UTC = 10:15, 07:50 UTC = 09:50, aucun suffixe « UTC ») ; le test existant
+`Job_Type_Column_…` garde l'assertion de repli UTC (fuseau non résolu en bUnit). La conversion elle-même reste
+couverte par `LiakontDateTests`/`LiakontDateDisplayTests`.
 
 ## 5. ADR du socle hérités
 

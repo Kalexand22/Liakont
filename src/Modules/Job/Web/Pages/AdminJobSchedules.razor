@@ -52,10 +52,13 @@
         },
         ["NextRunAt"] = item => __builder =>
         {
-            // RB6 : NextRunAt est une PRÉVISION serveur (prochaine occurrence du cron, INTERPRÉTÉ EN UTC) → UTC
-            // EXPLICITE, cohérent avec l'aperçu cron du formulaire. Les ÉVÉNEMENTS (LastRunAt) passent, eux, au
-            // fuseau du navigateur. (Ancien ToLocalTime() = heure SERVEUR muette, corrigé.)
-            __builder.AddContent(0, item.NextRunAt.UtcDateTime.ToString("dd/MM/yyyy HH:mm 'UTC'", System.Globalization.CultureInfo.InvariantCulture));
+            // BUG-25 : MÊME fuseau que « Dernière exécution » (LastRunAt) = celui du NAVIGATEUR (RB6, via LiakontDate)
+            // — sinon la prochaine (UTC) paraissait ANTÉRIEURE à la dernière (locale) pour un job qui vient de tourner.
+            // NextRunAt est une PRÉVISION serveur (prochaine occurrence du cron, en UTC) ; LiakontDate la convertit au
+            // fuseau de l'opérateur, cohérent avec « Dernière exécution ». Pré-rendu (fuseau non résolu) : UTC explicite.
+            __builder.OpenComponent<LiakontDate>(0);
+            __builder.AddAttribute(1, "Value", item.NextRunAt);
+            __builder.CloseComponent();
         },
         ["LastRunAt"] = item => __builder =>
         {
