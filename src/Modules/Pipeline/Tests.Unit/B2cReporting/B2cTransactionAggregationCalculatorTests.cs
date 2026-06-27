@@ -14,6 +14,24 @@ using Xunit;
 /// </summary>
 public sealed class B2cTransactionAggregationCalculatorTests
 {
+    [Theory]
+    [InlineData("10.00", "20", "8.33", "1.67")] // honoraire 10 TTC @ 20 % → 8,33 HT + 1,67 (cas recette 9000004)
+    [InlineData("120.00", "20", "100.00", "20.00")]
+    [InlineData("0.00", "20", "0.00", "0.00")]
+    [InlineData("105.00", "5", "100.00", "5.00")]
+    public void ToHt_RamèneLaMargeTtcEnHtEtTva(string ttc, string rate, string expectedHt, string expectedVat)
+    {
+        var (ht, vat) = B2cTransactionAggregationCalculator.ToHt(
+            decimal.Parse(ttc, System.Globalization.CultureInfo.InvariantCulture),
+            decimal.Parse(rate, System.Globalization.CultureInfo.InvariantCulture));
+
+        ht.Should().Be(decimal.Parse(expectedHt, System.Globalization.CultureInfo.InvariantCulture));
+        vat.Should().Be(decimal.Parse(expectedVat, System.Globalization.CultureInfo.InvariantCulture));
+
+        // Réconciliation exacte : HT + TVA = TTC (jamais de dérive d'arrondi).
+        (ht + vat).Should().Be(decimal.Parse(ttc, System.Globalization.CultureInfo.InvariantCulture));
+    }
+
     private static B2cMarginContribution Contribution(
         decimal marginTtc,
         decimal rate,

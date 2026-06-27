@@ -42,6 +42,25 @@ afficher une mention explicite au lieu du sec « E — Exonéré (motif VATEX re
 
 ---
 
+## Livrable 1b — Récap de marge dans le détail document ✅ LIVRÉ
+
+Demande Karl (« voir le détail de TVA HT de la marge en colonne ») : sous le tableau du détail, un **bloc
+récap** affiche la marge COMPLÈTE à déclarer (commission acheteur + vendeur, F03 §2.4/§270) ramenée HT + TVA
+sur marge — chiffres absents de la facture (297 E). Calcul read-time DÉLÉGUÉ au module Pipeline (aucune
+fiscalité dans le Host), sur le même pivot que le contenu affiché. Cœurs RÉUTILISÉS (= L2 §2.1, déjà fait) :
+- `B2cMarginMarking.IsMarginRegime` (PUBLIC buyer-indépendant : B2C ET B2B).
+- `B2cMarginDocumentResolver` (Infrastructure) extrait de `B2cMarginAggregatorTenantJob` (job refactoré → appelle
+  le résolveur partagé, zéro duplication) — ventilation acheteur/vendeur + taux Frais ; vendeur = résiduel
+  (réconcilie acheteur+vendeur == marge).
+- `B2cTransactionAggregationCalculator.ToHt` extrait (source unique de la conversion TTC→HT).
+- Query MediatR `GetDocumentMarginRecapQuery(pivot)` + handler (tenant-scopé, fail-closed) → `DocumentMarginRecapDto`.
+- Host : `DocumentDetailConsoleQueryService` calcule le récap (try/catch : sa panne ne casse jamais le détail) →
+  `MarginRecapView` → bloc razor `document-detail-margin-recap`.
+- Tests : IsMarginRegime, ToHt, résolveur (ventilation + réconciliation + fail-closed), handler (4 branches),
+  service (remontée + robustesse), bUnit (bloc rendu / absent). verify Release + review claude clean.
+
+> Conséquence pour L2 : §2.1 (cœurs partagés) est DÉJÀ fait. Reste pour L2 = persistance (registre) + page mensuelle.
+
 ## Livrable 2 — Page « TVA / Déclaration » (registre de marge persisté)
 
 ### 2.1 Cœur : prédicat buyer-indépendant + résolveur partagé

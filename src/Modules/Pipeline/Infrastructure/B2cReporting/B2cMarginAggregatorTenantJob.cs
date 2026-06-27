@@ -184,7 +184,7 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
                     }
 
                     examined++;
-                    var resolution = await ResolveMarginAsync(tvaMapping, companyId, marked, cancellationToken);
+                    var resolution = await B2cMarginDocumentResolver.ResolveAsync(tvaMapping, companyId, marked, cancellationToken);
                     if (resolution.IsResolved)
                     {
                         contributions.Add(new B2cMarginContribution
@@ -221,59 +221,6 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
 
         return new DiscoveryResult(examined, contributions, blocked);
     }
-
-    // Résout la marge d'un document marge : somme des honoraires (TTC) à taux UNIQUE (mapping F03, Part.Frais),
-    // ou blocage typé (fail-closed). Le taux vient de la table validée du tenant — jamais inventé (CLAUDE.md n°2).
-    private static async Task<B2cMarginResolution> ResolveMarginAsync(
-        ITvaMappingService tvaMapping,
-        Guid companyId,
-        PivotDocumentDto pivot,
-        CancellationToken cancellationToken)
-    {
-        var fees = new List<(decimal AmountTtc, string? RegimeCode, string? LineRef)>();
-        foreach (var fee in pivot.SellerFees ?? Enumerable.Empty<PivotSellerFeeDto>())
-        {
-            fees.Add((fee.NetAmount, fee.SourceRegimeCode, fee.SourceLineRef));
-        }
-
-        // Jambe ACHETEUR : l'honoraire acheteur est porté en LIGNE (rôle BuyerFee, BUG-17 volet b) — on lit la
-        // ligne au lieu de l'ancien side-channel BuyerFees. Montant TTC recouvré PAR CONSTRUCTION = NetAmount + TVA de
-        // ligne (sous marge la ligne reste pliée : net=TTC, TVA 0 → somme = TTC). La jambe VENDEUR reste hors-lignes
-        // (SellerFees, décompte BV). Total inchangé : marge = Σ acheteur + Σ vendeur.
-        foreach (var line in B2cAuctionFeeLines.BuyerFeeLines(pivot))
-        {
-            decimal amountTtc = line.NetAmount + line.Taxes.Sum(t => t.TaxAmount);
-            fees.Add((amountTtc, line.SourceRegimeCodes.Count > 0 ? line.SourceRegimeCodes[0] : null, line.SourceLineRef));
-        }
-
-        var requests = fees
-            .Select(f => new TvaLineMappingRequest
-            {
-                SourceRegimeCode = f.RegimeCode ?? string.Empty,
-                Part = TvaMappingPart.Frais,
-                LineRef = f.LineRef,
-            })
-            .ToList();
-
-        var mapping = await tvaMapping.MapAsync(companyId, requests, cancellationToken);
-
-        var honoraires = new List<B2cResolvedHonoraire>(fees.Count);
-        for (var i = 0; i < fees.Count; i++)
-        {
-            // Index 1:1 requête→résultat ; si la table est absente ou le code non mappé (ou un résultat
-            // manquant), le taux reste null → B2cMarginResolver bloque (UnmappedRate), jamais un taux deviné.
-            var line = mapping.TableExists && i < mapping.Lines.Count ? mapping.Lines[i] : null;
-            var rate = line is { IsMapped: true } ? line.Rate : null;
-            honoraires.Add(new B2cResolvedHonoraire { AmountTtc = fees[i].AmountTtc, RatePercent = rate });
-        }
-
-        return B2cMarginResolver.Resolve(HasSeparateVat(pivot), honoraires);
-    }
-
-    // Garde 297 E (miroir de MarginCalculator.EnsureNoSeparateVat) : le montant de marge est une BASE — aucune
-    // TVA distincte. Total de TVA non nul, ou une ligne portant une ventilation de TVA > 0 → marge non séparable.
-    private static bool HasSeparateVat(PivotDocumentDto pivot) =>
-        pivot.Totals.TotalTax != 0m || pivot.Lines.Any(line => line.Taxes.Any(tax => tax.TaxAmount != 0m));
 
     private static string Describe(
         DiscoveryResult discovery,

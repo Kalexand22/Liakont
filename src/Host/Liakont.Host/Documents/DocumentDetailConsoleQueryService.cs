@@ -5,9 +5,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Pipeline.Contracts;
+using Liakont.Modules.Pipeline.Contracts.Queries;
+using MediatR;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -28,15 +31,18 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
 
     private readonly IDocumentQueries _documents;
     private readonly IDocumentContentReplayService _contentReplay;
+    private readonly ISender _sender;
     private readonly ILogger<DocumentDetailConsoleQueryService> _logger;
 
     public DocumentDetailConsoleQueryService(
         IDocumentQueries documents,
         IDocumentContentReplayService contentReplay,
+        ISender sender,
         ILogger<DocumentDetailConsoleQueryService> logger)
     {
         _documents = documents;
         _contentReplay = contentReplay;
+        _sender = sender;
         _logger = logger;
     }
 
@@ -71,7 +77,11 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
         // blocage. Le module Pipeline relit le pivot SOURCE stagé et REJOUE le mapping via la SOURCE UNIQUE
         // (CheckTvaMapping) : pivot enrichi si le mapping passe, pivot source (régime lu, catégorie/VATEX vides)
         // s'il bloque (diagnostic factuel, jamais deviné). Frontière respectée : on consomme la query Contracts.
-        var content = await BuildContentAsync(id, events, cancellationToken).ConfigureAwait(false);
+        var (content, pivot) = await BuildContentAsync(id, events, cancellationToken).ConfigureAwait(false);
+
+        // Récap de marge (aide à la déclaration de TVA, art. 297 E) : calcul fiscal DÉLÉGUÉ au module Pipeline
+        // (cœurs e-reporting réutilisés) sur le MÊME pivot que le contenu affiché. null hors régime de la marge.
+        var marginRecap = await ResolveMarginRecapAsync(id, pivot, cancellationToken).ConfigureAwait(false);
 
         return new DocumentDetailViewModel
         {
@@ -79,6 +89,7 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
             Events = events,
             BlockingReason = blockingReason,
             Content = content,
+            MarginRecap = marginRecap,
             Archive = archive,
             IsArchived = archive is not null,
         };
@@ -86,6 +97,9 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to replay document content for document {DocumentId}; falling back to the transmitted snapshot.")]
     private static partial void LogContentReplayFailed(ILogger logger, Guid documentId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to resolve the margin recap for document {DocumentId}; the recap is omitted (the detail remains available).")]
+    private static partial void LogMarginRecapFailed(ILogger logger, Guid documentId, Exception exception);
 
     /// <summary>
     /// Projette le contenu ligne à ligne (FIX205 + BUG-5). PRIORITÉ au pivot RÉELLEMENT TRANSMIS (snapshot porté
@@ -97,7 +111,7 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
     /// read-time sur le pivot source stagé pour rendre les lignes visibles AVANT transmission (BUG-5) — c'est là
     /// qu'on diagnostique un blocage. Un échec du rejeu n'expose JAMAIS de ligne inventée : la vue affiche sa note.
     /// </summary>
-    private async Task<DocumentContentView> BuildContentAsync(
+    private async Task<(DocumentContentView Content, PivotDocumentDto? Pivot)> BuildContentAsync(
         Guid id,
         IReadOnlyList<DocumentEventDto> events,
         CancellationToken cancellationToken)
@@ -113,9 +127,11 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
             .FirstOrDefault();
 
         // Document TRANSMIS : on affiche EXACTEMENT ce qui a été envoyé (vérité d'audit), pas un rejeu re-dérivé.
+        // On expose AUSSI le pivot transmis (pour le récap de marge) — même source que les lignes affichées.
         if (!string.IsNullOrWhiteSpace(transmittedPivotJson))
         {
-            return DocumentLineProjection.FromTransmittedSnapshot(transmittedPivotJson);
+            var transmittedPivot = DocumentLineProjection.TryReadTransmittedPivot(transmittedPivotJson);
+            return (DocumentLineProjection.FromPivot(transmittedPivot), transmittedPivot);
         }
 
         // Document NON transmis : rejeu read-time du pivot source stagé (BUG-5) pour rendre les lignes visibles dès
@@ -126,7 +142,7 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
             var replay = await _contentReplay.ReplayAsync(id, cancellationToken).ConfigureAwait(false);
             if (replay.Available)
             {
-                return DocumentLineProjection.FromPivot(replay.MappedPivot);
+                return (DocumentLineProjection.FromPivot(replay.MappedPivot), replay.MappedPivot);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -136,6 +152,45 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
             LogContentReplayFailed(_logger, id, ex);
         }
 
-        return DocumentContentView.Empty;
+        return (DocumentContentView.Empty, null);
+    }
+
+    /// <summary>
+    /// Récap de marge du document via le module Pipeline (<see cref="GetDocumentMarginRecapQuery"/>) sur le pivot
+    /// affiché. Pure PRÉSENTATION : aucune fiscalité ici (le handler résout régime + marge). <c>null</c> si pas de
+    /// pivot ou document hors régime de la marge. Le récap est une aide AUXILIAIRE : sa panne (mapping/tenant) ne doit
+    /// JAMAIS casser la lecture du détail (vérité d'audit) — on attrape, on trace, on l'omet (miroir du rejeu de
+    /// contenu) ; seule l'annulation de requête se propage (navigation / déconnexion Blazor).
+    /// </summary>
+    private async Task<MarginRecapView?> ResolveMarginRecapAsync(Guid id, PivotDocumentDto? pivot, CancellationToken cancellationToken)
+    {
+        if (pivot is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var recap = await _sender.Send(new GetDocumentMarginRecapQuery { Pivot = pivot }, cancellationToken).ConfigureAwait(false);
+            if (recap is null)
+            {
+                return null;
+            }
+
+            return new MarginRecapView
+            {
+                BuyerFeesTtc = recap.BuyerFeesTtc,
+                SellerFeesTtc = recap.SellerFeesTtc,
+                MarginTtc = recap.MarginTtc,
+                BaseHt = recap.BaseHt,
+                Tva = recap.Tva,
+                RatePercent = recap.RatePercent,
+            };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogMarginRecapFailed(_logger, id, ex);
+            return null;
+        }
     }
 }

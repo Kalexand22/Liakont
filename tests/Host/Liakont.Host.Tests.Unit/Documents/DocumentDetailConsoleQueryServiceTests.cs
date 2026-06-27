@@ -10,6 +10,8 @@ using Liakont.Host.Documents;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Pipeline.Contracts;
+using Liakont.Modules.Pipeline.Contracts.Queries;
+using MediatR;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -41,8 +43,10 @@ public sealed class DocumentDetailConsoleQueryServiceTests
 
     private static DocumentDetailConsoleQueryService Build(
         FakeDocumentQueries documents,
-        FakeContentReplay? replay = null) =>
-        new(documents, replay ?? new FakeContentReplay(), NullLogger<DocumentDetailConsoleQueryService>.Instance);
+        FakeContentReplay? replay = null,
+        DocumentMarginRecapDto? marginRecap = null,
+        bool marginRecapThrows = false) =>
+        new(documents, replay ?? new FakeContentReplay(), new FakeSender { Recap = marginRecap, Throws = marginRecapThrows }, NullLogger<DocumentDetailConsoleQueryService>.Instance);
 
     [Fact]
     public async Task GetDetailAsync_Should_Return_Null_When_Document_Absent()
@@ -299,6 +303,70 @@ public sealed class DocumentDetailConsoleQueryServiceTests
         replay.Calls.Should().ContainSingle("le rejeu est tenté faute de snapshot transmis");
     }
 
+    [Fact]
+    public async Task GetDetailAsync_Should_Surface_The_Margin_Recap_For_A_Margin_Document()
+    {
+        // Le récap de marge (aide à la déclaration de TVA) est calculé par le module Pipeline sur le pivot affiché
+        // puis remonté tel quel dans le modèle (projection pure côté Host). Ici le handler (fake) renvoie un récap.
+        var fake = new FakeDocumentQueries
+        {
+            Document = Doc("9000004", "Issued"),
+            Events = [Event("DocumentIssued", new DateTimeOffset(2026, 6, 26, 9, 0, 0, TimeSpan.Zero), payloadSnapshot: TransmittedSnapshotJson)],
+        };
+        var recap = new DocumentMarginRecapDto
+        {
+            BuyerFeesTtc = 10m,
+            SellerFeesTtc = 0m,
+            MarginTtc = 10m,
+            BaseHt = 8.33m,
+            Tva = 1.67m,
+            RatePercent = 20m,
+        };
+
+        var result = await Build(fake, marginRecap: recap).GetDetailAsync(DocId);
+
+        result!.MarginRecap.Should().NotBeNull();
+        result.MarginRecap!.BuyerFeesTtc.Should().Be(10m);
+        result.MarginRecap.SellerFeesTtc.Should().Be(0m);
+        result.MarginRecap.MarginTtc.Should().Be(10m);
+        result.MarginRecap.BaseHt.Should().Be(8.33m);
+        result.MarginRecap.Tva.Should().Be(1.67m);
+        result.MarginRecap.RatePercent.Should().Be(20m);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_Should_Stay_Available_When_The_Margin_Recap_Resolution_Fails()
+    {
+        // Robustesse : le récap de marge est une aide AUXILIAIRE. Une panne de sa résolution (mapping/tenant) ne
+        // doit JAMAIS casser la lecture du détail (vérité d'audit) — le détail reste assemblé, sans récap.
+        var fake = new FakeDocumentQueries
+        {
+            Document = Doc("9000004", "Issued"),
+            Events = [Event("DocumentIssued", new DateTimeOffset(2026, 6, 26, 9, 0, 0, TimeSpan.Zero), payloadSnapshot: TransmittedSnapshotJson)],
+        };
+
+        var result = await Build(fake, marginRecapThrows: true).GetDetailAsync(DocId);
+
+        result.Should().NotBeNull("une panne du récap n'empêche pas de consulter le document");
+        result!.Content.HasLines.Should().BeTrue("le contenu transmis reste affiché");
+        result.MarginRecap.Should().BeNull("le récap est omis sur panne, jamais inventé");
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_Should_Leave_Margin_Recap_Null_Outside_The_Margin_Regime()
+    {
+        // Hors régime de la marge, le handler renvoie null (pas de récap configuré) → MarginRecap null, jamais inventé.
+        var fake = new FakeDocumentQueries
+        {
+            Document = Doc("2026-200", "Issued"),
+            Events = [Event("DocumentIssued", new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero), payloadSnapshot: TransmittedSnapshotJson)],
+        };
+
+        var result = await Build(fake).GetDetailAsync(DocId);
+
+        result!.MarginRecap.Should().BeNull();
+    }
+
     /// <summary>Pivot SOURCE minimal (catégorie/VATEX nuls — non mappés) pour exercer le rejeu read-time d'un document bloqué.</summary>
     private static PivotDocumentDto SourcePivot(string description, string sourceRegime, decimal netAmount) => new(
         sourceDocumentKind: "invoice",
@@ -430,5 +498,42 @@ public sealed class DocumentDetailConsoleQueryServiceTests
 
             return Task.FromResult(_result ?? DocumentContentReplay.Unavailable);
         }
+    }
+
+    // Fake d'ISender : renvoie le récap de marge configuré pour GetDocumentMarginRecapQuery (null sinon), comme le
+    // ferait le handler Pipeline hors régime de la marge. Le calcul fiscal réel est testé côté module (handler/résolveur).
+    private sealed class FakeSender : ISender
+    {
+        public DocumentMarginRecapDto? Recap { get; init; }
+
+        public bool Throws { get; init; }
+
+        public Task Send<TRequest>(TRequest request, CancellationToken cancellationToken = default)
+            where TRequest : IRequest =>
+            Task.CompletedTask;
+
+        public Task<TResponse> Send<TResponse>(IRequest<TResponse> request, CancellationToken cancellationToken = default)
+        {
+            if (request is GetDocumentMarginRecapQuery)
+            {
+                if (Throws)
+                {
+                    throw new InvalidOperationException("Échec simulé de la résolution du récap de marge.");
+                }
+
+                return Task.FromResult((TResponse)(object?)Recap!);
+            }
+
+            return Task.FromResult(default(TResponse)!);
+        }
+
+        public Task<object?> Send(object request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public IAsyncEnumerable<TResponse> CreateStream<TResponse>(IStreamRequest<TResponse> request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public IAsyncEnumerable<object?> CreateStream(object request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }

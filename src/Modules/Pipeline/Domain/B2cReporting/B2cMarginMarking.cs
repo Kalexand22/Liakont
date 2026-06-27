@@ -65,21 +65,41 @@ public static class B2cMarginMarking
             return false;
         }
 
+        // (4) Acheteur non professionnel (B2C, F03 §2.4) — prédicat partagé avec le taxable (invariant d'aiguillage).
+        // Le RÉGIME (contenu) est buyer-indépendant (IsMarginRegime) ; le CANAL (B2C e-reporting) ajoute ce critère.
+        if (!B2cBuyerClassification.IsNonProfessional(enrichedPivot.Customer))
+        {
+            return false;
+        }
+
+        return IsMarginRegime(enrichedPivot);
+    }
+
+    /// <summary>
+    /// Vrai si le document est au RÉGIME DE LA MARGE — critère BUYER-INDÉPENDANT (le CONTENU fiscal vient du régime,
+    /// pas de l'acheteur ; F03 §2.10) : frais d'enchères présents (3), aucune TVA distincte (2, art. 297 E), toutes
+    /// les lignes mappées <c>E</c> + VATEX-EU-F/I/J (1, table validée). C'est <see cref="IsMarginDeclaration"/> SANS
+    /// le critère B2C — il couvre donc la marge B2C (e-reporting) ET la marge B2B (facture « Régime particulier »).
+    /// Utilisé par le récap marge du détail document (toutes ventes-marge, quel que soit l'acheteur) et la TVA-marge
+    /// à déclarer. Fail-closed : tout signal manquant/ambigu → <c>false</c>.
+    /// </summary>
+    /// <param name="enrichedPivot">Le pivot enrichi par le mapping TVA (lignes portant catégorie/VATEX).</param>
+    /// <returns><c>true</c> si le document est au régime de la marge (B2C ou B2B).</returns>
+    public static bool IsMarginRegime(PivotDocumentDto enrichedPivot)
+    {
+        if (enrichedPivot is null)
+        {
+            return false;
+        }
+
         // (3) Frais de marge présents (commission acheteur et/ou vendeur, F03 §2.4).
-        bool hasFees = B2cAuctionFeeLines.HasAuctionFees(enrichedPivot);
-        if (!hasFees)
+        if (!B2cAuctionFeeLines.HasAuctionFees(enrichedPivot))
         {
             return false;
         }
 
         // (2) Aucune TVA distincte au grain document (art. 297 E, F03 §2.3).
         if (enrichedPivot.Totals.TotalTax != 0m)
-        {
-            return false;
-        }
-
-        // (4) Acheteur non professionnel (B2C, F03 §2.4) — prédicat partagé avec le taxable (invariant d'aiguillage).
-        if (!B2cBuyerClassification.IsNonProfessional(enrichedPivot.Customer))
         {
             return false;
         }

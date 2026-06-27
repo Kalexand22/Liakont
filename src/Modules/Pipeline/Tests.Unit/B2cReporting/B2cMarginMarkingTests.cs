@@ -224,6 +224,64 @@ public sealed class B2cMarginMarkingTests
         B2cMarginMarking.LooksLikeUnclassifiedMargin(pivot).Should().BeFalse();
     }
 
+    [Fact]
+    public void IsMarginRegime_ProfessionalBuyer_IsTrue_ButNotAB2cDeclaration()
+    {
+        // Point central du récap marge : le RÉGIME est buyer-INDÉPENDANT (F03 §2.10). Une vente-marge à acheteur
+        // PROFESSIONNEL (SIREN) EST au régime de la marge (IsMarginRegime vrai → récap + TVA-marge à déclarer),
+        // même si ce N'EST PAS un e-reporting B2C (IsMarginDeclaration faux → facture B2B « Régime particulier »).
+        var pivot = Pivot([MarginLine("VATEX-EU-J")], totalTax: 0m, customer: ProfessionnelSiren(), buyerFees: [Fee()]);
+
+        B2cMarginMarking.IsMarginRegime(pivot).Should().BeTrue("le régime de la marge ne dépend pas de l'acheteur");
+        B2cMarginMarking.IsMarginDeclaration(pivot).Should().BeFalse("un acheteur pro relève du B2B, pas de l'e-reporting B2C");
+    }
+
+    [Fact]
+    public void IsMarginRegime_ParticulierBuyer_IsTrue()
+    {
+        var pivot = Pivot([MarginLine("VATEX-EU-J")], totalTax: 0m, customer: Particulier(), buyerFees: [Fee()]);
+
+        B2cMarginMarking.IsMarginRegime(pivot).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsMarginRegime_TaxableWithSeparateVat_IsFalse_297E()
+    {
+        var pivot = Pivot(
+            lines: [new PivotLineDto("Adjudication", 2000m, sourceRegimeCodes: ["5"], taxes: [new PivotLineTaxDto(taxAmount: 400m, categoryCode: VatCategory.S)])],
+            totalTax: 400m,
+            customer: ProfessionnelSiren(),
+            buyerFees: [Fee()]);
+
+        B2cMarginMarking.IsMarginRegime(pivot).Should().BeFalse("TVA distincte → pas de marge (art. 297 E)");
+    }
+
+    [Fact]
+    public void IsMarginRegime_NoFees_IsFalse()
+    {
+        var pivot = Pivot([MarginLine("VATEX-EU-J")], totalTax: 0m, customer: Particulier());
+
+        B2cMarginMarking.IsMarginRegime(pivot).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsMarginRegime_ExemptWithoutMarginVatex_IsFalse()
+    {
+        var pivot = Pivot(
+            lines: [new PivotLineDto("Adjudication", 2000m, sourceRegimeCodes: ["6"], taxes: [new PivotLineTaxDto(taxAmount: 0m, categoryCode: VatCategory.E)])],
+            totalTax: 0m,
+            customer: Particulier(),
+            buyerFees: [Fee()]);
+
+        B2cMarginMarking.IsMarginRegime(pivot).Should().BeFalse("E sans VATEX de marge = ambigu (F03 §3), jamais deviné");
+    }
+
+    [Fact]
+    public void IsMarginRegime_NullPivot_IsFalse()
+    {
+        B2cMarginMarking.IsMarginRegime(null!).Should().BeFalse();
+    }
+
     private static PivotLineDto MarginLine(string vatex) =>
         new(
             description: "Adjudication",

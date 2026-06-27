@@ -36,17 +36,27 @@ public static class DocumentLineProjection
     /// non encore transmis) ou snapshot illisible → contenu vide (la vue bascule alors sur sa note).
     /// </summary>
     /// <param name="transmittedPivotJson">JSON canonique du pivot transmis (PayloadSnapshot), ou <c>null</c>.</param>
-    public static DocumentContentView FromTransmittedSnapshot(string? transmittedPivotJson)
+    public static DocumentContentView FromTransmittedSnapshot(string? transmittedPivotJson) =>
+        FromPivot(TryReadTransmittedPivot(transmittedPivotJson));
+
+    /// <summary>
+    /// Désérialise le pivot TRANSMIS (snapshot canonique) en <see cref="PivotDocumentDto"/>, ou <c>null</c> si le
+    /// JSON est absent/illisible (jamais attendu : produit par le writer canonique à l'envoi). Exposé pour les
+    /// consommateurs qui ont besoin du pivot (et pas seulement des lignes projetées) — ex. le récap de marge du
+    /// détail document. Robustesse identique à <see cref="FromTransmittedSnapshot"/> : un snapshot illisible ne
+    /// casse JAMAIS la lecture (le pivot intègre reste dans le coffre WORM, récupérable via l'export).
+    /// </summary>
+    /// <param name="transmittedPivotJson">JSON canonique du pivot transmis (PayloadSnapshot), ou <c>null</c>.</param>
+    public static PivotDocumentDto? TryReadTransmittedPivot(string? transmittedPivotJson)
     {
         if (string.IsNullOrWhiteSpace(transmittedPivotJson))
         {
-            return DocumentContentView.Empty;
+            return null;
         }
 
-        PivotDocumentDto pivot;
         try
         {
-            pivot = PivotCanonicalJsonReader.Read(transmittedPivotJson);
+            return PivotCanonicalJsonReader.Read(transmittedPivotJson);
         }
         catch (Exception ex) when (
             ex is JsonException
@@ -56,13 +66,8 @@ public static class DocumentLineProjection
             or KeyNotFoundException
             or InvalidOperationException)
         {
-            // Snapshot transmis illisible (jamais attendu : il a été produit par le writer canonique au moment
-            // de l'envoi) : on NE casse PAS la lecture du détail — le pivot intègre reste dans le coffre WORM,
-            // récupérable via l'export pour contrôle fiscal (onglet Archive). La vue affichera sa note.
-            return DocumentContentView.Empty;
+            return null;
         }
-
-        return FromPivot(pivot);
     }
 
     /// <summary>

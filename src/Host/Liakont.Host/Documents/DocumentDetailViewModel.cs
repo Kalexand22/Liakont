@@ -34,6 +34,13 @@ public sealed record DocumentDetailViewModel
     /// </summary>
     public string? BlockingReason { get; init; }
 
+    /// <summary>
+    /// Récapitulatif de marge (onglet Contenu) quand le document est au régime de la marge (B2C ou B2B, art. 297 E) :
+    /// commission acheteur + vendeur, base HT, TVA sur marge à déclarer. <c>null</c> hors régime de la marge. Calculé
+    /// par le module Pipeline (cœurs e-reporting réutilisés) — ici pure PRÉSENTATION, aucune fiscalité dérivée.
+    /// </summary>
+    public MarginRecapView? MarginRecap { get; init; }
+
     /// <summary>Référence d'archive WORM du document (onglet Archive), ou <c>null</c> s'il n'est pas archivé.</summary>
     public ArchiveReferenceDto? Archive { get; init; }
 

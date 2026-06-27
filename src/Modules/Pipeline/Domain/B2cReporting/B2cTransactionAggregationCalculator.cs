@@ -42,10 +42,7 @@ public static class B2cTransactionAggregationCalculator
             foreach (var rateGroup in dayGroup.GroupBy(c => c.RatePercent).OrderBy(g => g.Key))
             {
                 var marginTtc = PivotRounding.RoundAmount(rateGroup.Sum(c => c.MarginTtc));
-                var taxableHt = PivotRounding.RoundAmount(marginTtc / (1m + (rateGroup.Key / 100m)));
-
-                // TVA = TTC − HT : la marge ramenée HT + sa TVA reconcilient le TTC exactement (jamais de dérive).
-                var vat = marginTtc - taxableHt;
+                var (taxableHt, vat) = ToHt(marginTtc, rateGroup.Key);
 
                 subtotals.Add(new B2cAggregatedSubtotal
                 {
@@ -75,5 +72,20 @@ public static class B2cTransactionAggregationCalculator
         }
 
         return transactions;
+    }
+
+    /// <summary>
+    /// Ramène une marge TTC en base HT + TVA à un taux donné (F03 §2.5) : <c>HT = arrondi(TTC / (1 + taux))</c>,
+    /// <c>TVA = TTC − HT</c> — half-up, <see cref="decimal"/> (CLAUDE.md n°1). SOURCE UNIQUE de cette conversion :
+    /// utilisée par l'agrégat e-reporting (ci-dessus) ET par le récap marge du détail document (même formule, jamais
+    /// une copie qui dériverait). La TVA = TTC − HT garantit la réconciliation exacte du TTC (jamais de dérive).
+    /// </summary>
+    /// <param name="marginTtc">La marge TTC (déjà arrondie).</param>
+    /// <param name="ratePercent">Le taux de TVA en pourcentage (ex. 20).</param>
+    /// <returns>La base HT et la TVA correspondantes.</returns>
+    public static (decimal TaxableHt, decimal Vat) ToHt(decimal marginTtc, decimal ratePercent)
+    {
+        var taxableHt = PivotRounding.RoundAmount(marginTtc / (1m + (ratePercent / 100m)));
+        return (taxableHt, marginTtc - taxableHt);
     }
 }

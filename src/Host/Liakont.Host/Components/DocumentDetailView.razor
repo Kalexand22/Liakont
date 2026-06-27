@@ -194,6 +194,42 @@
                 }
             </SectionCard>
 
+            @* Récapitulatif de marge (aide à la déclaration de TVA) : pour un document au régime de la marge (art. 297 E),
+             * la TVA sur la marge n'apparaît PAS sur la facture mais est DUE par l'opérateur dans sa déclaration (CA3).
+             * Ce bloc rend visibles la marge (commission acheteur + vendeur, F03 §2.4/§270) ramenée HT et la TVA sur marge.
+             * Calculé par le module Pipeline (cœurs e-reporting réutilisés) ; rendu PUR ici. Absent hors régime de la marge. *@
+            @if (Model.MarginRecap is { } margin)
+            {
+                <SectionCard Title="Récapitulatif de marge — aide à la déclaration de TVA" TestId="document-detail-margin-recap">
+                    <p class="liakont-doc-detail__hint">
+                        Régime de la marge (art. 297 E) : la TVA ci-dessous ne figure pas sur la facture — elle est
+                        due par l'opérateur sur sa marge (commission), à reporter en déclaration de TVA.
+                    </p>
+                    <dl class="liakont-doc-detail__defs">
+                        <div class="liakont-doc-detail__row">
+                            <dt>Commission acheteur TTC</dt>
+                            <dd data-testid="document-detail-margin-buyer">@FormatMoney(margin.BuyerFeesTtc)</dd>
+                        </div>
+                        <div class="liakont-doc-detail__row">
+                            <dt>Commission vendeur TTC</dt>
+                            <dd data-testid="document-detail-margin-seller">@FormatMoney(margin.SellerFeesTtc)</dd>
+                        </div>
+                        <div class="liakont-doc-detail__row">
+                            <dt>Marge TTC</dt>
+                            <dd data-testid="document-detail-margin-ttc">@FormatMoney(margin.MarginTtc)</dd>
+                        </div>
+                        <div class="liakont-doc-detail__row">
+                            <dt>Base de marge HT</dt>
+                            <dd data-testid="document-detail-margin-base-ht">@FormatMoney(margin.BaseHt)</dd>
+                        </div>
+                        <div class="liakont-doc-detail__row">
+                            <dt>TVA sur marge (@FormatRate(margin.RatePercent))</dt>
+                            <dd data-testid="document-detail-margin-vat">@FormatMoney(margin.Tva)</dd>
+                        </div>
+                    </dl>
+                </SectionCard>
+            }
+
             @* Mentions de facturation EFFECTIVES portées par CE document (BUG-26, F12-A §3.4) : termes de paiement
              * (BT-20) + mentions légales FR (BR-FR-05 : pénalités de retard PMD, indemnité forfaitaire de recouvrement
              * PMT, escompte ou son absence AAB). Restitution LISIBLE (jamais de JSON, F10 §1) : le libellé FR du code

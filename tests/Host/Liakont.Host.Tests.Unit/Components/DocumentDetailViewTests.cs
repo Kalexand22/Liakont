@@ -203,6 +203,43 @@ public sealed class DocumentDetailViewTests : BunitContext
     }
 
     [Fact]
+    public void Should_Render_The_Margin_Recap_When_The_Document_Is_Under_The_Margin_Regime()
+    {
+        // Aide à la déclaration de TVA (recette enchères) : pour un document marge, un récap rend visibles la marge
+        // (commission acheteur + vendeur) ramenée HT et la TVA sur marge à déclarer — chiffres ABSENTS de la facture
+        // (297 E). Le récap est fourni au modèle (calcul Pipeline) ; la vue le REND, sans le recalculer.
+        var recap = new MarginRecapView
+        {
+            BuyerFeesTtc = 10m,
+            SellerFeesTtc = 5m,
+            MarginTtc = 15m,
+            BaseHt = 12.50m,
+            Tva = 2.50m,
+            RatePercent = 20m,
+        };
+        var model = BuildModel(doc: Doc("9000004", "Issued"), marginRecap: recap);
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        var card = cut.Find("[data-testid='document-detail-margin-recap']").TextContent;
+        card.Should().Contain("297 E").And.Contain("déclaration de TVA");
+        cut.Find("[data-testid='document-detail-margin-buyer']").TextContent.Should().Contain("10,00");
+        cut.Find("[data-testid='document-detail-margin-seller']").TextContent.Should().Contain("5,00");
+        cut.Find("[data-testid='document-detail-margin-ttc']").TextContent.Should().Contain("15,00");
+        cut.Find("[data-testid='document-detail-margin-base-ht']").TextContent.Should().Contain("12,50");
+        cut.Find("[data-testid='document-detail-margin-vat']").TextContent.Should().Contain("2,50");
+        card.Should().Contain("20 %", "le taux de la TVA sur marge est affiché");
+    }
+
+    [Fact]
+    public void Should_Not_Render_The_Margin_Recap_Outside_The_Margin_Regime()
+    {
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(doc: Doc("2026-031", "Issued"))));
+
+        cut.FindAll("[data-testid='document-detail-margin-recap']").Should().BeEmpty();
+    }
+
+    [Fact]
     public void Should_Render_Billing_Mentions_With_French_Labels_On_The_Content_Tab()
     {
         // BUG-26 (F12-A §3.4) : les mentions de facturation EFFECTIVES du document sont restituées dans une carte
@@ -470,7 +507,8 @@ public sealed class DocumentDetailViewTests : BunitContext
         string? blockingReason = null,
         ArchiveReferenceDto? archive = null,
         bool isArchived = false,
-        DocumentContentView? content = null) => new()
+        DocumentContentView? content = null,
+        MarginRecapView? marginRecap = null) => new()
     {
         Document = doc ?? Doc("2026-000", "Issued"),
         Events = events ?? [],
@@ -478,6 +516,7 @@ public sealed class DocumentDetailViewTests : BunitContext
         Archive = archive,
         IsArchived = isArchived,
         Content = content ?? DocumentContentView.Empty,
+        MarginRecap = marginRecap,
     };
 
     private static DocumentContentView Content(
