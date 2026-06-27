@@ -197,6 +197,17 @@ public sealed class ParametrageViewTests : BunitContext
     }
 
     [Fact]
+    public void Should_Not_Render_A_Separate_Billing_Mentions_Card()
+    {
+        // BUG-26 (ajustement PO) : les mentions de facturation vivent DANS la page « Paramètres fiscaux »,
+        // plus comme carte séparée du hub. La vue d'ensemble revient à 9 cartes.
+        var cut = Render<ParametrageView>(p => p.Add(v => v.Model, BuildModel()));
+
+        cut.FindAll("[data-testid='parametrage-mentions']").Should().BeEmpty();
+        cut.FindAll("[data-testid='parametrage-mentions-link']").Should().BeEmpty();
+    }
+
+    [Fact]
     public void Should_Render_Tva_Validated_With_Validator_And_Link()
     {
         var tva = new TvaMappingSummaryDto

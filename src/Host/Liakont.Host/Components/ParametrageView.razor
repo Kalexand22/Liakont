@@ -84,20 +84,6 @@
                        TestId="parametrage-fiscal-link" />
     </SectionCard>
 
-    <SectionCard Title="Mentions de facturation" TestId="parametrage-mentions">
-        <p>
-            Mentions portées sur les factures B2B (termes de paiement et mentions légales FR : pénalités de
-            retard, indemnité de recouvrement, escompte). Renseignées par le client ou son expert-comptable —
-            obligatoires pour une facture B2B française.
-        </p>
-        <StratumButton Text="Modifier les mentions de facturation"
-                       Variant="ButtonVariant.Secondary"
-                       Outline
-                       Size="ButtonSize.Small"
-                       Href="@MentionsPageUrl"
-                       TestId="parametrage-mentions-link" />
-    </SectionCard>
-
     <SectionCard Title="Agents" TestId="parametrage-agents">
         <AgentStatusList Agents="Model.Agents" LineTestId="parametrage-agent-line" EmptyTestId="parametrage-agents-none" />
         @* Bouton de navigation ALIGNÉ sur les autres cartes du hub (Fiscal/PA/TVA/Alertes en avaient
@@ -351,11 +337,9 @@
     /// <summary>Route de la page de paramétrage des alertes &amp; supervision (FIX210).</summary>
     private const string AlertesPageUrl = "/parametrage/alertes";
 
-    /// <summary>Route de l'écran d'édition des paramètres fiscaux du tenant (FIX301).</summary>
+    /// <summary>Route de l'écran d'édition des paramètres fiscaux du tenant (FIX301). Les mentions de
+    /// facturation (BUG-26) vivent désormais dans cette même page.</summary>
     private const string FiscalPageUrl = "/parametrage/fiscal";
-
-    /// <summary>Route de l'écran d'édition des mentions de facturation du tenant (BUG-26).</summary>
-    private const string MentionsPageUrl = "/parametrage/mentions";
 
     /// <summary>Route de l'écran de gestion des agents (parc + clés API, WEB09).</summary>
     private const string AgentsPageUrl = "/agents";
