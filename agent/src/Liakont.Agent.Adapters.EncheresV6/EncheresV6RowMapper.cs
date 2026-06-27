@@ -51,6 +51,24 @@ internal static class EncheresV6RowMapper
     private const string DeviseDomestique = "EUR";
 
     /// <summary>
+    /// Table de correspondance des codes pays NON-ISO connus de la source EncheresV6 (<c>code_pays</c>) vers
+    /// ISO 3166-1 alpha-2. EXTENSIBLE (BUG-18) : on AJOUTE une entrée par code legacy constaté, jamais un nouveau
+    /// <c>case</c> codé en dur. Couvre les nations du Royaume-Uni (<c>ENG</c>/<c>SCO</c>/<c>WAL</c>/<c>NIR</c> =
+    /// subdivisions ISO 3166-2, pas des pays alpha-2 → <c>GB</c>, BUG-9) et le Japon (<c>JAP</c> → <c>JP</c>,
+    /// BUG-18, doc n°2000020). Clés normalisées en MAJUSCULES (la recherche applique <c>Trim().ToUpperInvariant()</c>).
+    /// Normalisation de DONNÉE legacy (miroir du nettoyage devise « EURO » → « EUR »), jamais une règle fiscale
+    /// (aucune catégorie TVA / VATEX / seuil inventé — CLAUDE.md n°2).
+    /// </summary>
+    private static readonly Dictionary<string, string> NonIsoCountryCodeMap = new(StringComparer.Ordinal)
+    {
+        ["ENG"] = "GB",
+        ["SCO"] = "GB",
+        ["WAL"] = "GB",
+        ["NIR"] = "GB",
+        ["JAP"] = "JP",
+    };
+
+    /// <summary>
     /// Mappe un bordereau ACHETEUR (vente ou avoir) en document pivot — jambe ACHETEUR de la marge.
     /// Lines = adjudication des lots (type 1) ; BuyerFees = commission acheteur (type 1, TTC). Pour un avoir,
     /// <paramref name="creditNoteOrigin"/> DOIT être l'entête d'origine résolue (sinon blocage, jamais deviné).
@@ -710,16 +728,15 @@ internal static class EncheresV6RowMapper
     }
 
     /// <summary>
-    /// Normalise un code pays BRUT de la source EncheresV6 (<c>code_pays</c>) vers ISO 3166-1 alpha-2 pour les
-    /// SEULS cas non-ISO connus et sûrs de la base réelle : les nations du Royaume-Uni (<c>ENG</c>/<c>SCO</c>/
-    /// <c>WAL</c>/<c>NIR</c> — codes de subdivision ISO 3166-2, pas des pays alpha-2) relèvent toutes de
-    /// <c>GB</c> (ISO 3166-1). Normalisation de DONNÉE legacy (miroir du nettoyage devise « EURO » → « EUR »),
-    /// jamais une règle fiscale (aucune catégorie TVA / VATEX / seuil inventé — CLAUDE.md n°2). Tout code NON
-    /// listé est laissé STRICTEMENT BRUT : l'adaptateur ne devine jamais un pays — un code inconnu remonte tel
-    /// quel à la plateforme, qui tranche en validation (BT-55, BuyerIdentityRule).
+    /// Normalise un code pays BRUT de la source EncheresV6 (<c>code_pays</c>) vers ISO 3166-1 alpha-2 via la table
+    /// de correspondance <see cref="NonIsoCountryCodeMap"/> (extensible, BUG-18). Tout code NON présent dans la
+    /// table est laissé STRICTEMENT BRUT (fail-closed, CLAUDE.md n°2) : l'adaptateur ne devine jamais un pays — un
+    /// code inconnu remonte tel quel à la plateforme, qui tranche/BLOQUE en validation (BT-55, BuyerIdentityRule).
+    /// Important : le pays pilote l'aiguillage fiscal (UE vs hors UE) — une normalisation fausse mis-route ; elle
+    /// doit donc être DÉCLARÉE dans la table, jamais inférée.
     /// </summary>
     /// <param name="raw">Le code pays brut tel que stocké en source (<c>code_pays</c>), éventuellement <c>null</c>.</param>
-    /// <returns><c>GB</c> pour <c>ENG</c>/<c>SCO</c>/<c>WAL</c>/<c>NIR</c> ; sinon la valeur d'origine inchangée.</returns>
+    /// <returns>Le code ISO alpha-2 mappé pour un code legacy connu ; sinon la valeur d'origine inchangée.</returns>
     private static string? NormalizeCountryCode(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw))
@@ -727,16 +744,7 @@ internal static class EncheresV6RowMapper
             return raw;
         }
 
-        switch (raw!.Trim().ToUpperInvariant())
-        {
-            case "ENG":
-            case "SCO":
-            case "WAL":
-            case "NIR":
-                return "GB";
-            default:
-                return raw;
-        }
+        return NonIsoCountryCodeMap.TryGetValue(raw!.Trim().ToUpperInvariant(), out var iso) ? iso : raw;
     }
 
     private static PivotDocumentRefDto[] MapBaCreditNoteRefs(EncheresV6Bordereau bordereau, string kind, EncheresV6Bordereau? origin)

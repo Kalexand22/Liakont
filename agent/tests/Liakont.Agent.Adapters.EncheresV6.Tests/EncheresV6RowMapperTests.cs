@@ -174,6 +174,26 @@ public class EncheresV6RowMapperTests
     }
 
     [Fact]
+    public void MapBaDocument_normalizes_non_iso_country_code_JAP_to_JP_via_extensible_table()
+    {
+        // BUG-18 : la source EncheresV6 étiquette le Japon « JAP » (non-ISO) — doc n°2000020 bloqué. La table de
+        // correspondance EXTENSIBLE (plus de liste codée en dur) le normalise vers « JP » (ISO 3166-1 alpha-2).
+        EncheresV6Bordereau jap = MargeBa();
+        jap.CodePays = "JAP";
+        EncheresV6RowMapper.MapBaDocument(jap, null).Customer!.Address!.CountryCode.Should().Be("JP");
+
+        EncheresV6Bordereau japCasse = MargeBa();
+        japCasse.CodePays = " jap ";
+        EncheresV6RowMapper.MapBaDocument(japCasse, null).Customer!.Address!.CountryCode.Should().Be("JP", "casse et espaces tolérés");
+
+        // Fail-closed (CLAUDE.md n°2) : un code non-ISO TOUJOURS absent de la table reste BRUT → la plateforme
+        // BLOQUE (jamais deviné). Le pays pilote l'aiguillage fiscal : une normalisation fausse mis-route.
+        EncheresV6Bordereau autreInconnu = MargeBa();
+        autreInconnu.CodePays = "XYZ";
+        EncheresV6RowMapper.MapBaDocument(autreInconnu, null).Customer!.Address!.CountryCode.Should().Be("XYZ", "un code non mappé reste bloqué côté plateforme — fail-closed");
+    }
+
+    [Fact]
     public void MapBaDocument_sets_company_hint_and_siren_raw_without_heuristic()
     {
         PivotDocumentDto particulier = EncheresV6RowMapper.MapBaDocument(MargeBa(), null);
