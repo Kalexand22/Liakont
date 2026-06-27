@@ -1,5 +1,6 @@
 namespace Liakont.Host.B2cReporting;
 
+using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -29,5 +30,11 @@ internal sealed class B2cMarginEmissionsConsoleQueryService : IB2cMarginEmission
         {
             Emissions = emissions.Select(B2cMarginEmissionRow.FromDto).ToList(),
         };
+    }
+
+    public async Task<B2cMarginEmissionDetailViewModel?> GetEmissionDetailAsync(Guid emissionBatchId, CancellationToken cancellationToken = default)
+    {
+        var detail = await _emissionQueries.GetEmissionDetailAsync(emissionBatchId, cancellationToken).ConfigureAwait(false);
+        return detail is null ? null : B2cMarginEmissionDetailViewModel.FromDto(detail);
     }
 }

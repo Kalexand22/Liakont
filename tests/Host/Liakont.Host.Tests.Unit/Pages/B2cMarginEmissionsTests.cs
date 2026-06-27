@@ -145,6 +145,9 @@ public sealed class B2cMarginEmissionsTests : BunitContext
 
             return Task.FromResult(_model!);
         }
+
+        public Task<B2cMarginEmissionDetailViewModel?> GetEmissionDetailAsync(Guid emissionBatchId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<B2cMarginEmissionDetailViewModel?>(null);
     }
 
     private sealed class SpyQueries : IB2cMarginEmissionsConsoleQueries
@@ -168,5 +171,8 @@ public sealed class B2cMarginEmissionsTests : BunitContext
             _calls++;
             return Task.FromResult(model);
         }
+
+        public Task<B2cMarginEmissionDetailViewModel?> GetEmissionDetailAsync(Guid emissionBatchId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<B2cMarginEmissionDetailViewModel?>(null);
     }
 }

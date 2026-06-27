@@ -9,7 +9,6 @@
 @using Stratum.Common.UI.Models
 @using Liakont.Host.B2cReporting
 @inject IB2cMarginEmissionsConsoleQueries EmissionQueries
-@inject NavigationManager Nav
 @inject ILogger<B2cMarginEmissions> Logger
 
 <PageTitle>Émissions e-reporting B2C — Liakont</PageTitle>
@@ -40,14 +39,13 @@ else if (_model is null)
 else
 {
     @* ── Liste : gabarit DeclaredListPage (aucune grille « maison »). Rechargée (re-key) au changement de
-       période. Pas de fiche de détail d'agrégat : DetailUrl renvoie l'URI courante (activation de ligne sans
-       effet, comme Encaissements / Traitements). ── *@
+       période. L'activation d'une ligne ouvre la fiche de DÉTAIL d'émission (BUG-22 : motif PA + pièces). ── *@
     <DeclaredListPage @key="_periodEpoch"
                       TItem="B2cMarginEmissionRow"
                       Title="Émissions e-reporting B2C"
                       TestId="margin-emissions"
                       LoadItems="LoadItemsAsync"
-                      DetailUrl="@(_ => Nav.Uri)"
+                      DetailUrl="@(row => $"/emissions-marge-b2c/{row.EmissionBatchId}")"
                       ColumnRegistry="_registry"
                       ColumnTemplates="_columnTemplates"
                       GridKey="Liakont.B2cMarginEmissions"

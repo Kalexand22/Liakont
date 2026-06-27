@@ -80,6 +80,71 @@ public sealed class PostgresB2cMarginEmissionQueries : IB2cMarginEmissionQueries
         return rows.Select(Map).ToList();
     }
 
+    public async Task<B2cMarginEmissionDetailDto?> GetEmissionDetailAsync(Guid emissionBatchId, CancellationToken cancellationToken = default)
+    {
+        using var conn = await _connectionFactory.OpenAsync(cancellationToken);
+
+        // État COURANT du lot : la DERNIÈRE entrée (ROW_NUMBER sur created_utc, seq), avec le snapshot brut de
+        // réponse PA. Même logique de regroupement que GetEmissionsAsync, bornée à UN emission_batch_id.
+        const string aggregateSql = """
+            WITH ranked AS (
+                SELECT emission_batch_id, content_hash, aggregate_date, currency, category, role, status,
+                       pa_emission_id, pa_response_snapshot, detail, created_utc,
+                       ROW_NUMBER() OVER (PARTITION BY emission_batch_id ORDER BY created_utc DESC, seq DESC) AS rn
+                FROM pipeline.b2c_margin_emissions
+                WHERE emission_batch_id = @EmissionBatchId
+            )
+            SELECT emission_batch_id, content_hash, aggregate_date, currency, category, role, status,
+                   pa_emission_id, pa_response_snapshot, detail, created_utc
+            FROM ranked
+            WHERE rn = 1
+            """;
+
+        var aggregate = await conn.QueryFirstOrDefaultAsync(new CommandDefinition(
+            aggregateSql, new { EmissionBatchId = emissionBatchId }, cancellationToken: cancellationToken));
+
+        if (aggregate is null)
+        {
+            return null;
+        }
+
+        // Pièces du lot : documents DISTINCTS (un document écrit plusieurs entrées — Pending puis issue), triés
+        // par référence source pour un affichage déterministe.
+        const string documentsSql = """
+            SELECT DISTINCT document_id, source_reference
+            FROM pipeline.b2c_margin_emissions
+            WHERE emission_batch_id = @EmissionBatchId
+            ORDER BY source_reference
+            """;
+
+        var documentRows = await conn.QueryAsync(new CommandDefinition(
+            documentsSql, new { EmissionBatchId = emissionBatchId }, cancellationToken: cancellationToken));
+
+        var documents = documentRows
+            .Select(d => new B2cMarginEmissionDocumentDto
+            {
+                DocumentId = (Guid)d.document_id,
+                SourceReference = (string)d.source_reference,
+            })
+            .ToList();
+
+        return new B2cMarginEmissionDetailDto
+        {
+            EmissionBatchId = (Guid)aggregate.emission_batch_id,
+            ContentHash = (string)aggregate.content_hash,
+            AggregateDate = ToDateOnly((object)aggregate.aggregate_date),
+            CurrencyCode = (string)aggregate.currency,
+            Category = (string)aggregate.category,
+            Role = (string)aggregate.role,
+            Status = (string)aggregate.status,
+            PaEmissionId = (string?)aggregate.pa_emission_id,
+            Detail = (string?)aggregate.detail,
+            PaResponseSnapshot = (string?)aggregate.pa_response_snapshot,
+            LastActivityUtc = PipelineRowReader.ToDateTimeOffset((object)aggregate.created_utc),
+            Documents = documents,
+        };
+    }
+
     private static B2cMarginEmissionAggregateDto Map(dynamic row)
     {
         return new B2cMarginEmissionAggregateDto

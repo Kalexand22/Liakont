@@ -83,18 +83,72 @@ public sealed class B2cMarginEmissionsConsoleQueryServiceTests
             ContentHash = "hash-" + status,
         };
 
+    [Fact]
+    public async Task GetEmissionDetail_Projects_The_Dto_With_A_Readable_Pa_Motif_And_Document_Family()
+    {
+        var batchId = Guid.NewGuid();
+        var docId = Guid.NewGuid();
+        var detail = new B2cMarginEmissionDetailDto
+        {
+            EmissionBatchId = batchId,
+            AggregateDate = new DateOnly(2026, 6, 23),
+            CurrencyCode = "EUR",
+            Category = "TMA1",
+            Role = "SE",
+            Status = "RejectedByPa",
+            PaEmissionId = null,
+            Detail = "Rejet par la plateforme.",
+            PaResponseSnapshot = """{"http_status_code":400,"message":"cannot add transaction at date 2024-01-03"}""",
+            LastActivityUtc = new DateTimeOffset(2026, 6, 23, 9, 0, 0, TimeSpan.Zero),
+            ContentHash = "hash",
+            Documents = [new B2cMarginEmissionDocumentDto { DocumentId = docId, SourceReference = "encheresv6:ba:9000004" }],
+        };
+        var fake = new FakeQueries([], detail);
+        var service = new B2cMarginEmissionsConsoleQueryService(fake);
+
+        var model = await service.GetEmissionDetailAsync(batchId);
+
+        model.Should().NotBeNull();
+        model!.PaEmissionId.Should().Be("—", "l'agrégat rejeté n'a pas d'id plateforme");
+        model.PaResponseLines.Should().ContainSingle().Which.Should().Contain("cannot add transaction");
+        model.Documents.Should().ContainSingle();
+        model.Documents[0].Family.Should().Be("Bordereau acheteur", "la famille est dérivée de la référence source");
+        fake.RequestedBatchIds.Should().ContainSingle().Which.Should().Be(batchId);
+    }
+
+    [Fact]
+    public async Task GetEmissionDetail_Returns_Null_When_The_Batch_Is_Unknown()
+    {
+        var service = new B2cMarginEmissionsConsoleQueryService(new FakeQueries([], detail: null));
+
+        (await service.GetEmissionDetailAsync(Guid.NewGuid())).Should().BeNull();
+    }
+
     private sealed class FakeQueries : IB2cMarginEmissionQueries
     {
         private readonly IReadOnlyList<B2cMarginEmissionAggregateDto> _emissions;
+        private readonly B2cMarginEmissionDetailDto? _detail;
 
-        public FakeQueries(IReadOnlyList<B2cMarginEmissionAggregateDto> emissions) => _emissions = emissions;
+        public FakeQueries(IReadOnlyList<B2cMarginEmissionAggregateDto> emissions, B2cMarginEmissionDetailDto? detail = null)
+        {
+            _emissions = emissions;
+            _detail = detail;
+        }
 
         public List<string?> RequestedPeriods { get; } = [];
+
+        public List<Guid> RequestedBatchIds { get; } = [];
 
         public Task<IReadOnlyList<B2cMarginEmissionAggregateDto>> GetEmissionsAsync(string? period, CancellationToken cancellationToken = default)
         {
             RequestedPeriods.Add(period);
             return Task.FromResult(_emissions);
+        }
+
+        public Task<B2cMarginEmissionDetailDto?> GetEmissionDetailAsync(Guid emissionBatchId, CancellationToken cancellationToken = default)
+        {
+            RequestedBatchIds.Add(emissionBatchId);
+            return Task.FromResult(_detail);
         }
     }
 }

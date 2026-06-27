@@ -1,5 +1,6 @@
 namespace Liakont.Modules.Pipeline.Contracts.Queries;
 
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,4 +23,11 @@ public interface IB2cMarginEmissionQueries
     /// ou nulle ne filtre pas. Triées par jour décroissant puis devise (déterminisme).
     /// </summary>
     Task<IReadOnlyList<B2cMarginEmissionAggregateDto>> GetEmissionsAsync(string? period, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Détail d'UNE transmission (lot d'émission, BUG-22) : son état COURANT (dernière entrée) + le snapshot
+    /// BRUT de réponse PA + la liste des PIÈCES qui l'ont composée (documents distincts du lot). <c>null</c> si
+    /// le lot est introuvable (autre tenant, ou identifiant inconnu). Tenant-scopé par construction.
+    /// </summary>
+    Task<B2cMarginEmissionDetailDto?> GetEmissionDetailAsync(Guid emissionBatchId, CancellationToken cancellationToken = default);
 }

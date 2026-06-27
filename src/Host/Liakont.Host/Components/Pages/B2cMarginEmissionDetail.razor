@@ -1,0 +1,161 @@
+@page "/emissions-marge-b2c/{EmissionBatchId:guid}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = LiakontPermissions.Read)]
+@using Liakont.Host.Security
+@using System.Globalization
+@using Microsoft.Extensions.Logging
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Liakont.Host.B2cReporting
+@inject IB2cMarginEmissionsConsoleQueries EmissionQueries
+@inject ILogger<B2cMarginEmissionDetail> Logger
+
+@* Détail d'une TRANSMISSION e-reporting B2C (BUG-22) : état courant + motif PA lisible (jamais de JSON brut,
+ * F10 §1) + pièces composant l'agrégat avec lien vers chaque document. Rendu PUR : le modèle est assemblé par
+ * le service console (tenant-scopé) ; aucune logique fiscale ici (CLAUDE.md n°2/19). *@
+
+<PageTitle>Détail d'émission e-reporting B2C — Liakont</PageTitle>
+
+<div class="liakont-doc-detail">
+    <p class="liakont-doc-detail__back">
+        <a href="/emissions-marge-b2c" data-testid="emission-detail-back">← Retour aux émissions e-reporting B2C</a>
+    </p>
+
+    @if (_loadFailed)
+    {
+        <LiakontAlert TestId="emission-detail-error">
+            Impossible de charger ce détail d'émission pour le moment. Réessayez plus tard.
+        </LiakontAlert>
+    }
+    else if (_notFound)
+    {
+        <LiakontAlert Severity="Severity.Warning" TestId="emission-detail-notfound">
+            Cette émission est introuvable. Elle n'existe pas pour ce tenant, ou l'identifiant est incorrect.
+        </LiakontAlert>
+    }
+    else if (_model is null)
+    {
+        <LiakontLoading TestId="emission-detail-loading" />
+    }
+    else
+    {
+        <h1 class="liakont-doc-detail__title" data-testid="emission-detail-title">
+            Émission e-reporting B2C du @_model.AggregateDate.ToString("dd/MM/yyyy", Fr)
+        </h1>
+
+        <SectionCard Title="Synthèse de la transmission" TestId="emission-detail-recap">
+            <dl class="liakont-doc-detail__defs">
+                <div class="liakont-doc-detail__row">
+                    <dt>État</dt>
+                    <dd>
+                        @{
+                            var (statusLabel, statusSeverity) = B2cMarginEmissionStatusDisplay.For(_model.Status);
+                        }
+                        <StatusBadge Label="@statusLabel" Severity="statusSeverity" TestId="emission-detail-status" />
+                    </dd>
+                </div>
+                <div class="liakont-doc-detail__row">
+                    <dt>Devise</dt>
+                    <dd data-testid="emission-detail-currency">@_model.Currency</dd>
+                </div>
+                <div class="liakont-doc-detail__row">
+                    <dt>Catégorie</dt>
+                    <dd data-testid="emission-detail-category">@_model.Category</dd>
+                </div>
+                <div class="liakont-doc-detail__row">
+                    <dt>Rôle</dt>
+                    <dd data-testid="emission-detail-role">@_model.Role</dd>
+                </div>
+                <div class="liakont-doc-detail__row">
+                    <dt>Identifiant plateforme</dt>
+                    <dd data-testid="emission-detail-pa-id">@_model.PaEmissionId</dd>
+                </div>
+                <div class="liakont-doc-detail__row">
+                    <dt>Dernière activité</dt>
+                    <dd>@_model.LastActivityUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr)</dd>
+                </div>
+            </dl>
+        </SectionCard>
+
+        @* Motif de la plateforme (BUG-22) : message opérateur de la dernière issue + réponse PA restituée
+         * LISIBLEMENT (codes + messages, jamais de JSON brut — F10 §1). Affiché seulement s'il y a un motif. *@
+        @if (HasMotif)
+        {
+            <SectionCard Title="Motif de la plateforme" TestId="emission-detail-motif">
+                @if (_model.Detail != "—")
+                {
+                    <p data-testid="emission-detail-motif-detail">@_model.Detail</p>
+                }
+                @if (_model.PaResponseLines.Count > 0)
+                {
+                    <ul class="liakont-doc-detail__pa-motif" data-testid="emission-detail-pa-response">
+                        @foreach (var line in _model.PaResponseLines)
+                        {
+                            <li>@line</li>
+                        }
+                    </ul>
+                }
+            </SectionCard>
+        }
+
+        <SectionCard Title="@($"Pièces composant l'agrégat ({_model.Documents.Count})")" TestId="emission-detail-documents">
+            @if (_model.Documents.Count == 0)
+            {
+                <p data-testid="emission-detail-documents-empty">Aucune pièce enregistrée pour cet agrégat.</p>
+            }
+            else
+            {
+                <table class="liakont-doc-detail__lines" data-testid="emission-detail-documents-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Famille</th>
+                            <th scope="col">Référence source</th>
+                            <th scope="col">Document</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var doc in _model.Documents)
+                        {
+                            <tr data-testid="emission-detail-document">
+                                <td>@doc.Family</td>
+                                <td>@doc.SourceReference</td>
+                                <td><a href="@($"/documents/{doc.DocumentId}")" data-testid="emission-detail-document-link">Consulter le document</a></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </SectionCard>
+    }
+</div>
+
+@code {
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    /// <summary>Identité de la transmission (lot d'émission) — paramètre de route.</summary>
+    [Parameter]
+    public Guid EmissionBatchId { get; set; }
+
+    private B2cMarginEmissionDetailViewModel? _model;
+    private bool _loadFailed;
+    private bool _notFound;
+
+    /// <summary><c>true</c> s'il y a un motif à afficher (message opérateur de la dernière issue OU réponse PA lisible).</summary>
+    private bool HasMotif => _model is not null && (_model.Detail != "—" || _model.PaResponseLines.Count > 0);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _model = await EmissionQueries.GetEmissionDetailAsync(EmissionBatchId);
+            _notFound = _model is null;
+            _loadFailed = false;
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the Liakont B2C margin emission detail for batch {EmissionBatchId}.", EmissionBatchId);
+        }
+    }
+}
