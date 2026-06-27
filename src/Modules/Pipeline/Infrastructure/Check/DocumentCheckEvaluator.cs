@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.Mandats.Contracts;
 using Liakont.Modules.Pipeline.Domain.B2cReporting;
+using Liakont.Modules.Pipeline.Infrastructure.B2cReporting;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Liakont.Modules.Transmission.Contracts;
@@ -232,7 +233,53 @@ internal static class DocumentCheckEvaluator
             return CheckDecision.Blocked(WithDocumentNumber(documentNumber, OperationCategoryMissingReason));
         }
 
-        return CheckDecision.Ready(evaluation.MappingVersion, evaluation.Ventilation!, pivot.OperationCategory.Value);
+        // L2 — REGISTRE DE LA MARGE À DÉCLARER : si le document est au régime de la marge (buyer-indépendant) et que
+        // la marge se résout (cœurs purs partagés, fail-closed), on calcule l'entrée HT/TVA sur marge à déclarer
+        // (LECTURE SEULE — un second MapAsync Frais, aucune écriture : le contrat « detection only » de l'évaluateur
+        // est préservé). L'appelant l'écrit (upsert) à côté du snapshot de ventilation. Non-marge / non résolu → null.
+        var marginRegistryEntry = await TryResolveMarginRegistryEntryAsync(
+            mappingService, companyId, documentId, evaluation.EnrichedDocument!, cancellationToken);
+
+        return CheckDecision.Ready(evaluation.MappingVersion, evaluation.Ventilation!, pivot.OperationCategory.Value, marginRegistryEntry);
+    }
+
+    /// <summary>
+    /// Calcule l'entrée du registre de la marge à déclarer (L2) pour un document PRÊT, ou <c>null</c> s'il n'est
+    /// pas au régime de la marge ou si la marge n'est pas résolvable (fail-closed). RÉUTILISE les cœurs purs
+    /// partagés — <see cref="B2cMarginMarking.IsMarginRegime"/> (buyer-indépendant : B2C ET B2B),
+    /// <see cref="B2cMarginDocumentResolver"/> (assemblage acheteur + vendeur + taux),
+    /// <see cref="B2cTransactionAggregationCalculator.ToHt"/> (TTC→HT) — donc l'aide à la déclaration porte
+    /// EXACTEMENT le calcul de l'e-reporting B2C, jamais une logique parallèle qui dériverait (P1). LECTURE SEULE :
+    /// aucun montant inventé (CLAUDE.md n°2), aucune écriture (l'évaluateur reste « detection only »).
+    /// </summary>
+    private static async Task<MarginRegistryEntry?> TryResolveMarginRegistryEntryAsync(
+        ITvaMappingService tvaMapping,
+        Guid companyId,
+        Guid documentId,
+        PivotDocumentDto enriched,
+        CancellationToken cancellationToken)
+    {
+        if (!B2cMarginMarking.IsMarginRegime(enriched))
+        {
+            return null;
+        }
+
+        var resolution = await B2cMarginDocumentResolver.ResolveAsync(tvaMapping, companyId, enriched, cancellationToken);
+        if (!resolution.IsResolved)
+        {
+            return null;
+        }
+
+        var (baseHt, vat) = B2cTransactionAggregationCalculator.ToHt(resolution.MarginTtc, resolution.RatePercent);
+        return new MarginRegistryEntry
+        {
+            DocumentId = documentId,
+            IssueDate = DateOnly.FromDateTime(enriched.IssueDate),
+            CurrencyCode = enriched.CurrencyCode,
+            VatRate = resolution.RatePercent,
+            MarginBaseHt = baseHt,
+            MarginVat = vat,
+        };
     }
 
     /// <summary>

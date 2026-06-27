@@ -241,6 +241,7 @@ public sealed class DocumentRecheckServiceTests
     {
         var lifecycle = new FakeDocumentLifecycle();
         var snapshots = new FakeVentilationSnapshotStore();
+        var marginRegistry = new FakeMarginRegistryStore();
         var companyId = Guid.NewGuid();
         var canonicalJson = CanonicalJson.Serialize(pivot ?? CheckTestData.SelfBilledSingleLinePivot());
 
@@ -253,6 +254,7 @@ public sealed class DocumentRecheckServiceTests
             [typeof(IValidationService)] = new FakeValidationService(validation),
             [typeof(IDocumentLifecycle)] = lifecycle,
             [typeof(IVentilationSnapshotStore)] = snapshots,
+            [typeof(IMarginRegistryStore)] = marginRegistry,
             [typeof(ISelfBilledGate)] = gate,
         };
 
@@ -262,12 +264,13 @@ public sealed class DocumentRecheckServiceTests
             tenantContext,
             new FixedTimeProvider(CheckTestData.Now));
 
-        return new RecheckHarness(service, lifecycle, snapshots, gate);
+        return new RecheckHarness(service, lifecycle, snapshots, marginRegistry, gate);
     }
 
     private sealed record RecheckHarness(
         DocumentRecheckService Service,
         FakeDocumentLifecycle Lifecycle,
         FakeVentilationSnapshotStore Snapshots,
+        FakeMarginRegistryStore MarginRegistry,
         FakeSelfBilledGate Gate);
 }

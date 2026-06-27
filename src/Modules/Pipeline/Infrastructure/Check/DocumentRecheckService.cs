@@ -164,6 +164,10 @@ internal sealed class DocumentRecheckService : IDocumentRecheckService
         // (événement d'audit attribué à l'opérateur qui a déclenché la re-vérification — item FIX02). Un changement
         // d'état concurrent est rendu gracieusement (le snapshot de ventilation, idempotent, reste sans effet).
         await WriteVentilationSnapshotAsync(document, decision, cancellationToken);
+
+        // Registre de la marge à déclarer (L2), à côté du snapshot : un re-CHECK = recalcul, donc upsert si le
+        // document est (re)devenu une marge, suppression d'une entrée périmée sinon (re-mapping marge → taxable).
+        await WriteMarginRegistryAsync(document.Id, decision, cancellationToken);
         var unblocked = await lifecycle.MarkReadyToSendByRecheckAsync(documentId, decision.MappingVersion!, operatorIdentity, operatorName, cancellationToken);
         return unblocked == DocumentRecheckPersistOutcome.Persisted
             ? DocumentRecheckResult.ReadyToSend()
@@ -249,5 +253,23 @@ internal sealed class DocumentRecheckService : IDocumentRecheckService
         };
 
         await _services.GetRequiredService<IVentilationSnapshotStore>().SaveAsync(snapshot, cancellationToken);
+    }
+
+    /// <summary>
+    /// Met à jour le registre de la marge à déclarer (L2) au re-CHECK (recalcul), à côté du snapshot de ventilation :
+    /// UPSERT si le document est (re)devenu une marge résolue, SUPPRESSION d'une entrée périmée sinon (re-mapping
+    /// marge → taxable). PROJECTION recalculable tenant-scopée — jamais une piste d'audit (≠ journal d'émission WORM).
+    /// </summary>
+    private async Task WriteMarginRegistryAsync(Guid documentId, CheckDecision decision, CancellationToken cancellationToken)
+    {
+        var store = _services.GetRequiredService<IMarginRegistryStore>();
+        if (decision.MarginRegistryEntry is { } entry)
+        {
+            await store.UpsertAsync(entry, cancellationToken);
+        }
+        else
+        {
+            await store.DeleteAsync(documentId, cancellationToken);
+        }
     }
 }

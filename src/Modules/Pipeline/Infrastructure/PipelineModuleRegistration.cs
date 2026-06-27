@@ -77,6 +77,13 @@ public static class PipelineModuleRegistration
         // Tenant-scopée (la connexion EST le tenant).
         services.AddScoped<IB2cMarginEmissionQueries, PostgresB2cMarginEmissionQueries>();
 
+        // L2 — REGISTRE DE LA MARGE À DÉCLARER (aide à la déclaration de TVA, pipeline.margin_registry) : PROJECTION
+        // recalculable (upsert sur document_id, ≠ journal d'émission WORM) écrite au CHECK/re-CHECK quand un document
+        // est résolu au régime de la marge, et lue (agrégée mois×devise×taux) par la page console « TVA / Déclaration ».
+        // Tenant-scopés (la connexion EST le tenant).
+        services.AddScoped<IMarginRegistryStore, PostgresMarginRegistryStore>();
+        services.AddScoped<IMarginRegistryQueries, PostgresMarginRegistryQueries>();
+
         // RDL06 — les 4 déclencheurs de fan-out SYSTÈME du pipeline (SendAll / SyncAll / AggregatePaymentsAll /
         // RectifyReportsAll) sont enregistrés par le HOST via AddJobHandler (AddPipelineSystemJobHandlers,
         // l'extension AddJobHandler vit dans Stratum.Modules.Job.Infrastructure, hors frontière Contracts de ce

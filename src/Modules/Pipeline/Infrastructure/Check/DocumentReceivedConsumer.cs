@@ -165,6 +165,10 @@ public sealed partial class DocumentReceivedConsumer : IIntegrationEventConsumer
             // Snapshot de la ventilation TVA sourcée AVANT le passage ReadyToSend (ADR-0015 §4 : happened-before
             // — la version capturée est celle qui sera liée à l'émission). Idempotent (re-CHECK = pas de doublon).
             await WriteVentilationSnapshotAsync(services, payload.DocumentId, current, decision, cancellationToken);
+
+            // Registre de la marge à déclarer (L2), à côté du snapshot : upsert si le document est au régime de la
+            // marge, suppression d'une entrée périmée sinon (re-mapping marge → taxable). Projection recalculable.
+            await WriteMarginRegistryAsync(services, payload.DocumentId, decision, cancellationToken);
             await MarkReadyToSendAndLogAsync(services, payload.DocumentId, decision.MappingVersion!, startedAt, cancellationToken);
         }
         else
@@ -176,6 +180,29 @@ public sealed partial class DocumentReceivedConsumer : IIntegrationEventConsumer
     /// <summary>Préfixe un motif de blocage rédigé par CHECK avec le numéro de document (CLAUDE.md n°12).</summary>
     private static string WithDocumentNumber(string documentNumber, string reason) =>
         string.Create(CultureInfo.InvariantCulture, $"Document n° {documentNumber} : {reason}");
+
+    /// <summary>
+    /// Écrit le registre de la marge à déclarer (L2) au passage ReadyToSend, à côté du snapshot de ventilation :
+    /// UPSERT de l'entrée résolue si le document est au régime de la marge, sinon SUPPRESSION d'une entrée périmée
+    /// (un document devenu taxable au re-mapping ne doit plus peser sur l'aide à la déclaration). PROJECTION
+    /// recalculable tenant-scopée — jamais une piste d'audit (≠ journal d'émission WORM).
+    /// </summary>
+    private static async Task WriteMarginRegistryAsync(
+        IServiceProvider services,
+        Guid documentId,
+        CheckDecision decision,
+        CancellationToken cancellationToken)
+    {
+        var store = services.GetRequiredService<IMarginRegistryStore>();
+        if (decision.MarginRegistryEntry is { } entry)
+        {
+            await store.UpsertAsync(entry, cancellationToken);
+        }
+        else
+        {
+            await store.DeleteAsync(documentId, cancellationToken);
+        }
+    }
 
     [LoggerMessage(EventId = 7100, Level = LogLevel.Debug,
         Message = "CHECK ignoré pour le document {DocumentId} : état {State} (déjà traité ou avancé — idempotent).")]

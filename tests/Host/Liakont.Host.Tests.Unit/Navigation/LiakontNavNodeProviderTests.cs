@@ -85,6 +85,25 @@ public sealed class LiakontNavNodeProviderTests
     }
 
     [Fact]
+    public void GetNavNode_Should_Show_Tva_Declaration_With_Read_Permission()
+    {
+        // TVA / Déclaration (L2) : surface de CONSULTATION (aide à la déclaration de TVA sous le régime de la
+        // marge), gardée par liakont.read comme les autres surfaces de consultation ; la page /tva-declaration
+        // porte la même policy.
+        var root = BuildProvider(permissions: [LiakontPermissions.Read]).GetNavNode();
+
+        Labels(root).Should().Contain("TVA / Déclaration");
+    }
+
+    [Fact]
+    public void GetNavNode_Should_Hide_Tva_Declaration_Without_Read_Permission()
+    {
+        var root = BuildProvider(permissions: []).GetNavNode();
+
+        Labels(root).Should().NotContain("TVA / Déclaration");
+    }
+
+    [Fact]
     public void GetNavNode_For_A_Reader_Should_Show_All_Consultation_Entries_And_The_Settings_Hub_As_A_Leaf()
     {
         // Preuve d'acceptance RLF03 (rôle `lecture`, matrice §3 : liakont.read seul) : il consulte

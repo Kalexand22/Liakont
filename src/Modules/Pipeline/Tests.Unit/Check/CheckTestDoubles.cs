@@ -384,6 +384,30 @@ internal static class CheckTestDoubles
     }
 
     /// <summary>
+    /// Registre de la marge à déclarer factice (L2) : enregistre le dernier UPSERT et la dernière SUPPRESSION pour
+    /// prouver, au passage ReadyToSend, qu'un document marge upsert son entrée et qu'un document non-marge supprime
+    /// l'entrée périmée. PROJECTION recalculable (jamais append-only).
+    /// </summary>
+    internal sealed class FakeMarginRegistryStore : IMarginRegistryStore
+    {
+        public Liakont.Modules.Pipeline.Domain.B2cReporting.MarginRegistryEntry? Upserted { get; private set; }
+
+        public Guid? Deleted { get; private set; }
+
+        public Task UpsertAsync(Liakont.Modules.Pipeline.Domain.B2cReporting.MarginRegistryEntry entry, CancellationToken cancellationToken = default)
+        {
+            Upserted = entry;
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteAsync(Guid documentId, CancellationToken cancellationToken = default)
+        {
+            Deleted = documentId;
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
     /// Contexte tenant factice (MND03 / recheck) : expose un identifiant de tenant fixé pour les tests
     /// unitaires qui instancient directement <see cref="DocumentRecheckService"/> (hors scope HTTP).
     /// </summary>

@@ -717,6 +717,10 @@ public static class AppBootstrap
         // d'émission regroupé par agrégat transmis (pipeline.b2c_margin_emissions) et le projette pour la console.
         builder.Services.AddScoped<Liakont.Host.B2cReporting.IB2cMarginEmissionsConsoleQueries, Liakont.Host.B2cReporting.B2cMarginEmissionsConsoleQueryService>();
 
+        // Composition en lecture de la page TVA / Déclaration (L2) : lit le registre de la marge agrégé par mois
+        // × devise × taux (pipeline.margin_registry) et le projette (avec totaux) pour l'aide à la déclaration de TVA.
+        builder.Services.AddScoped<Liakont.Host.TvaDeclaration.ITvaDeclarationConsoleQueries, Liakont.Host.TvaDeclaration.TvaDeclarationConsoleQueryService>();
+
         // Composition de la page Réconciliation des PDF (WEB08) : lecture des trois files (TRK07/API04) et
         // actions opérateur (confirmer / rejeter / lier), appelées in-process par la page (tenant-scopé,
         // garde liakont.actions). Isole l'accès au module hors de la page.

@@ -61,6 +61,11 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
             // les DEUX régimes (marge TMA1 + prix total taxable TLB1), agrégats jour×devise×catégorie×rôle, état
             // Pending→Émis + id plateforme. Gardée par liakont.read ; la page /emissions-marge-b2c porte la même policy.
             children.Add(new() { Label = "Émissions e-reporting B2C", Href = "/emissions-marge-b2c" });
+
+            // TVA / Déclaration (L2) : surface de CONSULTATION — aide à la déclaration de TVA sous le régime de la
+            // marge (base HT + TVA sur marge du mois à reporter en CA3, non préremplie par la PA — art. 297 E).
+            // Gardée par liakont.read ; la page /tva-declaration porte la même policy.
+            children.Add(new() { Label = "TVA / Déclaration", Href = "/tva-declaration" });
         }
 
         // Réconciliation : visible uniquement si l'agent du tenant alimente un pool de PDF non rattachés. Le

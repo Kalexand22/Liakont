@@ -115,6 +115,73 @@ internal static class CheckTestData
             CreatedAt = Now,
         };
 
+    /// <summary>
+    /// Pivot d'un bordereau au RÉGIME DE LA MARGE (B2C, art. 297 E, L2) : adjudication + honoraire acheteur EN
+    /// LIGNE (rôle <see cref="PivotLineRole.BuyerFee"/>), aucune TVA distincte (TotalTax 0), acheteur PARTICULIER
+    /// (B2C — ni SIREN ni indice société). Les régimes source sont mappés E + VATEX-EU-J par
+    /// <see cref="MarginMappedResult"/> ; le taux de CALCUL des honoraires (B4) = 20 %.
+    /// </summary>
+    public static PivotDocumentDto MarginPivot(decimal adjudication = 100.00m, decimal buyerFeeTtc = 10.00m)
+    {
+        string[] marginRegimeCodes = ["6"];
+
+        var adjudicationLine = new PivotLineDto(
+            description: "Adjudication lot 2",
+            netAmount: adjudication,
+            quantity: 1m,
+            unitPriceNet: adjudication,
+            sourceRegimeCodes: marginRegimeCodes,
+            taxes: new[] { new PivotLineTaxDto(0m, 0m) },
+            sourceLineRef: "0");
+
+        var buyerFeeLine = new PivotLineDto(
+            description: "Honoraires acheteur",
+            netAmount: buyerFeeTtc,
+            quantity: 1m,
+            unitPriceNet: buyerFeeTtc,
+            sourceRegimeCodes: marginRegimeCodes,
+            taxes: new[] { new PivotLineTaxDto(0m, 0m) },
+            sourceLineRef: "1",
+            role: PivotLineRole.BuyerFee);
+
+        return new PivotDocumentDto(
+            sourceDocumentKind: "B",
+            number: "9000004",
+            issueDate: new DateTime(2026, 6, 26),
+            sourceReference: "encheresv6:ba:9000004",
+            supplier: new PivotPartyDto("Étude Fictïve SVV", siren: "111111111"),
+            totals: new PivotTotalsDto(adjudication + buyerFeeTtc, 0m, adjudication + buyerFeeTtc),
+            operationCategory: OperationCategory.LivraisonBiens,
+            customer: new PivotPartyDto("Particulier"),
+            lines: new[] { adjudicationLine, buyerFeeLine });
+    }
+
+    /// <summary>
+    /// Résultat de mapping d'un bordereau marge : les DEUX lignes (adjudication + honoraire acheteur) mappées
+    /// E + VATEX-EU-J (régime de la marge, F03 §2.2). Le taux (20 %) est le taux de CALCUL des honoraires (B4,
+    /// F03 §2.3) — la marge reste sans TVA distincte (297 E). Une ligne par requête de <see cref="MarginPivot"/>.
+    /// </summary>
+    public static DocumentTvaMappingResult MarginMappedResult(string version = "cmp-v1", decimal feeRate = 20m)
+    {
+        TvaLineMappingResult Line(string lineRef) => new()
+        {
+            SourceRegimeCode = "6",
+            LineRef = lineRef,
+            IsMapped = true,
+            Category = "E",
+            Rate = feeRate,
+            Vatex = "VATEX-EU-J",
+        };
+
+        return new DocumentTvaMappingResult
+        {
+            TableExists = true,
+            IsValidated = true,
+            MappingVersion = version,
+            Lines = new[] { Line("0"), Line("1") },
+        };
+    }
+
     public static DocumentTvaMappingResult MappedResult(string version = "cmp-v1", bool isValidated = true)
     {
         var line = new TvaLineMappingResult
