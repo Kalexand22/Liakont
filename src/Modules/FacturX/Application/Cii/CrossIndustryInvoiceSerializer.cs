@@ -88,7 +88,7 @@ public sealed class CrossIndustryInvoiceSerializer : ICrossIndustryInvoiceSerial
         }
 
         WriteAgreement(writer, pivot);
-        WriteDelivery(writer);
+        WriteDelivery(writer, pivot);
         WriteSettlement(writer, pivot, breakdown);
         writer.WriteEndElement(); // SupplyChainTradeTransaction
 
@@ -119,6 +119,25 @@ public sealed class CrossIndustryInvoiceSerializer : ICrossIndustryInvoiceSerial
         writer.WriteString(FormatDate(pivot.IssueDate));
         writer.WriteEndElement(); // DateTimeString
         writer.WriteEndElement(); // IssueDateTime
+
+        // ram:IncludedNote (BG-1, BUG-26 / F16 §3.5) — mentions de document, dont les mentions légales FR
+        // obligatoires (BR-FR-05 : PMD/PMT/AAB). Contenu = mention tenant portée par le pivot ; rien d'inventé
+        // ici. Ordre XSD du NoteType : Content (BT-22) puis SubjectCode (BT-21). Omis quand le pivot n'en porte pas.
+        if (pivot.Notes is not null)
+        {
+            foreach (var note in pivot.Notes)
+            {
+                if (string.IsNullOrWhiteSpace(note.Content))
+                {
+                    continue;
+                }
+
+                StartRam(writer, "IncludedNote");
+                Ram(writer, "Content", note.Content);
+                RamOptional(writer, "SubjectCode", note.SubjectCode);
+                writer.WriteEndElement(); // IncludedNote
+            }
+        }
 
         writer.WriteEndElement(); // ExchangedDocument
     }
@@ -233,13 +252,25 @@ public sealed class CrossIndustryInvoiceSerializer : ICrossIndustryInvoiceSerial
         writer.WriteEndElement(); // PostalTradeAddress
     }
 
-    // ram:ApplicableHeaderTradeDelivery — obligatoire dans le xsd:sequence de la transaction (et exigé
-    // par EN 16931 / Mustang COMFORT, fût-il vide). Le pivot ne porte pas de date de livraison (BT-72,
-    // optionnelle) : on émet l'élément vide — jamais une date fabriquée.
-    private static void WriteDelivery(XmlWriter writer)
+    // ram:ApplicableHeaderTradeDelivery (BUG-26 / R008) — JAMAIS vide (PEPPOL-EN16931-R008 interdit un
+    // élément vide). On émet la date de livraison effective (BT-72) via ActualDeliverySupplyChainEvent :
+    // date portée par le pivot si présente (fait de la source), sinon la date d'émission (BT-2) — aux
+    // enchères la livraison du lot intervient à l'adjudication (= date de vente, F16 §3.5). La date
+    // d'émission est toujours présente (BT-2 obligatoire) : l'élément n'est donc jamais vide.
+    private static void WriteDelivery(XmlWriter writer, PivotDocumentDto pivot)
     {
-        writer.WriteStartElement(RamPrefix, "ApplicableHeaderTradeDelivery", CiiProfile.RamNamespace);
-        writer.WriteEndElement();
+        var deliveryDate = pivot.DeliveryDate ?? pivot.IssueDate;
+
+        StartRam(writer, "ApplicableHeaderTradeDelivery");
+        StartRam(writer, "ActualDeliverySupplyChainEvent");
+        StartRam(writer, "OccurrenceDateTime");
+        writer.WriteStartElement(UdtPrefix, "DateTimeString", CiiProfile.UdtNamespace);
+        writer.WriteAttributeString("format", CiiProfile.DateFormatCode);
+        writer.WriteString(FormatDate(deliveryDate));
+        writer.WriteEndElement(); // DateTimeString
+        writer.WriteEndElement(); // OccurrenceDateTime
+        writer.WriteEndElement(); // ActualDeliverySupplyChainEvent
+        writer.WriteEndElement(); // ApplicableHeaderTradeDelivery
     }
 
     // ram:ApplicableHeaderTradeSettlement — devise (BT-5), ventilation BG-23, totaux BG-22.
@@ -254,8 +285,40 @@ public sealed class CrossIndustryInvoiceSerializer : ICrossIndustryInvoiceSerial
             WriteHeaderTradeTax(writer, line);
         }
 
+        WritePaymentTerms(writer, pivot);
         WriteMonetarySummation(writer, pivot);
         writer.WriteEndElement(); // ApplicableHeaderTradeSettlement
+    }
+
+    // ram:SpecifiedTradePaymentTerms (BUG-26 / F16 §3.5) — BT-20 (Description, termes de paiement, mention
+    // tenant) + BT-9 (DueDateDateTime, échéance portée par le pivot, jamais fabriquée). Satisfait BR-CO-25
+    // pour un montant dû positif. Ordre XSD : Description puis DueDateDateTime. Omis quand le pivot ne porte
+    // ni l'un ni l'autre (le CHECK bloque en amont une facture B2B FR sans termes de paiement).
+    private static void WritePaymentTerms(XmlWriter writer, PivotDocumentDto pivot)
+    {
+        var hasDescription = !string.IsNullOrWhiteSpace(pivot.PaymentTerms);
+        if (!hasDescription && !pivot.PaymentDueDate.HasValue)
+        {
+            return;
+        }
+
+        StartRam(writer, "SpecifiedTradePaymentTerms");
+        if (hasDescription)
+        {
+            Ram(writer, "Description", pivot.PaymentTerms!);
+        }
+
+        if (pivot.PaymentDueDate is { } dueDate)
+        {
+            StartRam(writer, "DueDateDateTime");
+            writer.WriteStartElement(UdtPrefix, "DateTimeString", CiiProfile.UdtNamespace);
+            writer.WriteAttributeString("format", CiiProfile.DateFormatCode);
+            writer.WriteString(FormatDate(dueDate));
+            writer.WriteEndElement(); // DateTimeString
+            writer.WriteEndElement(); // DueDateDateTime
+        }
+
+        writer.WriteEndElement(); // SpecifiedTradePaymentTerms
     }
 
     // ram:ApplicableTradeTax de document (BG-23) — BT-117/116/118/121/119 dans l'ordre du XSD.

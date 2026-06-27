@@ -160,6 +160,35 @@ public static class CanonicalJson
             WriteInvoicePeriod(writer, document.InvoicePeriod);
         }
 
+        // EN 16931 BT-20 (termes de paiement, BUG-26 / F16 §3.5) : champ ADDITIF en FIN (ADR-0007), émis
+        // SEULEMENT s'il est porté — un document sans termes de paiement produit le JSON canonique INCHANGÉ.
+        WriteOptionalString(writer, "PaymentTerms", document.PaymentTerms);
+
+        // EN 16931 BG-1 (notes / mentions légales FR — BUG-26) : collection nullable OMISE quand null (comme
+        // SellerFees) — un document sans note produit le JSON canonique INCHANGÉ octet par octet (pattern EXT01).
+        if (document.Notes != null)
+        {
+            writer.WritePropertyName("Notes");
+            WriteArray(writer, document.Notes, WriteNote);
+        }
+
+        // EN 16931 BT-72 (date de livraison effective — BUG-26 / R008) : champ ADDITIF en FIN (ADR-0007),
+        // émis SEULEMENT s'il est porté — un document sans date de livraison produit le JSON canonique INCHANGÉ.
+        if (document.DeliveryDate.HasValue)
+        {
+            writer.WritePropertyName("DeliveryDate");
+            writer.WriteDate(document.DeliveryDate.Value);
+        }
+
+        writer.EndObject();
+    }
+
+    private static void WriteNote(CanonicalJsonWriter writer, PivotDocumentNoteDto note)
+    {
+        writer.BeginObject();
+        writer.WritePropertyName("Content");
+        writer.WriteString(note.Content);
+        WriteOptionalString(writer, "SubjectCode", note.SubjectCode);
         writer.EndObject();
     }
 

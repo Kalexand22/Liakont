@@ -357,6 +357,9 @@ public sealed class PaPublicationConsoleServiceTests
         public Task<FiscalSettingsDto?> GetFiscalSettings(Guid companyId, CancellationToken ct = default) =>
             Task.FromResult<FiscalSettingsDto?>(null);
 
+        public Task<BillingMentionsDto?> GetBillingMentions(Guid companyId, CancellationToken ct = default) =>
+            Task.FromResult<BillingMentionsDto?>(null);
+
         public Task<IReadOnlyList<PaAccountDto>> GetPaAccounts(Guid companyId, CancellationToken ct = default) =>
             Task.FromResult(Accounts);
 

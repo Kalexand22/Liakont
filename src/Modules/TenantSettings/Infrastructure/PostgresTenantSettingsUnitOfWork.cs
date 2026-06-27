@@ -191,6 +191,82 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
         EnsureUpdated(rows, "FiscalSettings", settings.Id);
     }
 
+    // ──────────────────── Mentions de facturation (BUG-26) ────────────────────
+    public async Task<BillingMentions?> GetBillingMentionsByCompanyAsync(Guid companyId, CancellationToken ct = default)
+    {
+        const string sql = """
+            SELECT id, company_id, payment_terms, late_penalty_terms, recovery_fee_terms,
+                   discount_terms, created_at, updated_at
+            FROM tenantsettings.billing_mentions
+            WHERE company_id = @CompanyId
+            """;
+
+        var row = await _txn.Connection.QuerySingleOrDefaultAsync(
+            new CommandDefinition(sql, new { CompanyId = companyId }, _txn.Transaction, cancellationToken: ct));
+
+        return row is null ? null : MapBillingMentions(row);
+    }
+
+    public async Task InsertBillingMentionsAsync(BillingMentions mentions, CancellationToken ct = default)
+    {
+        const string sql = """
+            INSERT INTO tenantsettings.billing_mentions
+                (id, company_id, payment_terms, late_penalty_terms, recovery_fee_terms,
+                 discount_terms, created_at, updated_at)
+            VALUES
+                (@Id, @CompanyId, @PaymentTerms, @LatePenaltyTerms, @RecoveryFeeTerms,
+                 @DiscountTerms, @CreatedAt, @UpdatedAt)
+            """;
+
+        await ExecuteWriteAsync(
+            new CommandDefinition(
+                sql,
+                new
+                {
+                    mentions.Id,
+                    mentions.CompanyId,
+                    mentions.PaymentTerms,
+                    mentions.LatePenaltyTerms,
+                    mentions.RecoveryFeeTerms,
+                    mentions.DiscountTerms,
+                    mentions.CreatedAt,
+                    mentions.UpdatedAt,
+                },
+                _txn.Transaction,
+                cancellationToken: ct),
+            "Des mentions de facturation existent déjà pour cette société.");
+    }
+
+    public async Task UpdateBillingMentionsAsync(BillingMentions mentions, CancellationToken ct = default)
+    {
+        const string sql = """
+            UPDATE tenantsettings.billing_mentions
+            SET payment_terms      = @PaymentTerms,
+                late_penalty_terms = @LatePenaltyTerms,
+                recovery_fee_terms = @RecoveryFeeTerms,
+                discount_terms     = @DiscountTerms,
+                updated_at         = @UpdatedAt
+            WHERE id = @Id AND company_id = @CompanyId
+            """;
+
+        var rows = await _txn.Connection.ExecuteAsync(new CommandDefinition(
+            sql,
+            new
+            {
+                mentions.Id,
+                mentions.CompanyId,
+                mentions.PaymentTerms,
+                mentions.LatePenaltyTerms,
+                mentions.RecoveryFeeTerms,
+                mentions.DiscountTerms,
+                mentions.UpdatedAt,
+            },
+            _txn.Transaction,
+            cancellationToken: ct));
+
+        EnsureUpdated(rows, "BillingMentions", mentions.Id);
+    }
+
     // ───────────────────────────── Comptes PA ─────────────────────────────
     public async Task<PaAccount?> GetPaAccountByIdAsync(Guid id, Guid companyId, CancellationToken ct = default)
     {
@@ -610,6 +686,19 @@ internal sealed class PostgresTenantSettingsUnitOfWork : ITenantSettingsUnitOfWo
             categoryInt.HasValue ? (OperationCategory)categoryInt.Value : null,
             (string?)row.reporting_frequency,
             feeMethodInt.HasValue ? (FeeImputationMethod)feeMethodInt.Value : null,
+            TenantSettingsRowReader.ToDateTimeOffset((object)row.created_at),
+            TenantSettingsRowReader.ToNullableDateTimeOffset((object?)row.updated_at));
+    }
+
+    private static BillingMentions MapBillingMentions(dynamic row)
+    {
+        return BillingMentions.Reconstitute(
+            (Guid)row.id,
+            (Guid)row.company_id,
+            (string?)row.payment_terms,
+            (string?)row.late_penalty_terms,
+            (string?)row.recovery_fee_terms,
+            (string?)row.discount_terms,
             TenantSettingsRowReader.ToDateTimeOffset((object)row.created_at),
             TenantSettingsRowReader.ToNullableDateTimeOffset((object?)row.updated_at));
     }

@@ -87,6 +87,27 @@ public sealed class PivotDocumentDto
     /// <c>null</c> par défaut, OMIS du JSON canonique tant qu'il est absent → hash INCHANGÉ. Inerte en V1
     /// (aucun sérialiseur PA ne le projette) ; porté tel quel par la source, jamais inventé (CLAUDE.md n°2).
     /// </param>
+    /// <param name="paymentTerms">
+    /// Termes / conditions de paiement (EN 16931 BT-20). Donnée de l'ENTREPRISE (CGV), jamais inventée
+    /// (CLAUDE.md n°2) : défaut TENANT « Mentions de facturation » (F12-A §3.4) injecté au read-time,
+    /// surchargeable par document. Satisfait BR-CO-25 pour un montant dû positif (alternative à BT-9).
+    /// Paramètre ADDITIF en fin de constructeur (ADR-0007) : <c>null</c> par défaut, OMIS du JSON canonique
+    /// quand absent → hash INCHANGÉ. Voir F16 §3.5.
+    /// </param>
+    /// <param name="notes">
+    /// Notes de niveau document (EN 16931 BG-1) — porte les mentions légales FR obligatoires (BR-FR-05 :
+    /// PMD pénalités de retard, PMT indemnité de recouvrement, AAB escompte), contenu = paramètre TENANT
+    /// (F12-A §3.4), surchargeable par document. Paramètre ADDITIF en fin de constructeur (ADR-0007) :
+    /// <c>null</c> par défaut ; une liste VIDE est traitée comme ABSENTE (normalisée en <c>null</c>, comme
+    /// <paramref name="sellerFees"/>) ; émis dans le JSON canonique SEULEMENT quand porté → hash INCHANGÉ.
+    /// </param>
+    /// <param name="deliveryDate">
+    /// Date de livraison effective (EN 16931 BT-72) — aux enchères, la livraison du lot intervient à
+    /// l'adjudication (= date de vente, fait du modèle, pas une fabrication). Rend l'élément livraison CII
+    /// NON vide (PEPPOL-EN16931-R008). Paramètre ADDITIF en fin de constructeur (ADR-0007) : <c>null</c> par
+    /// défaut (l'émetteur applique alors la date d'émission), OMIS du JSON canonique quand absent → hash
+    /// INCHANGÉ. Voir F16 §3.5.
+    /// </param>
     public PivotDocumentDto(
         string sourceDocumentKind,
         string number,
@@ -110,7 +131,10 @@ public sealed class PivotDocumentDto
         bool isB2cReportingDeclaration = false,
         IReadOnlyList<PivotSellerFeeDto>? sellerFees = null,
         IReadOnlyList<PivotBuyerFeeDto>? buyerFees = null,
-        PivotInvoicePeriodDto? invoicePeriod = null)
+        PivotInvoicePeriodDto? invoicePeriod = null,
+        string? paymentTerms = null,
+        IReadOnlyList<PivotDocumentNoteDto>? notes = null,
+        DateTime? deliveryDate = null)
     {
         SourceDocumentKind = sourceDocumentKind;
         Number = number;
@@ -138,6 +162,11 @@ public sealed class PivotDocumentDto
         // Symétrique du frais vendeur (B2C-08c) : vide ≡ absent → normalisé en null pour rester hash-neutre.
         BuyerFees = buyerFees != null && buyerFees.Count > 0 ? buyerFees : null;
         InvoicePeriod = invoicePeriod;
+        PaymentTerms = paymentTerms;
+        // Vide ≡ absent : une liste de notes non-null mais VIDE est normalisée en null pour rester hash-neutre
+        // (mêmes règles que SellerFees/BuyerFees — seul un champ OMIS, ou vide, l'est ; pattern EXT01).
+        Notes = notes != null && notes.Count > 0 ? notes : null;
+        DeliveryDate = deliveryDate;
     }
 
     /// <summary>Type de document de la source, BRUT (ADR-0004 D3-3).</summary>
@@ -240,4 +269,27 @@ public sealed class PivotDocumentDto
     /// optionnel OMIS du JSON canonique → hash INCHANGÉ. Inerte en V1 (aucun sérialiseur PA ne le projette).
     /// </summary>
     public PivotInvoicePeriodDto? InvoicePeriod { get; }
+
+    /// <summary>
+    /// Termes / conditions de paiement (EN 16931 BT-20) — donnée de l'entreprise (CGV), défaut TENANT
+    /// (F12-A §3.4) surchargeable par document, jamais inventée. Satisfait BR-CO-25 pour un montant dû
+    /// positif (alternative à <see cref="PaymentDueDate"/>). <c>null</c> ⇒ OMIS du JSON canonique → hash
+    /// INCHANGÉ (champ additif hash-neutre — pattern EXT01). Voir F16 §3.5.
+    /// </summary>
+    public string? PaymentTerms { get; }
+
+    /// <summary>
+    /// Notes de niveau document (EN 16931 BG-1) — porte les mentions légales FR obligatoires (BR-FR-05 :
+    /// PMD/PMT/AAB), contenu = paramètre TENANT (F12-A §3.4) surchargeable par document. <c>null</c> pour un
+    /// document sans note (une liste vide est normalisée en <c>null</c> au constructeur) : émis dans le JSON
+    /// canonique SEULEMENT quand porté → hash INCHANGÉ (champ additif hash-neutre — pattern EXT01).
+    /// </summary>
+    public IReadOnlyList<PivotDocumentNoteDto>? Notes { get; }
+
+    /// <summary>
+    /// Date de livraison effective (EN 16931 BT-72) — aux enchères, livraison à l'adjudication (= date de
+    /// vente). Rend l'élément livraison CII non vide (PEPPOL-EN16931-R008). <c>null</c> ⇒ OMIS du JSON
+    /// canonique → hash INCHANGÉ (l'émetteur applique alors la date d'émission). Voir F16 §3.5.
+    /// </summary>
+    public DateTime? DeliveryDate { get; }
 }

@@ -247,7 +247,13 @@ public static class ContractFixtures
             },
             invoicePeriod: new PivotInvoicePeriodDto(
                 startDate: new DateTime(2026, 1, 1),
-                endDate: new DateTime(2026, 1, 31)));
+                endDate: new DateTime(2026, 1, 31)),
+            paymentTerms: "Paiement à 30 jours fin de mois (mention fictive)",
+            notes: new[]
+            {
+                new PivotDocumentNoteDto("Pénalités de retard : trois fois le taux légal (mention fictive)", "PMD"),
+            },
+            deliveryDate: new DateTime(2026, 2, 28));
     }
 
     /// <summary>

@@ -1,6 +1,7 @@
 namespace Liakont.Modules.Pipeline.Tests.Unit;
 
 using System;
+using System.Linq;
 using FluentAssertions;
 using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.Pipeline.Infrastructure;
@@ -174,6 +175,111 @@ public class PivotEmitterEnricherTests
         enriched.InvoicePeriod!.StartDate.Should().Be(new DateTime(2026, 6, 1));
         enriched.InvoicePeriod.EndDate.Should().Be(new DateTime(2026, 6, 30));
     }
+
+    [Fact]
+    public void Injects_payment_terms_and_three_legal_notes_from_tenant_mentions_when_document_carries_none()
+    {
+        // BUG-26 (F12-A §3.4) : le document ne porte ni termes de paiement ni notes → l'enrich injecte le défaut
+        // TENANT : BT-20 (termes de paiement) + 3 notes légales FR mappées au bon code sujet (PMD/PMT/AAB). Le
+        // CONTENU vient du tenant, seul le mapping mention → code est figé (CLAUDE.md n°2).
+        PivotDocumentDto enriched = PivotEmitterEnricher.Enrich(
+            Pivot(supplier: null, operationCategory: null),
+            Profile("123456782", "SEM Keroman"),
+            Fiscal("LivraisonBiens"),
+            Mentions(
+                paymentTerms: "Paiement à 30 jours.",
+                latePenalty: "Pénalités de retard au taux légal.",
+                recoveryFee: "Indemnité forfaitaire de 40 €.",
+                discount: "Pas d'escompte pour paiement anticipé."));
+
+        enriched.PaymentTerms.Should().Be("Paiement à 30 jours.");
+        enriched.Notes.Should().NotBeNull();
+        enriched.Notes!.Should().HaveCount(3);
+
+        NoteFor(enriched, PivotEmitterEnricher.LatePenaltySubjectCode).Should().Be("Pénalités de retard au taux légal.");
+        NoteFor(enriched, PivotEmitterEnricher.RecoveryFeeSubjectCode).Should().Be("Indemnité forfaitaire de 40 €.");
+        NoteFor(enriched, PivotEmitterEnricher.DiscountSubjectCode).Should().Be("Pas d'escompte pour paiement anticipé.");
+    }
+
+    [Fact]
+    public void Does_not_overwrite_payment_terms_and_notes_already_carried_by_the_document()
+    {
+        // Surcharge par document (la source PRIME, F12-A §3.4) : un document portant DÉJÀ ses termes de paiement
+        // et ses notes n'est pas écrasé par le défaut tenant — exactement comme l'émetteur 389.
+        var documentNotes = new[] { new PivotDocumentNoteDto("Note portée par la source.", "PMD") };
+        var document = new PivotDocumentDto(
+            sourceDocumentKind: "FAC",
+            number: "A-2026-0003",
+            issueDate: new DateTime(2026, 6, 1),
+            sourceReference: "demoerpa:A-2026-0003",
+            supplier: null,
+            totals: new PivotTotalsDto(100m, 20m, 120m),
+            operationCategory: null,
+            paymentTerms: "Termes portés par la source.",
+            notes: documentNotes);
+
+        PivotDocumentDto enriched = PivotEmitterEnricher.Enrich(
+            document,
+            Profile("123456782", "SEM Keroman"),
+            Fiscal("LivraisonBiens"),
+            Mentions(
+                paymentTerms: "Défaut tenant ignoré.",
+                latePenalty: "PMD tenant ignoré.",
+                recoveryFee: "PMT tenant ignoré.",
+                discount: "AAB tenant ignoré."));
+
+        enriched.PaymentTerms.Should().Be("Termes portés par la source.", "la valeur du document prime sur le défaut tenant");
+        enriched.Notes.Should().BeSameAs(documentNotes, "les notes portées par le document ne sont pas écrasées par le défaut tenant");
+    }
+
+    [Fact]
+    public void Leaves_payment_terms_and_notes_untouched_when_no_tenant_mentions_are_provided()
+    {
+        // Mentions null (additif) : aucune injection — ni termes de paiement, ni notes. Le document inchangé est
+        // renvoyé tel quel (un document FR B2B sans mentions sera bloqué au CHECK, jamais inventé — CLAUDE.md n°2).
+        PivotDocumentDto enriched = PivotEmitterEnricher.Enrich(
+            Pivot(supplier: null, operationCategory: null),
+            Profile("123456782", "SEM Keroman"),
+            Fiscal("LivraisonBiens"),
+            mentions: null);
+
+        enriched.PaymentTerms.Should().BeNull();
+        enriched.Notes.Should().BeNull();
+    }
+
+    [Fact]
+    public void Omits_a_note_whose_tenant_mention_is_blank_keeping_only_the_populated_ones()
+    {
+        // Une mention vide → note OMISE (rien à émettre) : seules les mentions renseignées produisent une note.
+        PivotDocumentDto enriched = PivotEmitterEnricher.Enrich(
+            Pivot(supplier: null, operationCategory: null),
+            Profile("123456782", "SEM Keroman"),
+            Fiscal("LivraisonBiens"),
+            Mentions(paymentTerms: null, latePenalty: "Pénalités de retard.", recoveryFee: null, discount: "   "));
+
+        enriched.PaymentTerms.Should().BeNull("une mention de termes de paiement vide n'est pas injectée");
+        enriched.Notes.Should().NotBeNull();
+        enriched.Notes!.Should().ContainSingle("seule la mention renseignée (PMD) produit une note");
+        enriched.Notes![0].SubjectCode.Should().Be(PivotEmitterEnricher.LatePenaltySubjectCode);
+    }
+
+    private static string? NoteFor(PivotDocumentDto enriched, string subjectCode) =>
+        enriched.Notes?.SingleOrDefault(note => note.SubjectCode == subjectCode)?.Content;
+
+    private static BillingMentionsDto Mentions(
+        string? paymentTerms,
+        string? latePenalty,
+        string? recoveryFee,
+        string? discount) => new()
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = Guid.NewGuid(),
+            PaymentTerms = paymentTerms,
+            LatePenaltyTerms = latePenalty,
+            RecoveryFeeTerms = recoveryFee,
+            DiscountTerms = discount,
+            CreatedAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
+        };
 
     private static TenantProfileDto ProfileWithCountry(string siren, string raisonSociale, string country) => new()
     {

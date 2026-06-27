@@ -299,6 +299,9 @@ internal static class SendTestDoubles
         public Task<FiscalSettingsDto?> GetFiscalSettings(Guid companyId, CancellationToken ct = default) =>
             Task.FromResult(_fiscal);
 
+        public Task<BillingMentionsDto?> GetBillingMentions(Guid companyId, CancellationToken ct = default) =>
+            Task.FromResult<BillingMentionsDto?>(null);
+
         public Task<ExtractionScheduleDto?> GetExtractionSchedule(Guid companyId, CancellationToken ct = default) =>
             throw new NotSupportedException();
 

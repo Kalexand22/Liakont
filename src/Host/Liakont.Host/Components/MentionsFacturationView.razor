@@ -1,0 +1,103 @@
+@namespace Liakont.Host.Components
+@using Liakont.Host.BillingMentions
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* MentionsFacturationView — rendu PUR de l'écran « Paramétrage › Mentions de facturation » (BUG-26,
+ * F12-A §3.4). Reçoit son modèle et l'état d'enregistrement en paramètres (aucune injection métier, aucune
+ * logique) pour être testable en bUnit sans auth ni base. Édite les 4 champs de TEXTE LIBRE multi-ligne du
+ * contrat ; aucune valeur par défaut (aucun contenu inventé — CLAUDE.md n°2/7). Gabarit Stratum (SectionCard,
+ * FormField, StratumButton). 100 % français. *@
+
+<div class="liakont-mentions" data-testid="mentions">
+
+    <SectionCard Title="Mentions de facturation du tenant" TestId="mentions-editor">
+        <p class="liakont-mentions__intro">
+            Ces mentions sont portées sur les <strong>factures B2B</strong> émises pour ce tenant. Elles sont
+            renseignées par le client ou son <strong>expert-comptable</strong> à partir de ses conditions de
+            vente. Elles sont <strong>obligatoires</strong> pour une facture B2B française : à défaut, le
+            document est bloqué. Aucun contenu n'est appliqué par défaut — laissez vide une mention non décidée.
+        </p>
+
+        <div class="liakont-mentions__form" data-testid="mentions-form">
+            <FormField Label="Termes de paiement" FieldId="mentions-payment-terms"
+                       HelpText="EN 16931 BT-20. Ex. « Paiement comptant exigible à la vente ».">
+                <textarea id="mentions-payment-terms"
+                          class="form-control"
+                          rows="3"
+                          @bind="Model.Form.PaymentTerms"
+                          disabled="@Busy"
+                          data-testid="mentions-payment-terms"></textarea>
+            </FormField>
+
+            <FormField Label="Pénalités de retard" FieldId="mentions-late-penalty-terms"
+                       HelpText="Mention légale FR obligatoire. Saisissez le texte indiqué par votre expert-comptable.">
+                <textarea id="mentions-late-penalty-terms"
+                          class="form-control"
+                          rows="3"
+                          @bind="Model.Form.LatePenaltyTerms"
+                          disabled="@Busy"
+                          data-testid="mentions-late-penalty-terms"></textarea>
+            </FormField>
+
+            <FormField Label="Indemnité forfaitaire de recouvrement" FieldId="mentions-recovery-fee-terms"
+                       HelpText="Mention légale FR obligatoire. Saisissez le texte indiqué par votre expert-comptable.">
+                <textarea id="mentions-recovery-fee-terms"
+                          class="form-control"
+                          rows="3"
+                          @bind="Model.Form.RecoveryFeeTerms"
+                          disabled="@Busy"
+                          data-testid="mentions-recovery-fee-terms"></textarea>
+            </FormField>
+
+            <FormField Label="Escompte (ou son absence)" FieldId="mentions-discount-terms"
+                       HelpText="Mention légale FR obligatoire. Saisissez le texte indiqué par votre expert-comptable.">
+                <textarea id="mentions-discount-terms"
+                          class="form-control"
+                          rows="3"
+                          @bind="Model.Form.DiscountTerms"
+                          disabled="@Busy"
+                          data-testid="mentions-discount-terms"></textarea>
+            </FormField>
+
+            @if (!string.IsNullOrWhiteSpace(Message))
+            {
+                <div class="liakont-mentions__feedback"
+                     role="@(IsError ? "alert" : "status")"
+                     data-testid="mentions-feedback">
+                    @Message
+                </div>
+            }
+
+            <StratumButton Text="@(Busy ? "Enregistrement…" : "Enregistrer les mentions de facturation")"
+                           Variant="ButtonVariant.Primary"
+                           Size="ButtonSize.Small"
+                           Disabled="@Busy"
+                           OnClick="@(_ => OnSave.InvokeAsync())"
+                           TestId="mentions-save-btn" />
+        </div>
+    </SectionCard>
+
+</div>
+
+@code {
+    /// <summary>Données assemblées de l'écran (jamais <c>null</c> : la page en fournit toujours un).</summary>
+    [Parameter, EditorRequired]
+    public BillingMentionsViewModel Model { get; set; } = null!;
+
+    /// <summary><c>true</c> pendant l'enregistrement (champs et bouton désactivés).</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>Message de retour de l'enregistrement, ou <c>null</c>.</summary>
+    [Parameter]
+    public string? Message { get; set; }
+
+    /// <summary><c>true</c> si <see cref="Message"/> est une erreur (rendu en alerte).</summary>
+    [Parameter]
+    public bool IsError { get; set; }
+
+    /// <summary>Déclenché à l'enregistrement des mentions de facturation.</summary>
+    [Parameter]
+    public EventCallback OnSave { get; set; }
+}

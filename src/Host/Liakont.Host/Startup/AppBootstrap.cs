@@ -750,6 +750,12 @@ public static class AppBootstrap
         // activable sans SQL : sans cet écran, le paramètre restait non renseignable (suspension perpétuelle).
         builder.Services.AddScoped<Liakont.Host.Fiscal.IFiscalConsoleService, Liakont.Host.Fiscal.FiscalConsoleService>();
 
+        // Composition de l'écran « Paramétrage › Mentions de facturation » (BUG-26, F12-A §3.4) : lecture des
+        // mentions de facturation du tenant (GetBillingMentionsQuery) et modification (SetBillingMentionsCommand,
+        // qui upsert/journalise), déléguées en in-process (garde liakont.settings côté page). Mentions légales FR
+        // (BT-20 + BR-FR-05) portées sur la facture B2B — renseignables sans SQL.
+        builder.Services.AddScoped<Liakont.Host.BillingMentions.IBillingMentionsConsoleService, Liakont.Host.BillingMentions.BillingMentionsConsoleService>();
+
         // Témoin de vie du dead-man's-switch (FIX210, F12 §5.1) : lit les exécutions du job SYSTÈME
         // d'évaluation (base système) via un scope SANS tenant ambiant. Horloge partagée (TimeProvider) pour
         // un « en retard » déterministe en test.

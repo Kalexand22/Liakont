@@ -171,34 +171,38 @@ public sealed partial class SendTenantJob : ITenantJob
         var tenantProfile = await tenantSettings.GetTenantProfile(companyId.Value, cancellationToken);
         var fiscalSettings = await tenantSettings.GetFiscalSettings(companyId.Value, cancellationToken);
 
+        // Mentions de facturation (BUG-26, F12-A §3.4) résolues UNE fois et propagées comme profil/fiscal (RB9) :
+        // BT-20 + notes légales FR injectées au read-time par document (la valeur portée par le document prime).
+        var billingMentions = await tenantSettings.GetBillingMentions(companyId.Value, cancellationToken);
+
         // 1) PRE-SEND : raccroche les Sending restés en suspens (crash) — repris dès le 1er cycle (TRK03).
         var sending = await services.GetRequiredService<IDocumentQueries>().GetPotentiallySentDocumentsAsync(cancellationToken);
         foreach (var summary in sending)
         {
-            tally.Add(await SafeProcessAsync(() => RecoverSendingAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, summary.Id, logger, cancellationToken), summary.Id, logger, cancellationToken));
+            tally.Add(await SafeProcessAsync(() => RecoverSendingAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, billingMentions, summary.Id, logger, cancellationToken), summary.Id, logger, cancellationToken));
         }
 
         // 2) Retry des TechnicalError (anti-doublon vérifié AVANT tout renvoi).
         await ForEachByStateAsync(
             services,
             TechnicalErrorStateName,
-            async id => tally.Add(await SafeProcessAsync(() => RetryTechnicalErrorAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, id, logger, cancellationToken), id, logger, cancellationToken)),
+            async id => tally.Add(await SafeProcessAsync(() => RetryTechnicalErrorAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, billingMentions, id, logger, cancellationToken), id, logger, cancellationToken)),
             cancellationToken);
 
         // 3) Envoi des ReadyToSend (les FACTURES d'origine des avoirs sont émises ICI, avant la réconciliation).
-        await SendReadyToSendPassAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, tally, logger, cancellationToken);
+        await SendReadyToSendPassAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, billingMentions, tally, logger, cancellationToken);
 
         // 4) RÉORDONNANCEMENT DES AVOIRS (PIP02, F07 §B.5) : un avoir resté Blocked parce que sa facture d'origine
         //    n'était pas (encore) émise est ré-évalué dès lors que l'origine est désormais émise (Blocked →
         //    ReadyToSend). Cela GARANTIT l'ordre chronologique « l'avoir après sa facture d'origine » : l'origine
         //    vient d'être émise en (3), l'avoir débloqué est envoyé en (5) — jamais l'inverse.
-        var unblockedCreditNotes = await ReconcileCreditNotesAsync(services, companyId.Value, tenantProfile, fiscalSettings, tenantId, logger, cancellationToken);
+        var unblockedCreditNotes = await ReconcileCreditNotesAsync(services, companyId.Value, tenantProfile, fiscalSettings, billingMentions, tenantId, logger, cancellationToken);
 
         // 5) Envoi CIBLÉ des avoirs fraîchement débloqués (on n'envoie QUE ces IDs, jamais un re-snapshot de tous
         //    les ReadyToSend : sinon les différés / ignorés de l'étape 3 seraient recomptés dans la trace SEND).
         foreach (var documentId in unblockedCreditNotes)
         {
-            tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, documentId, logger, cancellationToken), documentId, logger, cancellationToken));
+            tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, billingMentions, documentId, logger, cancellationToken), documentId, logger, cancellationToken));
         }
 
         var detail = unblockedCreditNotes.Count > 0
@@ -218,13 +222,14 @@ public sealed partial class SendTenantJob : ITenantJob
         Guid companyId,
         TenantProfileDto? tenantProfile,
         FiscalSettingsDto? fiscalSettings,
+        BillingMentionsDto? billingMentions,
         SendTally tally,
         ILogger logger,
         CancellationToken cancellationToken) =>
         ForEachByStateAsync(
             services,
             ReadyToSendStateName,
-            async id => tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, account, timeProvider, tenantId, companyId, tenantProfile, fiscalSettings, id, logger, cancellationToken), id, logger, cancellationToken)),
+            async id => tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, account, timeProvider, tenantId, companyId, tenantProfile, fiscalSettings, billingMentions, id, logger, cancellationToken), id, logger, cancellationToken)),
             cancellationToken);
 
     /// <summary>Premier compte Plateforme Agréée ACTIF du tenant (l'envoi passe par lui), ou <c>null</c>.</summary>
@@ -255,6 +260,7 @@ public sealed partial class SendTenantJob : ITenantJob
         Guid companyId,
         TenantProfileDto? tenantProfile,
         FiscalSettingsDto? fiscalSettings,
+        BillingMentionsDto? billingMentions,
         Guid documentId,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -266,7 +272,7 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
-        var staged = await ReadStagedPivotAsync(services, tenantId, companyId, tenantProfile, fiscalSettings, document, logger, cancellationToken);
+        var staged = await ReadStagedPivotAsync(services, tenantId, companyId, tenantProfile, fiscalSettings, billingMentions, document, logger, cancellationToken);
         if (staged.Status == StagedReadStatus.NotStaged)
         {
             return SendOutcome.Deferred;
@@ -362,6 +368,7 @@ public sealed partial class SendTenantJob : ITenantJob
         Guid companyId,
         TenantProfileDto? tenantProfile,
         FiscalSettingsDto? fiscalSettings,
+        BillingMentionsDto? billingMentions,
         Guid documentId,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -381,7 +388,7 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
-        var staged = await ReadStagedPivotAsync(services, tenantId, companyId, tenantProfile, fiscalSettings, document, logger, cancellationToken);
+        var staged = await ReadStagedPivotAsync(services, tenantId, companyId, tenantProfile, fiscalSettings, billingMentions, document, logger, cancellationToken);
         if (staged.Status == StagedReadStatus.NotStaged)
         {
             return SendOutcome.Deferred;
@@ -485,6 +492,7 @@ public sealed partial class SendTenantJob : ITenantJob
         Guid companyId,
         TenantProfileDto? tenantProfile,
         FiscalSettingsDto? fiscalSettings,
+        BillingMentionsDto? billingMentions,
         Guid documentId,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -496,7 +504,7 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
-        var staged = await ReadStagedPivotAsync(services, tenantId, companyId, tenantProfile, fiscalSettings, document, logger, cancellationToken);
+        var staged = await ReadStagedPivotAsync(services, tenantId, companyId, tenantProfile, fiscalSettings, billingMentions, document, logger, cancellationToken);
         if (staged.Status == StagedReadStatus.NotStaged)
         {
             return SendOutcome.Deferred;
@@ -970,6 +978,7 @@ public sealed partial class SendTenantJob : ITenantJob
         Guid companyId,
         TenantProfileDto? tenantProfile,
         FiscalSettingsDto? fiscalSettings,
+        BillingMentionsDto? billingMentions,
         DocumentDto document,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -985,7 +994,10 @@ public sealed partial class SendTenantJob : ITenantJob
             // pivot SOURCE (hashé à l'ingestion pour l'anti-doublon F06). On l'enrichit ICI pour l'émission, et on
             // RE-SÉRIALISE l'enrichi pour que l'archive WORM porte EXACTEMENT ce qui est émis. Le profil/fiscal sont
             // résolus UNE fois en tête de job (ExecuteAsync) et propagés — aucune relecture tenant par document.
-            var enriched = PivotEmitterEnricher.Enrich(pivot, tenantProfile, fiscalSettings);
+            // Mentions de facturation (BT-20 + notes FR, BUG-26 / F12-A §3.4) résolues UNE fois en tête de job
+            // et propagées (comme profil/fiscal) : la valeur portée par le document PRIME, le défaut tenant ne
+            // comble que l'absence (enricher).
+            var enriched = PivotEmitterEnricher.Enrich(pivot, tenantProfile, fiscalSettings, billingMentions);
 
             // Garde anti-« envoi faux » (RB9) : si le profil tenant a perdu son SIREN entre le CHECK (passé,
             // émetteur rempli) et le SEND, l'émetteur redevient nul. On NE transmet PAS un document sans

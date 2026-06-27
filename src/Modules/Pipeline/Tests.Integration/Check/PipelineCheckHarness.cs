@@ -128,6 +128,51 @@ public sealed class PipelineCheckHarness : IAsyncLifetime
         await staging.WriteAsync(new StagedPayloadKey(TenantSlug, documentId, payloadHash), canonicalJson);
     }
 
+    /// <summary>
+    /// Écrit (UPSERT) les mentions de facturation du tenant (BUG-26, F12-A §3.4) — termes de paiement (BT-20) +
+    /// mentions légales FR (PMD/PMT/AAB). Contenus FICTIFS (CLAUDE.md n°7). Une ligne par société (clé unique).
+    /// </summary>
+    public async Task SeedBillingMentionsAsync(
+        string paymentTerms = "Paiement à 30 jours fin de mois.",
+        string latePenaltyTerms = "Pénalités de retard au taux légal.",
+        string recoveryFeeTerms = "Indemnité forfaitaire de recouvrement de 40 €.",
+        string discountTerms = "Pas d'escompte pour paiement anticipé.")
+    {
+        const string sql = """
+            INSERT INTO tenantsettings.billing_mentions
+                (id, company_id, payment_terms, late_penalty_terms, recovery_fee_terms, discount_terms, created_at)
+            VALUES
+                (@Id, @CompanyId, @PaymentTerms, @LatePenaltyTerms, @RecoveryFeeTerms, @DiscountTerms, now())
+            ON CONFLICT (company_id) DO UPDATE SET
+                payment_terms = EXCLUDED.payment_terms,
+                late_penalty_terms = EXCLUDED.late_penalty_terms,
+                recovery_fee_terms = EXCLUDED.recovery_fee_terms,
+                discount_terms = EXCLUDED.discount_terms,
+                updated_at = now()
+            """;
+
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync();
+        await connection.ExecuteAsync(sql, new
+        {
+            Id = Guid.NewGuid(),
+            CompanyId,
+            PaymentTerms = paymentTerms,
+            LatePenaltyTerms = latePenaltyTerms,
+            RecoveryFeeTerms = recoveryFeeTerms,
+            DiscountTerms = discountTerms,
+        });
+    }
+
+    /// <summary>Supprime les mentions de facturation du tenant (pour exercer le blocage CHECK quand elles manquent).</summary>
+    public async Task RemoveBillingMentionsAsync()
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync();
+        await connection.ExecuteAsync(
+            "DELETE FROM tenantsettings.billing_mentions WHERE company_id = @CompanyId", new { CompanyId });
+    }
+
     /// <summary>État courant d'un document (ou <c>null</c> s'il n'existe pas).</summary>
     public async Task<string?> GetDocumentStateAsync(Guid documentId)
     {

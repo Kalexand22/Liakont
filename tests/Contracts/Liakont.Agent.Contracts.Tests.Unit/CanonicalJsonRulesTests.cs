@@ -417,6 +417,59 @@ public sealed class CanonicalJsonRulesTests
             .Should().BeLessThan(json.IndexOf("\"BuyerFees\"", StringComparison.Ordinal), "frais acheteur additif émis après le frais vendeur (ordre de déclaration ADR-0007).");
     }
 
+    [Fact]
+    public void Billing_mentions_are_omitted_when_absent_so_hash_is_unchanged()
+    {
+        // BUG-26 : PaymentTerms (BT-20), Notes (BG-1) et DeliveryDate (BT-72) sont des champs ADDITIFS
+        // hash-neutres (pattern EXT01). Un document qui ne les porte pas produit le JSON canonique INCHANGÉ —
+        // aucune clé émise — donc un hash identique à un pivot bâti sans même connaître ces champs.
+        string json = CanonicalJson.Serialize(Build(number: "F1"));
+
+        json.Should().NotContain("PaymentTerms").And.NotContain("\"Notes\"").And.NotContain("DeliveryDate",
+            "des mentions absentes n'émettent aucune clé (jamais à null) — hash B2B/B2C inchangé.");
+        PayloadHasher.ComputeHash(Build(number: "F1", paymentTerms: null, notes: null, deliveryDate: null))
+            .Should().Be(PayloadHasher.ComputeHash(Build(number: "F1")), "mentions absentes → hash canonique inchangé (additif hash-neutre).");
+    }
+
+    [Fact]
+    public void Notes_empty_list_is_normalized_to_absent_and_stays_hash_neutral()
+    {
+        // BUG-26 : une liste de notes VIDE non-null est normalisée en absente (≡ null) — elle n'émet jamais
+        // « Notes:[] », pour que le hash reste neutre quel que soit ce que passe le producteur (parité SellerFees).
+        var withEmpty = Build(number: "F1", notes: System.Array.Empty<PivotDocumentNoteDto>());
+
+        withEmpty.Notes.Should().BeNull("une liste de notes vide est normalisée en null au constructeur (vide ≡ absent).");
+        CanonicalJson.Serialize(withEmpty).Should().NotContain("\"Notes\"", "une liste vide n'émet aucune clé (jamais un tableau vide).");
+        PayloadHasher.ComputeHash(withEmpty)
+            .Should().Be(PayloadHasher.ComputeHash(Build(number: "F1")), "vide ou absent → même hash canonique (champ additif hash-neutre).");
+    }
+
+    [Fact]
+    public void Billing_mentions_are_emitted_in_tail_position_when_present_and_change_the_hash()
+    {
+        // Quand le document porte les mentions, elles sont émises en FIN d'objet, dans l'ordre de déclaration
+        // (PaymentTerms, Notes, DeliveryDate — après InvoicePeriod), champ additif (ADR-0007). Porter une
+        // mention distingue l'empreinte ; l'absence la laisse intacte (sensibilité).
+        // Textes ASCII (le canonique échappe les non-ASCII en \uXXXX — cf. Non_ascii_characters_are_escaped) :
+        // on asserte clés, code sujet et date, sans dépendre de la forme échappée d'un accent.
+        string json = CanonicalJson.Serialize(Build(
+            number: "F1",
+            paymentTerms: "Paiement comptant a la vente",
+            notes: new[] { new PivotDocumentNoteDto("Penalites de retard au taux legal", "PMD") },
+            deliveryDate: new DateTime(2026, 1, 20)));
+
+        json.Should().Contain("\"PaymentTerms\":\"Paiement comptant a la vente\"");
+        json.Should().Contain("\"Content\":\"Penalites de retard au taux legal\"");
+        json.Should().Contain("\"SubjectCode\":\"PMD\"");
+        json.Should().Contain("\"DeliveryDate\":\"2026-01-20\"");
+        json.IndexOf("\"PaymentTerms\"", StringComparison.Ordinal)
+            .Should().BeLessThan(json.IndexOf("\"Notes\"", StringComparison.Ordinal), "ordre de déclaration : PaymentTerms avant Notes (ADR-0007).");
+        json.IndexOf("\"Notes\"", StringComparison.Ordinal)
+            .Should().BeLessThan(json.IndexOf("\"DeliveryDate\"", StringComparison.Ordinal), "ordre de déclaration : Notes avant DeliveryDate (ADR-0007).");
+        PayloadHasher.ComputeHash(Build(number: "F1", paymentTerms: "Paiement comptant a la vente"))
+            .Should().NotBe(PayloadHasher.ComputeHash(Build(number: "F1")), "porter une mention distingue l'empreinte canonique.");
+    }
+
     /// <summary>
     /// Garantit que chaque propriété publique de chaque DTO pivot apparaît comme clé JSON dans
     /// la sortie canonique d'un document entièrement peuplé. Un champ ajouté à un DTO sans mise
@@ -463,6 +516,7 @@ public sealed class CanonicalJsonRulesTests
         assert(Element(root, "SellerFees", 0), typeof(PivotSellerFeeDto));
         assert(Element(root, "BuyerFees", 0), typeof(PivotBuyerFeeDto));
         assert(Child(root, "InvoicePeriod"), typeof(PivotInvoicePeriodDto));
+        assert(Element(root, "Notes", 0), typeof(PivotDocumentNoteDto));
     }
 
     private static void AssertAllPropertiesArePresent(IDictionary<string, object?> node, Type dtoType)
@@ -649,7 +703,13 @@ public sealed class CanonicalJsonRulesTests
             },
             invoicePeriod: new PivotInvoicePeriodDto(
                 startDate: new DateTime(2026, 1, 1),
-                endDate: new DateTime(2026, 1, 31)));
+                endDate: new DateTime(2026, 1, 31)),
+            paymentTerms: "Paiement à 30 jours fin de mois (mention fictive)",
+            notes: new[]
+            {
+                new PivotDocumentNoteDto("Pénalités de retard : trois fois le taux légal (mention fictive)", "PMD"),
+            },
+            deliveryDate: new DateTime(2026, 2, 28));
     }
 
     private static PivotDocumentDto Build(
@@ -664,7 +724,10 @@ public sealed class CanonicalJsonRulesTests
         bool isSelfBilled = false,
         bool isB2cReportingDeclaration = false,
         PivotSellerFeeDto[]? sellerFees = null,
-        PivotBuyerFeeDto[]? buyerFees = null)
+        PivotBuyerFeeDto[]? buyerFees = null,
+        string? paymentTerms = null,
+        PivotDocumentNoteDto[]? notes = null,
+        DateTime? deliveryDate = null)
     {
         return new PivotDocumentDto(
             sourceDocumentKind: "B",
@@ -680,6 +743,9 @@ public sealed class CanonicalJsonRulesTests
             isSelfBilled: isSelfBilled,
             isB2cReportingDeclaration: isB2cReportingDeclaration,
             sellerFees: sellerFees,
-            buyerFees: buyerFees);
+            buyerFees: buyerFees,
+            paymentTerms: paymentTerms,
+            notes: notes,
+            deliveryDate: deliveryDate);
     }
 }

@@ -249,6 +249,7 @@ public sealed class PivotCanonicalJsonReaderTests
         AssertAllPublicPropertiesAreJsonKeys(root.GetProperty("CreditNoteRefs")[0], typeof(PivotDocumentRefDto));
         AssertAllPublicPropertiesAreJsonKeys(root.GetProperty("Payments")[0], typeof(PivotPaymentDto));
         AssertAllPublicPropertiesAreJsonKeys(root.GetProperty("DocumentCharges")[0], typeof(PivotDocumentChargeDto));
+        AssertAllPublicPropertiesAreJsonKeys(root.GetProperty("Notes")[0], typeof(PivotDocumentNoteDto));
 
         // 1bis. Aucune propriété de TYPE VALEUR du document de référence n'est laissée à son défaut —
         //       sinon un champ valeur optionnel ajouté plus tard (ex. bool=false) passerait la garde

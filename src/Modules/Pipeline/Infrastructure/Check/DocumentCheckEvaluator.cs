@@ -207,6 +207,24 @@ internal static class DocumentCheckEvaluator
             }
         }
 
+        // MENTIONS DE FACTURATION (BUG-26, F16 §3.5 / F12-A §3.4) — une facture à destinataire identifié (B2B/B2G,
+        // acheteur avec SIREN) émise par un assujetti FRANÇAIS doit porter les mentions légales FR obligatoires
+        // (BR-FR-05 : pénalités de retard PMD, indemnité de recouvrement PMT, escompte AAB) et, pour un montant dû
+        // positif, des termes de paiement (BT-20) ou une échéance (BT-9, BR-CO-25) — sinon le converter CTC-FR
+        // REJETTE. On BLOQUE plutôt qu'envoyer voué au rejet (CLAUDE.md n°3). Le contenu est un paramètre tenant
+        // injecté à l'enrichissement (read-time) : absent ⇒ blocage, jamais inventé. Même périmètre que la garde de
+        // transmission ci-dessus (acheteur identifié, non self-billed), restreint à un émetteur FR (mention L441).
+        if (!pivot.IsSelfBilled
+            && !string.IsNullOrWhiteSpace(pivot.Customer?.Siren)
+            && IsFrenchSeller(pivot))
+        {
+            var missingMentions = MissingBillingMentionsReason(pivot);
+            if (missingMentions is not null)
+            {
+                return CheckDecision.Blocked(WithDocumentNumber(documentNumber, missingMentions));
+            }
+        }
+
         // Nature d'opération remplie par la plateforme à l'ingestion (ADR-0031 amendé). Si le paramétrage fiscal
         // du tenant ne la porte pas, l'émetteur enrichi la laisse nulle → on bloque (jamais devinée, CLAUDE.md n°2).
         if (pivot.OperationCategory is null)
@@ -464,6 +482,65 @@ internal static class DocumentCheckEvaluator
             .Select(issue => issue.MessageOperateur));
 
         return CheckDecision.Blocked(string.Join(Environment.NewLine, reasons));
+    }
+
+    /// <summary>Vrai si l'émetteur (vendeur) du document est établi en France (mention légale FR L441 applicable).</summary>
+    private static bool IsFrenchSeller(PivotDocumentDto pivot) =>
+        string.Equals(pivot.Supplier?.Address?.CountryCode, "FR", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Motif de blocage (ou <c>null</c>) si une facture B2B/B2G FR ne porte pas les mentions de facturation
+    /// requises (BUG-26 / F16 §3.5) : les 3 mentions légales FR (BR-FR-05 : PMD/PMT/AAB) et, pour un montant dû
+    /// positif, des termes de paiement (BT-20) ou une échéance (BT-9, BR-CO-25). Lit le pivot ENRICHI (la mention
+    /// portée par la source ou injectée depuis le tenant) ; aucun contenu inventé (CLAUDE.md n°2). Cite les
+    /// mentions manquantes et l'action corrective (CLAUDE.md n°12).
+    /// </summary>
+    private static string? MissingBillingMentionsReason(PivotDocumentDto pivot)
+    {
+        var notes = pivot.Notes;
+
+        bool HasNote(string subjectCode) =>
+            notes is not null && notes.Any(note =>
+                string.Equals(note.SubjectCode, subjectCode, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(note.Content));
+
+        var missing = new List<string>(4);
+        if (!HasNote(PivotEmitterEnricher.LatePenaltySubjectCode))
+        {
+            missing.Add("pénalités de retard");
+        }
+
+        if (!HasNote(PivotEmitterEnricher.RecoveryFeeSubjectCode))
+        {
+            missing.Add("indemnité forfaitaire de recouvrement");
+        }
+
+        if (!HasNote(PivotEmitterEnricher.DiscountSubjectCode))
+        {
+            missing.Add("escompte (ou son absence)");
+        }
+
+        // BR-CO-25 : termes de paiement (BT-20) OU échéance (BT-9) requis dès que le montant dû est positif.
+        // Montant dû = TTC − acompte (montants déjà arrondis par construction du pivot).
+        var dueAmount = pivot.Totals.TotalGross - (pivot.PrepaidAmount ?? 0m);
+        if (dueAmount > 0m
+            && string.IsNullOrWhiteSpace(pivot.PaymentTerms)
+            && !pivot.PaymentDueDate.HasValue)
+        {
+            missing.Add("termes de paiement");
+        }
+
+        if (missing.Count == 0)
+        {
+            return null;
+        }
+
+        return
+            "facture à destinataire identifié (B2B) émise par un assujetti français : mentions de facturation " +
+            $"obligatoires manquantes — {string.Join(", ", missing)}. Le document serait rejeté par la Plateforme " +
+            "Agréée (règles franco-françaises CTC-FR BR-FR-05 / BR-CO-25). Document bloqué (« bloquer plutôt " +
+            "qu'envoyer faux »). Action opérateur : renseignez les mentions de facturation dans la console " +
+            "(Paramétrage › Mentions de facturation).";
     }
 
     /// <summary>Préfixe un motif de blocage rédigé par CHECK avec le numéro de document (CLAUDE.md n°12).</summary>

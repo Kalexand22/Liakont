@@ -1,0 +1,130 @@
+@page "/parametrage/mentions"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = LiakontPermissions.Settings)]
+@using Liakont.Host.BillingMentions
+@using Liakont.Host.Components
+@using Liakont.Host.Security
+@using Stratum.Common.Abstractions.Security
+@using Stratum.Common.UI.Models
+@inject IBillingMentionsConsoleService Service
+@inject IPermissionService Permissions
+@inject ILogger<MentionsFacturation> Logger
+
+<PageTitle>Mentions de facturation — Liakont</PageTitle>
+
+<h1 class="visually-hidden">Mentions de facturation du tenant</h1>
+
+@if (!_canManage)
+{
+    @* Paramétrage du tenant : réservé à liakont.settings. Sans la permission, aucune donnée n'est chargée et
+       seul le message d'accès refusé est rendu (la garde serveur reste l'unique contrôle du chemin console). *@
+    <LiakontAlert Severity="Severity.Warning" TestId="mentions-denied">
+        Accès refusé : le paramétrage des mentions de facturation du tenant requiert l'autorisation de
+        paramétrage (liakont.settings). Rapprochez-vous de l'administrateur de votre organisation.
+    </LiakontAlert>
+}
+else if (_loadFailed)
+{
+    <LiakontAlert TestId="mentions-error">
+        Impossible de charger les mentions de facturation du tenant pour le moment. Réessayez plus tard.
+    </LiakontAlert>
+}
+else if (_model is null)
+{
+    <LiakontLoading TestId="mentions-loading" />
+}
+else
+{
+    <MentionsFacturationView Model="_model"
+                             Busy="_busy"
+                             Message="@_message"
+                             IsError="_isError"
+                             OnSave="SaveAsync" />
+}
+
+@code {
+    private BillingMentionsViewModel? _model;
+    private bool _loadFailed;
+
+    /// <summary>Permission de paramétrage du tenant : conditionne TOUTE la page (accès + actions).</summary>
+    private bool _canManage;
+
+    private bool _busy;
+    private string? _message;
+    private bool _isError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Contrôle côté serveur (circuit Blazor Server), non falsifiable côté client.
+        _canManage = Permissions.HasPermission(LiakontPermissions.Settings);
+        if (_canManage)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _model = await Service.GetAsync();
+            _loadFailed = false;
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the Liakont tenant billing mentions settings page.");
+        }
+    }
+
+    private async Task ReloadAfterSaveAsync()
+    {
+        try
+        {
+            _model = await Service.GetAsync();
+        }
+        catch (Exception ex)
+        {
+            // Un échec de RECHARGEMENT après un enregistrement réussi ne doit pas masquer la réussite
+            // (l'opérateur croirait l'envoi échoué — leçon WEB09). On garde le _model précédent.
+            Logger.LogError(ex, "Failed to reload the Liakont tenant billing mentions after a successful save.");
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_model is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _isError = false;
+
+        try
+        {
+            await Service.SaveAsync(new BillingMentionsInput
+            {
+                PaymentTerms = _model.Form.PaymentTerms,
+                LatePenaltyTerms = _model.Form.LatePenaltyTerms,
+                RecoveryFeeTerms = _model.Form.RecoveryFeeTerms,
+                DiscountTerms = _model.Form.DiscountTerms,
+            });
+            await ReloadAfterSaveAsync();
+            _message = "Mentions de facturation enregistrées.";
+            _isError = false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save the Liakont tenant billing mentions settings.");
+            _message = "L'enregistrement des mentions de facturation a échoué. Réessayez plus tard.";
+            _isError = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

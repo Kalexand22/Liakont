@@ -60,6 +60,36 @@ internal static class CheckIntegrationFixtures
         new("Acheteur Pro SARL", siren: "945678902", address: new PivotAddressDto(city: "Nantes", countryCode: "FR"));
 
     /// <summary>
+    /// Facture B2B à émetteur FRANÇAIS (BUG-26) : <c>supplier = null</c> pour que la plateforme remplisse
+    /// l'émetteur depuis le profil tenant FR (SIREN <see cref="PipelineCheckHarness.ProfileSiren"/>, pays FR) au
+    /// read-time → <c>IsFrenchSeller</c> vrai. Acheteur professionnel identifié (SIREN), régime mappé « NORMAL »,
+    /// montant dû POSITIF (TTC = 144,00, aucun acompte) : exerce la garde des MENTIONS DE FACTURATION du CHECK
+    /// (3 notes légales FR + termes de paiement / échéance pour BR-CO-25). Valeurs fictives (CLAUDE.md n°7).
+    /// </summary>
+    public static PivotDocumentDto BuildFrenchB2bInvoice(string sourceReference, string regimeCode = "NORMAL")
+    {
+        var line = new PivotLineDto(
+            description: "Adjudication lot 7 — vase décoratif",
+            netAmount: 120.00m,
+            quantity: 1m,
+            unitPriceNet: 120.00m,
+            sourceRegimeCodes: new[] { regimeCode },
+            taxes: new[] { new PivotLineTaxDto(24.00m, 20m) },
+            sourceLineRef: "ligne#1");
+
+        return new PivotDocumentDto(
+            sourceDocumentKind: "F",
+            number: "FB2B-2026-" + ((uint)sourceReference.GetHashCode(StringComparison.Ordinal)).ToString("D10", CultureInfo.InvariantCulture),
+            issueDate: new DateTime(2026, 1, 10),
+            sourceReference: sourceReference,
+            supplier: null,
+            totals: new PivotTotalsDto(120.00m, 24.00m, 144.00m, 144.00m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            customer: BusinessBuyer(),
+            lines: new[] { line });
+    }
+
+    /// <summary>
     /// Acheteur présentant un indice « professionnel » (champ société + forme juridique « SARL ») — déclenche
     /// le garde-fou B2B/B2C (VAL05) SANS dépendre du mapping TVA. Aucun SIREN/pays : seul ce garde-fou bloque.
     /// </summary>

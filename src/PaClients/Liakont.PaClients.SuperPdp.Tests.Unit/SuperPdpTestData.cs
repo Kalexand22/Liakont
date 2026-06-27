@@ -100,6 +100,33 @@ internal static class SuperPdpTestData
         customer: new PivotPartyDto("Client Démo", siren: "987654321"),
         lines: [new PivotLineDto("Prestation", 100m, taxes: [new PivotLineTaxDto(20m, 20m, VatCategory.S)], unitCode: unitCode)]);
 
+    /// <summary>
+    /// Facture portant les mentions de facturation B2B (BUG-26, F16 §3.5) : termes de paiement (BT-20), notes
+    /// légales FR (BG-1 : PMD/PMT/AAB) et une date de livraison (BT-72). Sert à vérifier que le builder émet
+    /// <c>payment_terms</c>, <c>notes</c> (avec <c>subject_code</c>) et <c>delivery_information.delivery_date</c>.
+    /// Contenus FICTIFS, recopiés du pivot — aucun texte inventé (CLAUDE.md n°2/7).
+    /// </summary>
+    /// <param name="number">Numéro du document.</param>
+    /// <param name="deliveryDate">Date de livraison (BT-72), ou <c>null</c> pour exercer le repli sur la date d'émission.</param>
+    public static PivotDocumentDto Invoice20WithBillingMentions(string number, DateTime? deliveryDate) => new(
+        sourceDocumentKind: "FACTURE",
+        number: number,
+        issueDate: new DateTime(2026, 1, 15),
+        sourceReference: $"SRC-{number}",
+        supplier: new PivotPartyDto("SVV Démo", siren: "123456789", vatNumber: "FR32123456789"),
+        totals: new PivotTotalsDto(100m, 20m, 120m),
+        operationCategory: OperationCategory.LivraisonBiens,
+        customer: new PivotPartyDto("Client Démo", siren: "987654321"),
+        lines: [new PivotLineDto("Prestation", 100m, taxes: [new PivotLineTaxDto(20m, 20m, VatCategory.S)])],
+        paymentTerms: "Paiement à 30 jours fin de mois.",
+        notes:
+        [
+            new PivotDocumentNoteDto("Pénalités de retard au taux légal.", "PMD"),
+            new PivotDocumentNoteDto("Indemnité forfaitaire de recouvrement de 40 €.", "PMT"),
+            new PivotDocumentNoteDto("Pas d'escompte pour paiement anticipé.", "AAB"),
+        ],
+        deliveryDate: deliveryDate);
+
     /// <summary>Même facture mais SANS destinataire : exerce la garde locale d'adressage (F14 §3.2).</summary>
     public static PivotDocumentDto Invoice20WithoutCustomer(string number = "F-2026-009") => new(
         sourceDocumentKind: "FACTURE",

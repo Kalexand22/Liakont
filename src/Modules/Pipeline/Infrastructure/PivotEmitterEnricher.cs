@@ -1,6 +1,7 @@
 namespace Liakont.Modules.Pipeline.Infrastructure;
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -25,6 +26,13 @@ using Liakont.Modules.TenantSettings.Contracts.Queries;
 /// </summary>
 internal static class PivotEmitterEnricher
 {
+    // Codes sujet UNTDID 4451 (EN 16931 BT-21) des mentions légales FR obligatoires entre professionnels
+    // (BR-FR-05), imposés par le converter CTC-FR (verdict PA) — F16 §3.5, F12-A §3.4. Aucun contenu inventé :
+    // seul le mapping mention → code est figé ici ; le TEXTE est saisi par le tenant.
+    internal const string LatePenaltySubjectCode = "PMD"; // pénalités de retard
+    internal const string RecoveryFeeSubjectCode = "PMT"; // indemnité forfaitaire de recouvrement
+    internal const string DiscountSubjectCode = "AAB"; // escompte ou son absence
+
     /// <summary>Lit le profil + le paramétrage fiscal du tenant (courant) puis applique l'enrichissement.</summary>
     public static async Task<PivotDocumentDto> EnrichFromTenantAsync(
         PivotDocumentDto pivot,
@@ -37,28 +45,45 @@ internal static class PivotEmitterEnricher
 
         var profile = await tenantSettings.GetTenantProfile(companyId, cancellationToken);
         var fiscal = await tenantSettings.GetFiscalSettings(companyId, cancellationToken);
-        return Enrich(pivot, profile, fiscal);
+        var mentions = await tenantSettings.GetBillingMentions(companyId, cancellationToken);
+        return Enrich(pivot, profile, fiscal, mentions);
     }
 
     /// <summary>
-    /// Renvoie le pivot avec l'émetteur et la nature d'opération remplis depuis le profil/fiscal du tenant
-    /// quand le document ne les porte pas déjà. Renvoie le document inchangé si rien n'est à remplir.
+    /// Renvoie le pivot avec l'émetteur, la nature d'opération et les mentions de facturation (BT-20 +
+    /// notes légales FR, BUG-26 / F12-A §3.4) remplis depuis le profil/fiscal/mentions du tenant quand le
+    /// document ne les porte pas déjà (la valeur portée par la source PRIME — surcharge par document).
+    /// Renvoie le document inchangé si rien n'est à remplir. <paramref name="mentions"/> est optionnel
+    /// (additif) : un appelant qui ne le fournit pas n'injecte aucune mention.
     /// </summary>
-    public static PivotDocumentDto Enrich(PivotDocumentDto document, TenantProfileDto? profile, FiscalSettingsDto? fiscal)
+    public static PivotDocumentDto Enrich(
+        PivotDocumentDto document,
+        TenantProfileDto? profile,
+        FiscalSettingsDto? fiscal,
+        BillingMentionsDto? mentions = null)
     {
         ArgumentNullException.ThrowIfNull(document);
 
         var supplier = document.Supplier ?? BuildSupplier(profile);
         var operationCategory = document.OperationCategory ?? ParseOperationCategory(fiscal);
 
-        if (ReferenceEquals(supplier, document.Supplier) && operationCategory == document.OperationCategory)
+        // Mentions de facturation : défaut tenant injecté UNIQUEMENT quand le document ne les porte pas (la
+        // source prime — surcharge par document, F12-A §3.4). BT-20 = termes de paiement ; Notes = mentions
+        // légales FR (PMD/PMT/AAB). Le contenu vient du tenant, jamais inventé (CLAUDE.md n°2).
+        var paymentTerms = document.PaymentTerms ?? NullIfBlank(mentions?.PaymentTerms);
+        var notes = document.Notes ?? BuildTenantNotes(mentions);
+
+        if (ReferenceEquals(supplier, document.Supplier)
+            && operationCategory == document.OperationCategory
+            && ReferenceEquals(paymentTerms, document.PaymentTerms)
+            && ReferenceEquals(notes, document.Notes))
         {
-            // Rien à remplir (déjà porté par la source, ou profil/fiscal incomplet → reste null) : pas de
-            // reconstruction inutile (préserve l'identité de l'objet pour le court-circuit des appelants).
+            // Rien à remplir (déjà porté par la source, ou paramétrage tenant incomplet → reste null) : pas
+            // de reconstruction inutile (préserve l'identité de l'objet pour le court-circuit des appelants).
             return document;
         }
 
-        return Rebuild(document, supplier, operationCategory);
+        return Rebuild(document, supplier, operationCategory, paymentTerms, notes);
     }
 
     private static PivotPartyDto? BuildSupplier(TenantProfileDto? profile)
@@ -102,6 +127,30 @@ internal static class PivotEmitterEnricher
 
     private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 
+    // Construit les notes de document (BG-1) à partir des mentions tenant : une note par mention renseignée,
+    // avec son code sujet. Mention vide → note OMISE (rien à émettre). Aucune mention → null (hash-neutre).
+    private static List<PivotDocumentNoteDto>? BuildTenantNotes(BillingMentionsDto? mentions)
+    {
+        if (mentions is null)
+        {
+            return null;
+        }
+
+        var notes = new List<PivotDocumentNoteDto>(3);
+        AddNote(notes, mentions.LatePenaltyTerms, LatePenaltySubjectCode);
+        AddNote(notes, mentions.RecoveryFeeTerms, RecoveryFeeSubjectCode);
+        AddNote(notes, mentions.DiscountTerms, DiscountSubjectCode);
+        return notes.Count > 0 ? notes : null;
+    }
+
+    private static void AddNote(List<PivotDocumentNoteDto> notes, string? content, string subjectCode)
+    {
+        if (!string.IsNullOrWhiteSpace(content))
+        {
+            notes.Add(new PivotDocumentNoteDto(content!, subjectCode));
+        }
+    }
+
     /// <summary>
     /// N° TVA intracommunautaire FR (EN 16931 BT-31) dérivé du SIREN de l'émetteur : <c>"FR"</c> + clé de
     /// contrôle + SIREN. La clé est la formule administrative STANDARD française
@@ -122,7 +171,12 @@ internal static class PivotEmitterEnricher
         return string.Create(CultureInfo.InvariantCulture, $"FR{key:D2}{siren}");
     }
 
-    private static PivotDocumentDto Rebuild(PivotDocumentDto pivot, PivotPartyDto? supplier, OperationCategory? operationCategory) =>
+    private static PivotDocumentDto Rebuild(
+        PivotDocumentDto pivot,
+        PivotPartyDto? supplier,
+        OperationCategory? operationCategory,
+        string? paymentTerms,
+        IReadOnlyList<PivotDocumentNoteDto>? notes) =>
         new(
             sourceDocumentKind: pivot.SourceDocumentKind,
             number: pivot.Number,
@@ -146,5 +200,8 @@ internal static class PivotEmitterEnricher
             isB2cReportingDeclaration: pivot.IsB2cReportingDeclaration,
             sellerFees: pivot.SellerFees,
             buyerFees: pivot.BuyerFees,
-            invoicePeriod: pivot.InvoicePeriod);
+            invoicePeriod: pivot.InvoicePeriod,
+            paymentTerms: paymentTerms,
+            notes: notes,
+            deliveryDate: pivot.DeliveryDate);
 }

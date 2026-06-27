@@ -59,7 +59,17 @@ public static class PivotCanonicalJsonReader
         isB2cReportingDeclaration: BoolOrFalse(element, "IsB2cReportingDeclaration"),
         sellerFees: ReadListOrNull(element, "SellerFees", ReadSellerFee),
         buyerFees: ReadListOrNull(element, "BuyerFees", ReadBuyerFee),
-        invoicePeriod: TryObject(element, "InvoicePeriod", out JsonElement invoicePeriod) ? ReadInvoicePeriod(invoicePeriod) : null);
+        invoicePeriod: TryObject(element, "InvoicePeriod", out JsonElement invoicePeriod) ? ReadInvoicePeriod(invoicePeriod) : null,
+        paymentTerms: StrOrNull(element, "PaymentTerms"),
+        notes: ReadListOrNull(element, "Notes", ReadNote),
+        deliveryDate: DateOrNull(element, "DeliveryDate"));
+
+    // Note de document (EN 16931 BG-1, BUG-26) : miroir exact de CanonicalJson.WriteNote — Content (BT-22)
+    // requis, SubjectCode (BT-21) optionnel omis du JSON quand absent. La collection est lue par ReadListOrNull
+    // (absente → null, comme l'omet le writer) : un document sans note traverse le staging octet par octet inchangé.
+    private static PivotDocumentNoteDto ReadNote(JsonElement element) => new(
+        content: Str(element, "Content"),
+        subjectCode: StrOrNull(element, "SubjectCode"));
 
     // EN 16931 BG-14 (RD406, slot abonnement) : objet additif optionnel, miroir exact de
     // CanonicalJson.WriteInvoicePeriod (StartDate=BT-73 puis EndDate=BT-74, dates yyyy-MM-dd). Absent du

@@ -59,6 +59,23 @@ internal static class SuperPdpPayloadBuilder
             // échéance n'est JAMAIS fabriquée (CLAUDE.md n°2). Sa présence lève BR-CO-25 pour un montant
             // dû positif ; son absence conserve le rejet du converter, message intact (F14 §3.2/O11).
             PaymentDueDate = document.PaymentDueDate.HasValue ? FormatDate(document.PaymentDueDate.Value) : null,
+
+            // EN 16931 BT-20 (BUG-26, F16 §3.5) : termes de paiement (mention tenant), RECOPIÉS du pivot —
+            // satisfont BR-CO-25 pour un montant dû positif (alternative à BT-9). OMIS quand absent.
+            PaymentTerms = string.IsNullOrWhiteSpace(document.PaymentTerms) ? null : document.PaymentTerms,
+
+            // EN 16931 BG-1 (BUG-26) : mentions légales FR (BR-FR-05 : PMD/PMT/AAB), RECOPIÉES du pivot
+            // (contenu = mention tenant, aucun texte inventé — CLAUDE.md n°2). OMISES quand absentes.
+            Notes = MapNotes(document.Notes),
+
+            // EN 16931 BT-72 (BUG-26, R008) : date de livraison effective, TOUJOURS émise — sinon le converter
+            // Super PDP génère un ApplicableHeaderTradeDelivery VIDE (rejet PEPPOL-EN16931-R008, cause du rejet
+            // initial). Date portée par le pivot si présente (fait de la source), sinon la date d'émission (BT-2,
+            // toujours présente — aux enchères la livraison du lot intervient à l'adjudication, F16 §3.5).
+            DeliveryInformation = new SuperPdpEnDeliveryInformation
+            {
+                DeliveryDate = FormatDate(document.DeliveryDate ?? document.IssueDate),
+            },
             TypeCode = SuperPdpDefaults.CommercialInvoiceTypeCode,
             CurrencyCode = document.CurrencyCode,
             ProcessControl = new SuperPdpEnProcessControl
@@ -202,6 +219,33 @@ internal static class SuperPdpPayloadBuilder
         }
 
         return tax;
+    }
+
+    // BG-1 : recopie des notes pivot (BT-22 contenu + BT-21 code sujet) vers le schéma en_invoice. Une note
+    // au contenu vide est ÉCARTÉE (rien à émettre) ; la liste absente/vide est normalisée en null (omise).
+    private static List<SuperPdpEnInvoiceNote>? MapNotes(IReadOnlyList<PivotDocumentNoteDto>? notes)
+    {
+        if (notes is null || notes.Count == 0)
+        {
+            return null;
+        }
+
+        var mapped = new List<SuperPdpEnInvoiceNote>(notes.Count);
+        foreach (var note in notes)
+        {
+            if (string.IsNullOrWhiteSpace(note.Content))
+            {
+                continue;
+            }
+
+            mapped.Add(new SuperPdpEnInvoiceNote
+            {
+                Note = note.Content,
+                SubjectCode = string.IsNullOrWhiteSpace(note.SubjectCode) ? null : note.SubjectCode,
+            });
+        }
+
+        return mapped.Count == 0 ? null : mapped;
     }
 
     private static string FormatDate(DateTime date) =>

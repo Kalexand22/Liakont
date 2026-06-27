@@ -485,6 +485,9 @@ public sealed class KeycloakTenantUserProvisionerTests
         public Task<Liakont.Modules.TenantSettings.Contracts.DTOs.FiscalSettingsDto?> GetFiscalSettings(Guid companyId, CancellationToken ct = default) =>
             throw new NotSupportedException();
 
+        public Task<Liakont.Modules.TenantSettings.Contracts.DTOs.BillingMentionsDto?> GetBillingMentions(Guid companyId, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
         public Task<IReadOnlyList<Liakont.Modules.TenantSettings.Contracts.DTOs.PaAccountDto>> GetPaAccounts(Guid companyId, CancellationToken ct = default) =>
             throw new NotSupportedException();
 

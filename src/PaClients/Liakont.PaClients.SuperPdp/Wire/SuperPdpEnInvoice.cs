@@ -26,6 +26,27 @@ internal sealed record SuperPdpEnInvoice
     /// </summary>
     public string? PaymentDueDate { get; init; }
 
+    /// <summary>
+    /// Termes / conditions de paiement (EN 16931 BT-20) — OPTIONNEL, sérialisé <c>payment_terms</c>. Mention
+    /// tenant (F12-A §3.4) ; satisfait BR-CO-25 pour un montant dû positif (alternative à BT-9). <c>null</c> ⇒
+    /// OMIS en écriture (BUG-26, F16 §3.5).
+    /// </summary>
+    public string? PaymentTerms { get; init; }
+
+    /// <summary>
+    /// Notes de niveau document (EN 16931 BG-1) — OPTIONNEL, sérialisé <c>notes</c>. Porte les mentions
+    /// légales FR obligatoires (BR-FR-05 : PMD/PMT/AAB), contenu = paramètre tenant. <c>null</c> ⇒ OMIS en
+    /// écriture (BUG-26, F16 §3.5).
+    /// </summary>
+    public IReadOnlyList<SuperPdpEnInvoiceNote>? Notes { get; init; }
+
+    /// <summary>
+    /// Informations de livraison (EN 16931 BG-13) — OPTIONNEL, sérialisé <c>delivery_information</c>. Porte
+    /// la date de livraison (BT-72) pour rendre l'élément livraison du CII non vide (PEPPOL-EN16931-R008).
+    /// <c>null</c> ⇒ OMIS en écriture (BUG-26, F16 §3.5).
+    /// </summary>
+    public SuperPdpEnDeliveryInformation? DeliveryInformation { get; init; }
+
     /// <summary>Type de document UNTDID 1001 (EN 16931 BT-3) — <c>380</c> facture commerciale, en NOMBRE JSON.</summary>
     public required int TypeCode { get; init; }
 
