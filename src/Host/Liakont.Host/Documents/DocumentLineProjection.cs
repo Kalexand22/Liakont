@@ -91,6 +91,11 @@ public static class DocumentLineProjection
             Totals = BuildTotalsCheck(pivot),
             PaymentTerms = pivot.PaymentTerms,
             Notes = ToNoteViews(pivot.Notes),
+
+            // SIREN émetteur EFFECTIF (BUG-28) : porté par le pivot (snapshot transmis ou relu) — l'identité
+            // émetteur est injectée au SEND / read-time depuis le profil tenant (ADR-0031), jamais persistée
+            // sur l'entité. Pur passage-par, aucune logique métier.
+            SupplierSiren = pivot.Supplier?.Siren,
         };
     }
 

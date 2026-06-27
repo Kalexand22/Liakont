@@ -49,6 +49,71 @@ public sealed class DocumentDetailViewTests : BunitContext
     }
 
     [Fact]
+    public void Should_Show_The_Effective_Supplier_Siren_From_The_Transmitted_Content()
+    {
+        // BUG-28 : l'identité émetteur n'est PAS persistée sur l'entité (injectée au SEND depuis le profil tenant,
+        // ADR-0031) → SupplierSiren entité NULL. L'en-tête lit le SIREN émetteur EFFECTIVEMENT transmis (porté par
+        // le contenu) → jamais « non renseigné » à tort sur un document transmis. Affichage seul.
+        var content = Content([Line("Vente", netAmount: 1000m, category: "S — Taux normal", taxAmount: 200m)], supplierSiren: "000000002");
+        var model = BuildModel(doc: Doc("9000004", "Issued", siren: null), content: content);
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        cut.Find("[data-testid='document-detail-supplier-siren']").TextContent.Should().Contain("000000002")
+            .And.NotContain("non renseigné");
+    }
+
+    [Fact]
+    public void Should_Fall_Back_To_The_Entity_Supplier_Siren_When_The_Content_Has_None()
+    {
+        // Repli : un document sans contenu transmis (Bloqué) affiche le SIREN de l'entité s'il existe.
+        var model = BuildModel(doc: Doc("2026-002", "Blocked", siren: "123456782"));
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        cut.Find("[data-testid='document-detail-supplier-siren']").TextContent.Should().Contain("123456782");
+    }
+
+    [Fact]
+    public void Should_Show_Supplier_Siren_Not_Set_Only_When_Neither_Content_Nor_Entity_Resolves_It()
+    {
+        // « non renseigné » UNIQUEMENT si l'émetteur n'est réellement pas résolu (ni contenu ni entité) — jamais une
+        // valeur inventée (CLAUDE.md n°2).
+        var model = BuildModel(doc: Doc("2026-003", "Blocked", siren: null));
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        cut.Find("[data-testid='document-detail-supplier-siren']").TextContent.Should().Contain("non renseigné");
+    }
+
+    [Theory]
+    [InlineData("encheresv6:ba:9000004", "Bordereau acheteur")]
+    [InlineData("encheresv6:bv:9000005", "Bordereau vendeur")]
+    [InlineData("encheresv6:fc:100348", "Facture client")]
+    [InlineData("encheresv6:nh:200", "Note d'honoraires")]
+    public void Should_Show_The_Document_Family_Derived_From_The_Source_Reference(string sourceReference, string expectedLabel)
+    {
+        // BUG-20 : la famille de pièce (BA/BV/FC/NH) est dérivée du préfixe de la référence source — distinction que
+        // la colonne « Type » (facture/avoir) ne porte pas.
+        var model = BuildModel(doc: Doc("9000004", "Issued", sourceReference: sourceReference));
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        cut.Find("[data-testid='document-detail-family']").TextContent.Should().Contain(expectedLabel);
+    }
+
+    [Fact]
+    public void Should_Not_Show_A_Document_Family_When_The_Source_Reference_Has_No_Known_Prefix()
+    {
+        // Référence d'un autre format / adaptateur → aucune famille affichée (jamais devinée).
+        var model = BuildModel(doc: Doc("2026-001", "Issued", sourceReference: "legacy/2026-001"));
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        cut.FindAll("[data-testid='document-detail-family']").Should().BeEmpty();
+    }
+
+    [Fact]
     public void Should_Render_Line_Detail_Table_On_Content_Tab_With_Mapping_Result()
     {
         // FIX205 : les lignes du document transmis sont VISIBLES à l'écran (jamais du JSON) — libellé, montant HT,
@@ -382,6 +447,43 @@ public sealed class DocumentDetailViewTests : BunitContext
     }
 
     [Fact]
+    public void Should_Show_The_Pa_Rejection_Motif_In_History_From_The_Snapshot()
+    {
+        // BUG-27 : le motif de rejet PA (codes + messages, snapshot SendPaSnapshot) est restitué LISIBLEMENT dans
+        // l'Historique — l'opérateur n'a plus à lire la base. Jamais de JSON brut (F10 §1).
+        var snapshot = """{"state":"Rejected","errors":[{"Code":"BR-CO-25","Message":"Montant dû positif sans date d'échéance ni conditions de paiement."}],"rawResponse":"{}"}""";
+        var events = new List<DocumentEventDto>
+        {
+            Event("DocumentRejectedByPa", new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero), detail: "Transition Sending → RejectedByPa", paResponseSnapshot: snapshot),
+        };
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(doc: Doc("9000003", "RejectedByPa"), events: events)));
+
+        SelectTab(cut, "Historique");
+        var motif = cut.Find("[data-testid='document-detail-event-pa-response']").TextContent;
+        motif.Should().Contain("BR-CO-25").And.Contain("Montant dû positif");
+        motif.Should().NotContain("{").And.NotContain("rawResponse", "aucun JSON brut affiché (F10 §1)");
+    }
+
+    [Fact]
+    public void Should_Show_The_Pa_Rejection_Motif_Inline_On_The_Controls_Tab()
+    {
+        // BUG-27 : le motif PA est aussi affiché DIRECTEMENT sous « Refusé par la PA » (onglet Contrôles), depuis
+        // l'événement le plus récent qui porte un snapshot — plus besoin de fouiller l'Historique.
+        var snapshot = """{"http_status_code":400,"message":"cannot add transaction at date 2024-01-03"}""";
+        var events = new List<DocumentEventDto>
+        {
+            Event("DocumentRejectedByPa", new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero), paResponseSnapshot: snapshot),
+        };
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(doc: Doc("9000003", "RejectedByPa"), events: events)));
+
+        SelectTab(cut, "Contrôles");
+        cut.Find("[data-testid='document-detail-controls-rejected-motif']").TextContent
+            .Should().Contain("cannot add transaction at date");
+    }
+
+    [Fact]
     public void Controls_Tab_Carries_No_Action_Buttons()
     {
         // Garde anti-régression FIX04b : l'onglet Contrôles ne porte QUE du contenu — aucune action (verdict,
@@ -541,13 +643,15 @@ public sealed class DocumentDetailViewTests : BunitContext
         IReadOnlyList<DocumentChargeView>? charges = null,
         DocumentTotalsCheck? totals = null,
         string? paymentTerms = null,
-        IReadOnlyList<DocumentNoteView>? notes = null) => new()
+        IReadOnlyList<DocumentNoteView>? notes = null,
+        string? supplierSiren = null) => new()
     {
         Lines = lines,
         Charges = charges ?? [],
         Totals = totals ?? Check(),
         PaymentTerms = paymentTerms,
         Notes = notes ?? [],
+        SupplierSiren = supplierSiren,
     };
 
     private static DocumentNoteView Note(string content, string? subjectCode) => new()
@@ -603,10 +707,11 @@ public sealed class DocumentDetailViewTests : BunitContext
         string customer = "DUPONT J.",
         string? siren = "123456782",
         Guid? id = null,
-        bool companyHint = false) => new()
+        bool companyHint = false,
+        string? sourceReference = null) => new()
     {
         Id = id ?? Guid.NewGuid(),
-        SourceReference = $"src/{number}",
+        SourceReference = sourceReference ?? $"src/{number}",
         DocumentNumber = number,
         DocumentType = "invoice",
         IssueDate = new DateOnly(2026, 6, 1),
@@ -622,7 +727,7 @@ public sealed class DocumentDetailViewTests : BunitContext
         LastUpdateUtc = new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero),
     };
 
-    private static DocumentEventDto Event(string type, DateTimeOffset when, string? detail = null, string? op = null, string? opName = null) => new()
+    private static DocumentEventDto Event(string type, DateTimeOffset when, string? detail = null, string? op = null, string? opName = null, string? paResponseSnapshot = null) => new()
     {
         Id = Guid.NewGuid(),
         DocumentId = Guid.Empty,
@@ -631,5 +736,6 @@ public sealed class DocumentDetailViewTests : BunitContext
         Detail = detail,
         OperatorIdentity = op,
         OperatorName = opName,
+        PaResponseSnapshot = paResponseSnapshot,
     };
 }

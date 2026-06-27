@@ -28,6 +28,16 @@
                         <dt>Type</dt>
                         <dd data-testid="document-detail-type">@DocumentTypeDisplay.For(Model.Document.DocumentType)</dd>
                     </div>
+                    @* Famille de pièce (BUG-20) : bordereau acheteur/vendeur, facture client, note d'honoraires —
+                     * dérivée de la référence source, distinction que la colonne « Type » ne porte pas. Affichée
+                     * seulement quand la famille est reconnue (jamais devinée). *@
+                    @if (DocumentFamily is { } family)
+                    {
+                        <div class="liakont-doc-detail__row">
+                            <dt>Famille de pièce</dt>
+                            <dd data-testid="document-detail-family">@family</dd>
+                        </div>
+                    }
                     <div class="liakont-doc-detail__row">
                         <dt>Date d'émission</dt>
                         <dd>@Model.Document.IssueDate.ToString("dd/MM/yyyy", Fr)</dd>
@@ -38,7 +48,7 @@
                     </div>
                     <div class="liakont-doc-detail__row">
                         <dt>SIREN émetteur</dt>
-                        <dd>@(string.IsNullOrWhiteSpace(Model.Document.SupplierSiren) ? "non renseigné" : Model.Document.SupplierSiren)</dd>
+                        <dd data-testid="document-detail-supplier-siren">@EffectiveSupplierSiren</dd>
                     </div>
                     <div class="liakont-doc-detail__row">
                         <dt>État</dt>
@@ -280,10 +290,25 @@
                 }
                 else if (IsRejected)
                 {
-                    @* Sévérité Error : alignée sur le badge « Rejeté » (F10 §2.2 : rouge). *@
+                    @* Sévérité Error : alignée sur le badge « Rejeté » (F10 §2.2 : rouge). Le motif PA (BUG-27) est
+                     * affiché DIRECTEMENT ici quand il est disponible (codes + messages lisibles, jamais de JSON
+                     * brut, F10 §1) — l'opérateur n'a plus à fouiller l'Historique pour comprendre le rejet. *@
                     <LiakontAlert TestId="document-detail-controls-rejected">
                         <span class="liakont-doc-detail__alert-title">Refusé par la Plateforme Agréée</span>
-                        <span>Le motif de rejet figure dans l'onglet Historique. Corrigez puis renvoyez le document.</span>
+                        @if (RejectionMotif.Count > 0)
+                        {
+                            <ul class="liakont-doc-detail__pa-motif" data-testid="document-detail-controls-rejected-motif">
+                                @foreach (var motifLine in RejectionMotif)
+                                {
+                                    <li>@motifLine</li>
+                                }
+                            </ul>
+                            <span>Corrigez le motif ci-dessus, puis renvoyez le document. L'historique complet est dans l'onglet Historique.</span>
+                        }
+                        else
+                        {
+                            <span>Le motif de rejet figure dans l'onglet Historique. Corrigez puis renvoyez le document.</span>
+                        }
                     </LiakontAlert>
                 }
                 else
@@ -316,6 +341,21 @@
                                 @if (!string.IsNullOrWhiteSpace(entry.Detail))
                                 {
                                     <span class="liakont-doc-detail__event-detail">@entry.Detail</span>
+                                }
+                                @* Motif PA lisible (BUG-27) : la réponse de la Plateforme Agréée (codes + messages)
+                                 * portée par l'événement, restituée en français sans JSON brut (F10 §1). Absente
+                                 * pour les événements qui n'en portent pas. *@
+                                @{
+                                    var paMotif = PaResponseSnapshotFormatter.Format(entry.PaResponseSnapshot);
+                                }
+                                @if (paMotif.Count > 0)
+                                {
+                                    <ul class="liakont-doc-detail__event-pa" data-testid="document-detail-event-pa-response">
+                                        @foreach (var motifLine in paMotif)
+                                        {
+                                            <li>@motifLine</li>
+                                        }
+                                    </ul>
                                 }
                                 @{
                                     // FIX305 — acteur restitué par son NOM (persisté avec l'événement) ; le GUID
@@ -408,6 +448,35 @@
     private string AuditExportUrl => $"/api/v1/documents/{Model.Document.Id}/audit-export";
 
     /// <summary>
+    /// Motif de rejet PA le plus récent (BUG-27), restitué en lignes lisibles pour l'onglet Contrôles : le
+    /// snapshot de réponse PA (codes + messages) du dernier événement qui en porte un. Vide si aucun snapshot
+    /// PA n'est présent (le bandeau retombe alors sur le renvoi vers l'Historique). Jamais de JSON brut (F10 §1).
+    /// </summary>
+    private IReadOnlyList<string> RejectionMotif
+    {
+        get
+        {
+            string? latestSnapshot = null;
+            var latestWhen = default(DateTimeOffset);
+            foreach (var entry in Model.Events)
+            {
+                if (string.IsNullOrWhiteSpace(entry.PaResponseSnapshot))
+                {
+                    continue;
+                }
+
+                if (latestSnapshot is null || entry.TimestampUtc >= latestWhen)
+                {
+                    latestSnapshot = entry.PaResponseSnapshot;
+                    latestWhen = entry.TimestampUtc;
+                }
+            }
+
+            return PaResponseSnapshotFormatter.Format(latestSnapshot);
+        }
+    }
+
+    /// <summary>
     /// Montant en français, 2 décimales, devise affichée (« 1 080,00 € », espace insécable) — cohérent
     /// avec la colonne « Montant » de la liste (WEB02) et le récapitulatif d'envoi (qui affiche déjà
     /// l'euro). Limite assumée : le read-model console n'expose pas BT-5 (F01-F02 : CurrencyCode,
@@ -418,6 +487,23 @@
 
     /// <summary>Contenu projeté du document (lignes, charges, contrôle de cohérence) — onglet Contenu (FIX205).</summary>
     private DocumentContentView Content => Model.Content;
+
+    /// <summary>Famille de pièce (BUG-20) dérivée de la référence source, ou <c>null</c> si non reconnue (la ligne est alors masquée).</summary>
+    private string? DocumentFamily => DocumentFamilyDisplay.For(Model.Document.SourceReference);
+
+    /// <summary>
+    /// SIREN émetteur EFFECTIF (BUG-28) : celui réellement transmis (porté par le contenu/snapshot, ADR-0031),
+    /// repli sur l'entité persistée. « non renseigné » seulement si l'émetteur n'est réellement pas résolu —
+    /// jamais une valeur inventée. Affichage seul (la facture transmise porte bien l'émetteur).
+    /// </summary>
+    private string EffectiveSupplierSiren
+    {
+        get
+        {
+            var siren = Content.SupplierSiren ?? Model.Document.SupplierSiren;
+            return string.IsNullOrWhiteSpace(siren) ? "non renseigné" : siren;
+        }
+    }
 
     /// <summary>Quantité en français, décimales significatives seulement (« 1 », « 2,5 »).</summary>
     private static string FormatQuantity(decimal value) => value.ToString("0.###", Fr);

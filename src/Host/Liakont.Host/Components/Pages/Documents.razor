@@ -292,6 +292,12 @@ else
             {
                 __builder.AddContent(0, DocumentTypeDisplay.For(item.DocumentType));
             },
+            ["SourceReference"] = item => __builder =>
+            {
+                // Famille de pièce (BUG-20) dérivée de la référence source ; « — » si non reconnue (autre
+                // adaptateur / format), jamais une famille devinée.
+                __builder.AddContent(0, DocumentFamilyDisplay.For(item.SourceReference) ?? "—");
+            },
             ["CustomerName"] = item => __builder =>
             {
                 // Acheteur non extrait par la source : tiret explicite plutôt qu'une cellule vide ambiguë.

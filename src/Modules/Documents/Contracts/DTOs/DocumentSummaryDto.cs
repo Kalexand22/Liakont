@@ -10,6 +10,13 @@ public sealed record DocumentSummaryDto
 {
     public required Guid Id { get; init; }
 
+    /// <summary>
+    /// Référence du document dans le système source (ex. <c>encheresv6:ba:9000004</c>) — la console en dérive
+    /// la FAMILLE de pièce affichée (BUG-20 : bordereau acheteur/vendeur, facture client, note d'honoraires),
+    /// distinction que le type facture/avoir ne porte pas. Brut, jamais interprété fiscalement.
+    /// </summary>
+    public string? SourceReference { get; init; }
+
     public required string DocumentNumber { get; init; }
 
     public required string DocumentType { get; init; }

@@ -23,6 +23,14 @@ public sealed record DocumentContentView
     public required DocumentTotalsCheck? Totals { get; init; }
 
     /// <summary>
+    /// SIREN de l'émetteur EFFECTIVEMENT porté par le contenu transmis / relu (EN 16931 BG-4, BUG-28).
+    /// L'identité émetteur est injectée au SEND / read-time depuis le profil tenant (ADR-0031) et n'est PAS
+    /// persistée sur l'entité Document : l'en-tête lit donc cette valeur (repli sur l'entité). <c>null</c> si
+    /// le contenu ne la porte pas (document non encore transmis et émetteur non résolu). Affichage seul.
+    /// </summary>
+    public string? SupplierSiren { get; init; }
+
+    /// <summary>
     /// Termes / conditions de paiement EFFECTIFS du document (EN 16931 BT-20, BUG-26) — valeur du document, sinon
     /// défaut tenant (F12-A §3.4) ; <c>null</c> si aucun terme n'est paramétré. Donnée de l'entreprise, jamais inventée.
     /// </summary>
