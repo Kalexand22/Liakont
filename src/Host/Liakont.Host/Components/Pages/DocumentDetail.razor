@@ -35,6 +35,9 @@
                        Size="ButtonSize.Small"
                        Href="/documents"
                        TestId="document-detail-back" />
+        @* BUG-19 — navigation précédent/suivant parcourant la liste filtrée/triée d'où vient la fiche (rien si
+         * la fiche a été ouverte hors de la grille). Transverse : composant socle piloté par l'URL. *@
+        <RecordNavigator />
     </div>
 
     @if (_loadFailed)

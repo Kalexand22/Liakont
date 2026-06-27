@@ -138,6 +138,11 @@ public static class CommonUIServiceExtensions
         // utilisateurs). Consommé par <LiakontDate>/<BrowserTimeProbe> ; ajouter <BrowserTimeProbe> au layout.
         services.AddScoped<Time.IBrowserTimeZone, Time.BrowserTimeZone>();
 
+        // Mémoire de circuit de l'ORDRE AFFICHÉ d'une liste (BUG-19) : navigation précédent/suivant en vue détail.
+        // Scoped (un état par circuit/onglet — JAMAIS Singleton qui mélangerait les opérateurs). Consommé par
+        // DeclaredListPage (capture au clic d'une ligne) et <RecordNavigator> (résolution des voisins).
+        services.AddScoped<Navigation.IListNavigationContext, Navigation.ListNavigationContext>();
+
         return services;
     }
 }

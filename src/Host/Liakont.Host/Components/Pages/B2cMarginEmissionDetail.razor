@@ -21,6 +21,10 @@
         <a href="/emissions-marge-b2c" data-testid="emission-detail-back">← Retour aux émissions e-reporting B2C</a>
     </p>
 
+    @* BUG-19 — navigation précédent/suivant parcourant la liste filtrée/triée des émissions (rien si la fiche a
+     * été ouverte hors de la grille). Même composant socle transverse que la fiche document. *@
+    <RecordNavigator />
+
     @if (_loadFailed)
     {
         <LiakontAlert TestId="emission-detail-error">

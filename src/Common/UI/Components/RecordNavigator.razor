@@ -1,0 +1,65 @@
+@* Liakont addition (navigation précédent/suivant en vue détail, BUG-19) - not part of the original Stratum vendoring. *@
+@namespace Stratum.Common.UI.Components
+@using Microsoft.AspNetCore.Components.Routing
+@using Stratum.Common.UI.Models
+@using Stratum.Common.UI.Navigation
+@implements IDisposable
+@inject IListNavigationContext ListNavigation
+@inject NavigationManager Nav
+
+@* BUG-19 — barre préc/suiv parcourant la DERNIÈRE liste affichée (filtrée + triée), capturée par DeclaredListPage
+ * au clic d'une ligne. Affichée seulement quand la fiche courante appartient à cette liste (sinon : fiche ouverte
+ * hors grille → rien). TRANSVERSE : aucune entité codée en dur (l'identité = l'URL de détail). Composant PUR
+ * (aucune logique métier) ; les bornes (1er / dernier) désactivent le bouton correspondant. *@
+
+@{
+    var neighbors = ListNavigation.Resolve(Nav.ToBaseRelativePath(Nav.Uri));
+}
+@if (neighbors.HasContext)
+{
+    <div class="record-navigator" data-testid="record-navigator">
+        <StratumButton Text="‹ Précédent"
+                       Variant="ButtonVariant.Secondary"
+                       Outline
+                       Disabled="@(neighbors.Previous is null)"
+                       OnClick="@(_ => GoTo(neighbors.Previous))"
+                       TestId="record-nav-prev" />
+        <span class="record-navigator__position" data-testid="record-nav-position">@(neighbors.Index + 1) / @neighbors.Total</span>
+        <StratumButton Text="Suivant ›"
+                       Variant="ButtonVariant.Secondary"
+                       Outline
+                       Disabled="@(neighbors.Next is null)"
+                       OnClick="@(_ => GoTo(neighbors.Next))"
+                       TestId="record-nav-next" />
+    </div>
+}
+
+@code {
+    private bool _subscribed;
+
+    protected override void OnInitialized()
+    {
+        // « Suivant » / « Précédent » navigue vers une autre fiche du MÊME gabarit routé : la page se re-rend, mais
+        // on s'abonne au changement d'URL pour re-résoudre les voisins de façon robuste (position + bornes à jour).
+        Nav.LocationChanged += OnLocationChanged;
+        _subscribed = true;
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => InvokeAsync(StateHasChanged);
+
+    private void GoTo(string? url)
+    {
+        if (!string.IsNullOrWhiteSpace(url))
+        {
+            Nav.NavigateTo(url);
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_subscribed)
+        {
+            Nav.LocationChanged -= OnLocationChanged;
+        }
+    }
+}

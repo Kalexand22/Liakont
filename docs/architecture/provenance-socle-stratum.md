@@ -1161,6 +1161,35 @@ Europe/Paris résolu → 08:15 UTC = 10:15, 07:50 UTC = 09:50, aucun suffixe « 
 `Job_Type_Column_…` garde l'assertion de repli UTC (fuseau non résolu en bUnit). La conversion elle-même reste
 couverte par `LiakontDateTests`/`LiakontDateDisplayTests`.
 
+### 4.42 BUG-19 — navigation précédent/suivant en vue détail (transverse) via le gabarit de liste
+
+Recette EncheresV6 (Karl, 26/06) : depuis une vue DÉTAIL, aucun moyen de passer au document SUIVANT sans revenir
+à la grille (très pénible pour parcourir les bloqués un par un). Besoin TRANSVERSE (documents, émissions, agents…),
+parcourant la liste **filtrée/triée telle qu'affichée**. C'est un comportement du gabarit Stratum `DeclaredListPage`.
+
+**Conception — blast radius minimal** : l'ORDRE AFFICHÉ vit dans `DeclaredListPage._filteredItems` (privé). On le
+capture au clic d'une ligne sous forme d'URLs de détail, dans une mémoire de circuit ; la vue détail résout ses
+voisins par l'URL courante. Aucune entité codée en dur — l'identité est l'URL de détail (vraie transversalité).
+
+- **Additions Liakont** (NON vendored, hors baseline — fichiers neufs, marqués « Liakont addition ») :
+  `src/Common/UI/Navigation/IListNavigationContext.cs` + `ListNavigationNeighbors.cs` + `ListNavigationContext.cs`
+  (mémoire de circuit `Scoped`, résolution des voisins, normalisation d'URL casse/slash/query) ;
+  `src/Common/UI/Components/RecordNavigator.razor` (composant socle préc/suiv, masqué hors contexte de liste).
+- **Modifs VENDORED (consignées ici)** :
+  - `src/Common/UI/Components/DeclaredListPage.razor.cs` : `[Inject] IListNavigationContext?` + helper
+    `CaptureListNavigationContext()` (mappe `_filteredItems` → URLs de détail) appelé dans `HandleRowActivated`
+    ET `HandleMultiViewRowActivated` AVANT la navigation. Sans effet si `DetailUrl` nul ou service absent
+    (rétro-compatible : aucune liste existante n'est impactée).
+  - `src/Common/UI/CommonUIServiceExtensions.cs` (DÉJÀ au bloc `SOCLE-CONSIGNED-DRIFT`, RB6 §4.31) :
+    enregistrement `AddScoped<IListNavigationContext, ListNavigationContext>()` (un état par circuit).
+- **Câblage Liakont (hors socle)** : `<RecordNavigator />` dans `DocumentDetail.razor` et `B2cMarginEmissionDetail.razor`
+  (les deux entités exigées par la transversalité ; tout autre détail atteint depuis un `DeclaredListPage` peut
+  l'ajouter d'une ligne).
+
+**Vérification** : `ListNavigationContextTests` (bornes, hors-liste, normalisation, remplacement transverse) +
+`RecordNavigatorTests` bUnit (rendu préc/suiv + position, bornes désactivées, « Suivant » navigue, masqué hors
+contexte). Build Release 0/0 ; garde `socle-provenance-check` verte (drift consigné).
+
 ## 5. ADR du socle hérités
 
 Les ADR Stratum pertinents au socle sont copiés dans `docs/adr/socle/` (référence, non re-décidés).
