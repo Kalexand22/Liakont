@@ -30,4 +30,15 @@ public interface IB2cMarginEmissionQueries
     /// le lot est introuvable (autre tenant, ou identifiant inconnu). Tenant-scopé par construction.
     /// </summary>
     Task<B2cMarginEmissionDetailDto?> GetEmissionDetailAsync(Guid emissionBatchId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lot d'émission dans lequel ce DOCUMENT a été RÉELLEMENT déclaré (statut <c>Issued</c>) — sa transmission
+    /// agrégée e-reporting B2C (BUG-24). <c>null</c> si le document n'a pas (encore) été e-reporté avec succès
+    /// (jamais émis, ou seulement tenté/rejeté). Permet à la fiche détail de REFLÉTER l'état d'e-reporting au
+    /// read-time (lien doc ↔ lot d'émission) SANS toucher la machine à états du document : un document e-reporté
+    /// reste techniquement « prêt à l'envoi » côté domaine, mais la voie document ne le concerne plus (garde D1).
+    /// Si le document figure dans plusieurs émissions Issued (document tardif → nouvel agrégat), la PLUS RÉCENTE
+    /// prime. Tenant-scopé par construction (la connexion EST le tenant).
+    /// </summary>
+    Task<Guid?> GetIssuedEmissionBatchForDocumentAsync(Guid documentId, CancellationToken cancellationToken = default);
 }

@@ -52,7 +52,23 @@
                     </div>
                     <div class="liakont-doc-detail__row">
                         <dt>État</dt>
-                        <dd><DocumentStateBadge State="@Model.Document.State" TestId="document-detail-state" /></dd>
+                        <dd>
+                            @* E-reporté (BUG-24) : le document a été RÉELLEMENT déclaré via la transmission AGRÉGÉE
+                             * (flux 10.3) ; il n'est plus « à envoyer » par la voie document (garde D1). On affiche
+                             * « E-reporté » + le lien vers sa déclaration au lieu du badge d'état brut. Pure
+                             * RÉFLEXION en lecture (lien doc ↔ lot), aucune transition d'état côté domaine. *@
+                            @if (Model.B2cReportedBatchId is { } reportedBatchId)
+                            {
+                                <StatusBadge Label="E-reporté" Severity="Severity.Success" TestId="document-detail-state" />
+                                <a class="liakont-doc-detail__ereported-link"
+                                   href="@($"/emissions-marge-b2c/{reportedBatchId}")"
+                                   data-testid="document-detail-ereported-link">Voir la déclaration e-reporting</a>
+                            }
+                            else
+                            {
+                                <DocumentStateBadge State="@Model.Document.State" TestId="document-detail-state" />
+                            }
+                        </dd>
                     </div>
                 </dl>
 
@@ -277,7 +293,15 @@
         <StratumTab Title="Contrôles">
             <SectionCard Title="Contrôles avant envoi" TestId="document-detail-controls">
                 <p class="liakont-doc-detail__controls-state">
-                    État courant : <DocumentStateBadge State="@Model.Document.State" TestId="document-detail-controls-state" />
+                    État courant :
+                    @if (Model.B2cReportedBatchId is not null)
+                    {
+                        <StatusBadge Label="E-reporté" Severity="Severity.Success" TestId="document-detail-controls-state" />
+                    }
+                    else
+                    {
+                        <DocumentStateBadge State="@Model.Document.State" TestId="document-detail-controls-state" />
+                    }
                 </p>
 
                 @if (IsBlocked)
@@ -310,6 +334,15 @@
                             <span>Le motif de rejet figure dans l'onglet Historique. Corrigez puis renvoyez le document.</span>
                         }
                     </LiakontAlert>
+                }
+                else if (Model.B2cReportedBatchId is { } reportedBatchId)
+                {
+                    @* E-reporté (BUG-24) : déclaré via la transmission AGRÉGÉE — la voie document ne le concerne
+                     * plus (garde D1). On l'indique explicitement au lieu d'un « Aucun contrôle en échec » trompeur. *@
+                    <p data-testid="document-detail-controls-ereported">
+                        Ce document a été e-reporté (transmission agrégée e-reporting B2C). Il n'est pas à envoyer par la voie document.
+                        <a href="@($"/emissions-marge-b2c/{reportedBatchId}")">Voir la déclaration</a>
+                    </p>
                 }
                 else
                 {

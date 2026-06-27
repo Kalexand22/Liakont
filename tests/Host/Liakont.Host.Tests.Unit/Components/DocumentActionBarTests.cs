@@ -115,6 +115,21 @@ public sealed class DocumentActionBarTests : BunitContext
     }
 
     [Fact]
+    public void Should_Hide_Send_For_A_B2c_Reported_Document_Even_When_ReadyToSend()
+    {
+        // BUG-24 : un document e-reporté (déclaré via la transmission AGRÉGÉE) relève de la voie agrégée, pas de la
+        // voie document (garde D1). Bien qu'il soit techniquement « prêt à l'envoi », « Envoyer » est MASQUÉ — et,
+        // aucune autre action n'étant pertinente, la barre entière disparaît (l'opérateur consulte sa déclaration).
+        var cut = Render<DocumentActionBar>(p => p
+            .Add(b => b.Model, Model(Doc("9000004", "ReadyToSend", companyHint: true), reportedBatchId: Guid.NewGuid()))
+            .Add(b => b.CanAct, true));
+
+        cut.FindAll("[data-testid='document-detail-send']").Should().BeEmpty("un document e-reporté ne s'envoie pas par la voie document");
+        cut.FindAll("[data-testid='document-detail-send-hint']").Should().BeEmpty();
+        cut.FindAll("[data-testid='document-detail-action-region']").Should().BeEmpty("aucune action pertinente → pas de barre");
+    }
+
+    [Fact]
     public void Should_Hide_Send_When_Not_CanAct_Even_If_ReadyToSend()
     {
         var cut = Render<DocumentActionBar>(p => p
@@ -235,13 +250,14 @@ public sealed class DocumentActionBarTests : BunitContext
         cut.Find("[data-testid='document-detail-recheck']").HasAttribute("disabled").Should().BeTrue();
     }
 
-    private static DocumentDetailViewModel Model(DocumentDto doc) => new()
+    private static DocumentDetailViewModel Model(DocumentDto doc, Guid? reportedBatchId = null) => new()
     {
         Document = doc,
         Events = [],
         BlockingReason = string.Equals(doc.State, "Blocked", StringComparison.Ordinal) ? "Un contrôle a échoué." : null,
         Archive = null,
         IsArchived = false,
+        B2cReportedBatchId = reportedBatchId,
     };
 
     private static DocumentDto Doc(

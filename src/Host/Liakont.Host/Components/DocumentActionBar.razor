@@ -24,7 +24,7 @@
                 L'acheteur semble être un professionnel (garde-fou B2B/B2C). Que souhaitez-vous faire ?
             </p>
         }
-        @if (IsReadyToSend)
+        @if (CanSend)
         {
             @* Envois suspendus (table TVA non validée) : le motif remplace le hint d'envoi — même
                affordance que le « Tout envoyer » de la liste (la garde réelle reste serveur). *@
@@ -66,8 +66,8 @@
                                OnClick="@(_ => OnRecheck.InvokeAsync())"
                                TestId="document-detail-recheck" />
             }
-            @* « Envoyer » réutilise le chemin d'envoi tenant (ADR-0016) : déclenche le traitement qui émet TOUS les ReadyToSend du tenant — sémantique annoncée par le hint ci-dessus et par le message de retour. *@
-            @if (IsReadyToSend)
+            @* « Envoyer » réutilise le chemin d'envoi tenant (ADR-0016) : déclenche le traitement qui émet TOUS les ReadyToSend du tenant — sémantique annoncée par le hint ci-dessus et par le message de retour. Masqué pour un document déjà e-reporté (BUG-24) : il relève de la voie agrégée, pas de la voie document (garde D1). *@
+            @if (CanSend)
             {
                 <StratumButton Text="Envoyer"
                                Variant="ButtonVariant.Primary"
@@ -138,6 +138,16 @@
     private bool IsRejectedByPa => string.Equals(Model.Document.State, RejectedByPaDocumentState, StringComparison.Ordinal);
 
     /// <summary>
+    /// Le document a été e-reporté via la transmission AGRÉGÉE (BUG-24, <see cref="DocumentDetailViewModel.B2cReportedBatchId"/>) :
+    /// la voie document ne le concerne plus (garde D1). « Envoyer » est alors MASQUÉ — l'opérateur consulte sa
+    /// déclaration (lien dans la fiche), il n'a rien à émettre par la voie document.
+    /// </summary>
+    private bool IsB2cReported => Model.B2cReportedBatchId is not null;
+
+    /// <summary>Envoi par la voie document pertinent : document prêt à l'envoi ET non déjà e-reporté (BUG-24).</summary>
+    private bool CanSend => IsReadyToSend && !IsB2cReported;
+
+    /// <summary>
     /// Le verdict B2B/B2C n'est proposé que lorsque l'acheteur présente l'indice « société » de la source
     /// (<see cref="DocumentDto.CustomerIsCompanyHint"/>) et que le verdict n'a pas déjà été posé
     /// (<see cref="DocumentDto.BuyerConfirmedAsIndividual"/>). Signal STRUCTURÉ (aucune analyse de texte du
@@ -149,5 +159,5 @@
         && !Model.Document.BuyerConfirmedAsIndividual;
 
     /// <summary>Au moins une action est pertinente pour l'état courant (sinon la barre n'est pas rendue).</summary>
-    private bool HasAction => IsBlocked || IsReadyToSend || IsRejectedByPa;
+    private bool HasAction => IsBlocked || CanSend || IsRejectedByPa;
 }

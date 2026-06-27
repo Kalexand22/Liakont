@@ -150,5 +150,9 @@ public sealed class B2cMarginEmissionsConsoleQueryServiceTests
             RequestedBatchIds.Add(emissionBatchId);
             return Task.FromResult(_detail);
         }
+
+        // BUG-24 : non exercée par le service console (consommée par la fiche détail document) — stub neutre.
+        public Task<Guid?> GetIssuedEmissionBatchForDocumentAsync(Guid documentId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<Guid?>(null);
     }
 }
