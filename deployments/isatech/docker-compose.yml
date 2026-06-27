@@ -1,0 +1,159 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Environnement de DÉMO Isatech — stack Liakont auto-portée, ISOLÉE et LOCALE.
+#
+# Déclinaison de marque du stack de démo (cf. deployments/bucodi/) aux couleurs ISATECH
+# (partenaire, pilote « Enchères SVV » pour commissaires-priseurs — isatech.fr, groupe Dimood).
+# SEULES diffèrent : la marque (Branding__*) + le namespace projet/conteneurs/volumes.
+# Le reste (services, ports, realm Keycloak, secrets de démo) est identique à Bucodi.
+#
+# Démarrage :   powershell -ExecutionPolicy Bypass -File demo.ps1 up   (ou reset)
+#
+# Réutilise le MÊME realm Keycloak que Bucodi (../bucodi/keycloak/realm-bucodi.json) : l'auth
+# n'est pas du branding visuel — le realm reste « bucodi » (login sysadmin), la console est Isatech.
+# Mêmes ports que Bucodi (8090/8081/5442) → un seul env de démo à la fois (down l'autre avant up).
+#
+# AVERTISSEMENT : identifiants de DÉMO LOCALE jetables (admin/admin, mots de passe _demo_).
+# Ne JAMAIS réutiliser en production (cf. deploy/docker/appliance/).
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: liakont-isatech
+
+services:
+  # ── Base PostgreSQL applicative (système + tenant de démo) ──
+  postgres:
+    image: postgres:16-alpine
+    container_name: isatech-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: liakont
+      POSTGRES_USER: liakont
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-liakont_demo_pwd}
+    volumes:
+      - isatech-db-data:/var/lib/postgresql/data
+    ports:
+      - "5442:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U liakont -d liakont"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - isatech-net
+
+  # ── Base PostgreSQL dédiée à Keycloak (isolée de l'applicative) ──
+  keycloak-db:
+    image: postgres:16-alpine
+    container_name: isatech-keycloak-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD:-keycloak_demo_pwd}
+    volumes:
+      - isatech-keycloak-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - isatech-net
+
+  # ── Keycloak : IdP, realm `bucodi` RÉUTILISÉ (auth uniquement, pas de branding visuel) ──
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.8
+    container_name: isatech-keycloak
+    restart: unless-stopped
+    command: ["start", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD:-keycloak_demo_pwd}
+      KC_HOSTNAME: http://localhost:8081
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ../bucodi/keycloak/realm-bucodi.json:/opt/keycloak/data/import/realm-bucodi.json:ro
+    ports:
+      - "8081:8080"
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    networks:
+      - isatech-net
+
+  # ── Host applicatif Liakont (.NET 10) — image construite depuis l'appliance, lancée en Development ──
+  liakont:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/appliance/Dockerfile
+    container_name: isatech-host
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_HTTP_PORTS: "8080"
+      Database__ConnectionString: "Host=postgres;Port=5432;Database=liakont;Username=liakont;Password=${POSTGRES_PASSWORD:-liakont_demo_pwd}"
+      TenantConnections__ConnectionStrings__default: "Host=postgres;Port=5432;Database=liakont;Username=liakont;Password=${POSTGRES_PASSWORD:-liakont_demo_pwd}"
+      # OIDC : realm `bucodi` réutilisé (auth), redirections vers localhost:8090.
+      Keycloak__Authority: "http://localhost:8081/realms/bucodi"
+      Keycloak__MetadataAddress: "http://keycloak:8080/realms/bucodi/.well-known/openid-configuration"
+      Keycloak__ClientId: liakont
+      Keycloak__ClientSecret: bucodi-demo-secret
+      Keycloak__RequireHttpsMetadata: "false"
+      Keycloak__UseKeycloak: "true"
+      Keycloak__RealmTenantMap__bucodi: default
+      Keycloak__PrimaryRealmName: bucodi
+      Keycloak__AppBaseUrl: "http://localhost:8090"
+      Keycloak__AdminBaseUrl: "http://keycloak:8080"
+      Keycloak__AdminUsername: ${KC_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      Keycloak__AdminPassword: ${KC_BOOTSTRAP_ADMIN_PASSWORD:-admin}
+      DevTenantSeed__TenantId: ""
+      # Seeds de provisioning « clé en main » (vertical Enchères SVV) montés en lecture seule : l'assistant
+      # Clients liste ces dossiers (volontaire / judiciaire) et applique profil + fiscal + planif + seuils +
+      # compte PA (sans clé) + mapping TVA au moment de la création du tenant (OPS03, ImportTenantSeed).
+      TenantSeeds__RootPath: /app/tenant-seeds
+      # ── Branding ISATECH (partenaire « Enchères SVV », isatech.fr) ──
+      # Couleur de MENU = navy ardoise #1F2A3A (barres/blocs de menu) ; accent = orange signature
+      # Isatech #D0661B (extrait du logo officiel : item sélectionné, hover, emblème).
+      Branding__CommercialName: Isatech
+      # Le logo Isatech EST le wordmark « ISATECH » (il porte déjà le nom) → on masque le texte de marque
+      # à côté pour éviter le doublon « [ISATECH] + Isatech » (le nom reste l'alt de l'image, accessibilité).
+      Branding__ShowCommercialName: "false"
+      Branding__LogoUrl: /branding/isatech-logo.svg
+      Branding__FaviconUrl: /branding/isatech-mark.svg
+      Branding__PrimaryColor: "#1F2A3A"
+      Branding__AccentColor: "#D0661B"
+      Branding__PublicDomain: isatech.fr
+      Branding__FooterText: "Isatech — Logiciel Enchères SVV pour commissaires-priseurs"
+      Branding__PoweredByLiakont: "true"
+      DataProtection__KeyRingPath: /app/App_Data/dataprotection-keys
+      Staging__Storage__FileSystem__RootPath: /app/App_Data/staging-store
+      Ingestion__Storage__PdfRootPath: /app/App_Data/ingestion-pdf
+      Archive__Storage__FileSystem__RootPath: /app/App_Data/archive-store
+    volumes:
+      - isatech-app-data:/app/App_Data
+      # Dossiers de seed de provisioning (vertical Enchères SVV) exposés en LECTURE SEULE à l'assistant
+      # Clients (TenantSeeds__RootPath). Sur l'hôte : deployments/encheres-demo/tenant-seed/{volontaire,judiciaire}.
+      - ../encheres-demo/tenant-seed:/app/tenant-seeds:ro
+    ports:
+      - "8090:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    networks:
+      - isatech-net
+
+volumes:
+  isatech-db-data:
+  isatech-keycloak-db-data:
+  isatech-app-data:
+
+networks:
+  isatech-net:
+    driver: bridge
