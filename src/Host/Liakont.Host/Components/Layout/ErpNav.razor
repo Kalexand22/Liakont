@@ -26,7 +26,12 @@
             {
                 <img class="erp-nav-logo" src="@BrandingOptions.Value.LogoUrl" alt="@BrandingOptions.Value.EffectiveCommercialName" />
             }
-            <span class="erp-nav-brand">@BrandingOptions.Value.EffectiveCommercialName</span>
+            @* Texte du nom masqué quand le logo est un WORDMARK (il porte déjà le nom — ShowCommercialName=false) ;
+               toujours affiché s'il n'y a pas de logo (repli texte) ou pour un logo-emblème (cas nominal). *@
+            @if (string.IsNullOrWhiteSpace(BrandingOptions.Value.LogoUrl) || BrandingOptions.Value.ShowCommercialName)
+            {
+                <span class="erp-nav-brand">@BrandingOptions.Value.EffectiveCommercialName</span>
+            }
         </div>
         <button class="erp-nav-toggle"
                 @onclick="ToggleSidebar"
