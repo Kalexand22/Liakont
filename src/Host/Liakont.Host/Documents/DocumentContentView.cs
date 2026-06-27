@@ -21,10 +21,25 @@ public sealed record DocumentContentView
     /// <summary>Contrôle de cohérence totaux ↔ lignes (S2.5), ou <c>null</c> si le document n'est pas transmis.</summary>
     public required DocumentTotalsCheck? Totals { get; init; }
 
+    /// <summary>
+    /// Termes / conditions de paiement EFFECTIFS du document (EN 16931 BT-20, BUG-26) — valeur du document, sinon
+    /// défaut tenant (F12-A §3.4) ; <c>null</c> si aucun terme n'est paramétré. Donnée de l'entreprise, jamais inventée.
+    /// </summary>
+    public string? PaymentTerms { get; init; }
+
+    /// <summary>
+    /// Mentions légales FR EFFECTIVES du document (EN 16931 BG-1, BR-FR-05 : PMD/PMT/AAB, BUG-26) — valeur du
+    /// document, sinon défaut tenant (F12-A §3.4) ; vide si aucune n'est paramétrée. Contenu tenant, jamais inventé.
+    /// </summary>
+    public IReadOnlyList<DocumentNoteView> Notes { get; init; } = Array.Empty<DocumentNoteView>();
+
     /// <summary><c>true</c> s'il y a des lignes à afficher (document transmis).</summary>
     public bool HasLines => Lines.Count > 0;
 
-    /// <summary>Contenu vide (document non transmis) : aucune ligne, aucune charge, aucun contrôle.</summary>
+    /// <summary><c>true</c> si au moins une mention de facturation effective est portée (termes de paiement OU note).</summary>
+    public bool HasMentions => !string.IsNullOrWhiteSpace(PaymentTerms) || Notes.Count > 0;
+
+    /// <summary>Contenu vide (document non transmis) : aucune ligne, aucune charge, aucun contrôle, aucune mention.</summary>
     public static DocumentContentView Empty { get; } = new()
     {
         Lines = Array.Empty<DocumentLineView>(),

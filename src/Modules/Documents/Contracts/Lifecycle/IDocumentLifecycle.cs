@@ -43,6 +43,20 @@ public interface IDocumentLifecycle
     /// </summary>
     Task<DocumentRecheckPersistOutcome> RecordRecheckStillBlockedAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Action OPÉRATEUR (re-vérification console) : <c>RejectedByPa</c> → <c>Blocked</c> déclenché par un recheck
+    /// d'opérateur sur un document rejeté par la Plateforme Agréée dont la cause N'EST PAS corrigée. Le document
+    /// quitte l'état rejeté (cul-de-sac) pour <c>Blocked</c>, qui affiche le motif réévalué à corriger (« bloquer
+    /// plutôt qu'envoyer faux », CLAUDE.md n°3). Inscrit la transition + un fait d'audit append-only portant
+    /// l'identité de l'opérateur (OBLIGATOIRE — <paramref name="operatorIdentity"/> GUID + <paramref name="operatorName"/>
+    /// nom affiché capturé, FIX305) et le motif RÉÉVALUÉ (<paramref name="reevaluatedReason"/>), qui devient le
+    /// motif COURANT affiché. La légalité est vérifiée SOUS le verrou <c>FOR UPDATE</c> : si un geste concurrent a
+    /// sorti le document de <c>RejectedByPa</c>, rien n'est inscrit et
+    /// <see cref="DocumentRecheckPersistOutcome.StateChanged"/> est retourné (jamais une exception → pas de 500,
+    /// pas de faux audit, pas de TOCTOU).
+    /// </summary>
+    Task<DocumentRecheckPersistOutcome> MarkBlockedByRecheckAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default);
+
     /// <summary>ReadyToSend → Sending : la transmission à la Plateforme Agréée est engagée.</summary>
     Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default);
 

@@ -37,10 +37,12 @@ internal interface IDocumentControlActions
         Guid documentId, ConsoleVerdict verdict, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Re-vérifie un document <b>bloqué</b> (CHECK complet : mapping TVA → garde-fou production →
-    /// validation) sans attendre le prochain traitement : <c>Blocked → ReadyToSend</c> s'il passe désormais,
-    /// sinon il reste <c>Blocked</c> avec les NOUVEAUX motifs (renvoyés pour affichage immédiat). Renvoie un
-    /// RÉSULTAT avec le message opérateur correspondant (jamais d'exception sur un refus métier).
+    /// Re-vérifie un document <b>bloqué</b> ou <b>rejeté par la Plateforme Agréée</b> (CHECK complet : mapping
+    /// TVA → garde-fou production → validation) sans attendre le prochain traitement : → <c>ReadyToSend</c> s'il
+    /// passe désormais (cause corrigée). Un document <c>RejectedByPa</c> dont la cause n'est PAS corrigée est
+    /// transitionné vers <c>Blocked</c> (il quitte le cul-de-sac pour montrer le motif à corriger) ; un document
+    /// déjà <c>Blocked</c> reste <c>Blocked</c>. Les NOUVEAUX motifs sont renvoyés pour affichage immédiat.
+    /// Renvoie un RÉSULTAT avec le message opérateur correspondant (jamais d'exception sur un refus métier).
     /// </summary>
     Task<DocumentControlActionResult> RecheckAsync(Guid documentId, CancellationToken cancellationToken = default);
 

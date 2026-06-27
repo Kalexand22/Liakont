@@ -207,7 +207,7 @@ public sealed class DocumentControlActionsServiceTests
     [Fact]
     public async Task Recheck_With_Unavailable_Content_Tells_The_Operator_To_Re_Extract()
     {
-        var recheck = new FakeRecheckService { Result = DocumentRecheckResult.ContentUnavailable() };
+        var recheck = new FakeRecheckService { Result = DocumentRecheckResult.ContentUnavailable("Blocked") };
         var audit = new CapturingActivityLogger();
         var service = Build(new FakeDocumentQueries(), new RecordingLifecycle(), recheck, audit);
 
@@ -400,6 +400,8 @@ public sealed class DocumentControlActionsServiceTests
         public Task<DocumentRecheckPersistOutcome> MarkReadyToSendByRecheckAsync(Guid documentId, string mappingVersion, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task<DocumentRecheckPersistOutcome> RecordRecheckStillBlockedAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<DocumentRecheckPersistOutcome> MarkBlockedByRecheckAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 

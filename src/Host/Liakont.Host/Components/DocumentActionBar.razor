@@ -54,9 +54,12 @@
                                OnClick="@(_ => OnHandleManually.InvokeAsync())"
                                TestId="document-detail-verdict-b2b" />
             }
-            @if (IsBlocked)
+            @* Re-vérification : offerte pour un document bloqué (débloque après correction) ET pour un document
+               rejeté par la PA (le sort du cul-de-sac : remis en envoi si la cause est corrigée, sinon bloqué
+               avec le motif réévalué — « bloquer plutôt qu'envoyer faux »). Libellé explicite pour le rejet. *@
+            @if (IsBlocked || IsRejectedByPa)
             {
-                <StratumButton Text="Revérifier maintenant"
+                <StratumButton Text="@(IsRejectedByPa ? "Re-vérifier et remettre en envoi" : "Revérifier maintenant")"
                                Variant="ButtonVariant.Secondary"
                                Outline
                                Disabled="ActionInProgress"
@@ -83,6 +86,9 @@
 
     /// <summary>État « prêt à l'envoi » (DocumentState) — comparé en chaîne pour rester découplé de l'enum du module.</summary>
     private const string ReadyToSendDocumentState = "ReadyToSend";
+
+    /// <summary>État « rejeté par la Plateforme Agréée » (DocumentState) — comparé en chaîne pour rester découplé de l'enum du module.</summary>
+    private const string RejectedByPaDocumentState = "RejectedByPa";
 
     /// <summary>Détail assemblé du document (jamais <c>null</c> : la page en fournit toujours un).</summary>
     [Parameter, EditorRequired]
@@ -129,6 +135,8 @@
 
     private bool IsReadyToSend => string.Equals(Model.Document.State, ReadyToSendDocumentState, StringComparison.Ordinal);
 
+    private bool IsRejectedByPa => string.Equals(Model.Document.State, RejectedByPaDocumentState, StringComparison.Ordinal);
+
     /// <summary>
     /// Le verdict B2B/B2C n'est proposé que lorsque l'acheteur présente l'indice « société » de la source
     /// (<see cref="DocumentDto.CustomerIsCompanyHint"/>) et que le verdict n'a pas déjà été posé
@@ -141,5 +149,5 @@
         && !Model.Document.BuyerConfirmedAsIndividual;
 
     /// <summary>Au moins une action est pertinente pour l'état courant (sinon la barre n'est pas rendue).</summary>
-    private bool HasAction => IsBlocked || IsReadyToSend;
+    private bool HasAction => IsBlocked || IsReadyToSend || IsRejectedByPa;
 }

@@ -17,7 +17,7 @@ using Liakont.Modules.Documents.Domain.Entities;
 ///   <item><c>ReadyToSend</c> → <c>Sending</c></item>
 ///   <item><c>Sending</c> → <c>Issued</c> | <c>RejectedByPa</c> | <c>TechnicalError</c></item>
 ///   <item><c>TechnicalError</c> → <c>ReadyToSend</c> (re-tentable au prochain traitement)</item>
-///   <item><c>RejectedByPa</c> → <c>Superseded</c> (remplacé après rejet) | <c>ManuallyHandled</c> (action opérateur)</item>
+///   <item><c>RejectedByPa</c> → <c>Superseded</c> (remplacé après rejet) | <c>ManuallyHandled</c> (action opérateur) | <c>ReadyToSend</c> (re-vérifié après correction) | <c>Blocked</c> (re-vérifié, cause non corrigée)</item>
 /// </list>
 /// <c>Issued</c>, <c>Superseded</c> et <c>ManuallyHandled</c> n'ont AUCUNE transition sortante : ce sont des
 /// états sans suite (les deux derniers sont les états terminaux déclarés, F06 §3 ; <c>Issued</c> est l'état
@@ -39,6 +39,13 @@ public static class DocumentStateMachine
         (DocumentState.TechnicalError, DocumentState.ReadyToSend),
         (DocumentState.RejectedByPa, DocumentState.Superseded),
         (DocumentState.RejectedByPa, DocumentState.ManuallyHandled),
+
+        // Re-vérification d'un document rejeté par la PA après correction de la cause (mentions B2B saisies,
+        // mapping complété) : soit la cause est corrigée et le document repart ReadyToSend, soit elle ne l'est
+        // pas et le document quitte l'état rejeté pour Blocked, qui montre le motif réévalué à corriger
+        // (« bloquer plutôt qu'envoyer faux », CLAUDE.md n°3). Réutilise le mécanisme de re-vérification (FIX02).
+        (DocumentState.RejectedByPa, DocumentState.ReadyToSend),
+        (DocumentState.RejectedByPa, DocumentState.Blocked),
     };
 
     /// <summary>Indique si la transition <paramref name="from"/> → <paramref name="to"/> est autorisée.</summary>

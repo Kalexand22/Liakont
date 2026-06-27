@@ -430,6 +430,36 @@ public sealed class Document
         return DocumentEvent.RecheckedStillBlocked(Id, occurredAtUtc, motif, op, operatorName);
     }
 
+    /// <summary>
+    /// RejectedByPa → Blocked : une RE-VÉRIFICATION OPÉRATEUR d'un document rejeté par la Plateforme Agréée a
+    /// réévalué la cause et le document n'est TOUJOURS PAS prêt (mentions/mapping non corrigés). Le document
+    /// QUITTE l'état rejeté (cul-de-sac) pour <see cref="DocumentState.Blocked"/>, qui affiche le motif réévalué
+    /// à corriger (« bloquer plutôt qu'envoyer faux », CLAUDE.md n°3). Réutilise le mécanisme de re-vérification
+    /// (FIX02) : le fait d'audit append-only de la transition porte l'identité de l'opérateur OBLIGATOIRE
+    /// (<paramref name="operatorIdentity"/> GUID + <paramref name="operatorName"/> nom affiché capturé, FIX305)
+    /// et le motif RÉÉVALUÉ (<paramref name="reevaluatedReason"/>), qui devient le motif COURANT affiché. La
+    /// légalité de la transition est contrôlée AVANT toute mutation (machine à états).
+    /// </summary>
+    public DocumentEvent MarkBlockedByRecheck(string reevaluatedReason, string operatorIdentity, DateTimeOffset occurredAtUtc, string? operatorName = null)
+    {
+        var motif = RequireText(
+            reevaluatedReason,
+            nameof(reevaluatedReason),
+            "Le motif réévalué est obligatoire pour bloquer un document rejeté re-vérifié (piste d'audit, F06 §3).");
+        var op = RequireText(
+            operatorIdentity,
+            nameof(operatorIdentity),
+            "L'identité de l'opérateur est obligatoire pour une re-vérification (piste d'audit, F06 §3).");
+
+        return ApplyTransition(
+            DocumentState.Blocked,
+            DocumentEventType.DocumentBlocked,
+            occurredAtUtc,
+            motif,
+            op,
+            operatorName);
+    }
+
     private static string RequireText(string value, string paramName, string message)
     {
         if (string.IsNullOrWhiteSpace(value))

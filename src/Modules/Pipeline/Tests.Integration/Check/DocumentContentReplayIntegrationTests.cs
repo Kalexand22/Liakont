@@ -66,6 +66,57 @@ public sealed class DocumentContentReplayIntegrationTests : IClassFixture<Pipeli
     }
 
     [Fact]
+    public async Task Replay_Surfaces_The_Tenant_Default_Billing_Mentions_When_The_Document_Carries_None()
+    {
+        // BUG-26 (F12-A §3.4) : un document dont le pivot SOURCE ne porte ni termes de paiement ni notes voit ses
+        // mentions de facturation EFFECTIVES résolues au read-time depuis le défaut TENANT (BT-20 + 3 notes légales
+        // FR PMD/PMT/AAB), via la SOURCE UNIQUE d'injection (l'enricher) — exactement ce que la console affiche.
+        await _harness.SeedBillingMentionsAsync(
+            paymentTerms: "Paiement à 30 jours fin de mois.",
+            latePenaltyTerms: "Pénalités de retard au taux légal.",
+            recoveryFeeTerms: "Indemnité forfaitaire de recouvrement de 40 €.",
+            discountTerms: "Pas d'escompte pour paiement anticipé.");
+
+        var documentId = Guid.NewGuid();
+        var sourceReference = "no_ba=" + documentId.ToString("N");
+        var pivot = CheckIntegrationFixtures.BuildPivot(sourceReference, regimeCode: "NORMAL");
+        pivot.PaymentTerms.Should().BeNull("le pivot source ne porte aucune mention (l'agent extrait des pièces, pas les CGV)");
+
+        await SeedAndStageAsync(documentId, sourceReference, pivot);
+
+        var replay = await _harness.ReplayContentAsync(documentId);
+
+        replay.Available.Should().BeTrue();
+        replay.PaymentTerms.Should().Be("Paiement à 30 jours fin de mois.", "le défaut tenant est injecté au read-time");
+        replay.Notes.Should().HaveCount(3);
+        replay.Notes.Should().ContainSingle(n => n.SubjectCode == "PMD" && n.Content == "Pénalités de retard au taux légal.");
+        replay.Notes.Should().ContainSingle(n => n.SubjectCode == "PMT" && n.Content == "Indemnité forfaitaire de recouvrement de 40 €.");
+        replay.Notes.Should().ContainSingle(n => n.SubjectCode == "AAB" && n.Content == "Pas d'escompte pour paiement anticipé.");
+
+        await _harness.RemoveBillingMentionsAsync();
+    }
+
+    [Fact]
+    public async Task Replay_Leaves_Mentions_Empty_When_No_Tenant_Mentions_Are_Configured()
+    {
+        // Aucune mention tenant configurée : le rejeu n'invente RIEN (CLAUDE.md n°2) — termes/notes restent vides.
+        // On garantit l'état de départ (un autre test a pu seeder/retirer les mentions partagées).
+        await _harness.RemoveBillingMentionsAsync();
+
+        var documentId = Guid.NewGuid();
+        var sourceReference = "no_ba=" + documentId.ToString("N");
+        var pivot = CheckIntegrationFixtures.BuildPivot(sourceReference, regimeCode: "NORMAL");
+
+        await SeedAndStageAsync(documentId, sourceReference, pivot);
+
+        var replay = await _harness.ReplayContentAsync(documentId);
+
+        replay.Available.Should().BeTrue();
+        replay.PaymentTerms.Should().BeNull("aucune mention tenant → rien n'est injecté");
+        replay.Notes.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Replay_When_Staging_Is_Absent_Reports_Unavailable_For_Snapshot_Fallback()
     {
         // Document existant MAIS pivot source non stagé (purgé après émission, ou absent) : le rejeu n'a aucun

@@ -179,6 +179,35 @@
                     </p>
                 }
             </SectionCard>
+
+            @* Mentions de facturation EFFECTIVES portées par CE document (BUG-26, F12-A §3.4) : termes de paiement
+             * (BT-20) + mentions légales FR (BR-FR-05 : pénalités de retard PMD, indemnité forfaitaire de recouvrement
+             * PMT, escompte ou son absence AAB). Restitution LISIBLE (jamais de JSON, F10 §1) : le libellé FR du code
+             * sujet précède son texte. Valeur du document si portée, sinon défaut tenant (injecté au read-time). *@
+            <SectionCard Title="Mentions de facturation" TestId="document-detail-mentions">
+                @if (Content.HasMentions)
+                {
+                    <dl class="liakont-doc-detail__defs">
+                        <div class="liakont-doc-detail__row">
+                            <dt>Termes de paiement</dt>
+                            <dd data-testid="document-detail-payment-terms">@(string.IsNullOrWhiteSpace(Content.PaymentTerms) ? "non renseigné" : Content.PaymentTerms)</dd>
+                        </div>
+                        @foreach (var note in Content.Notes)
+                        {
+                            <div class="liakont-doc-detail__row" data-testid="document-detail-mention">
+                                <dt>@MentionLabel(note.SubjectCode)</dt>
+                                <dd>@note.Content</dd>
+                            </div>
+                        }
+                    </dl>
+                }
+                else
+                {
+                    <p class="liakont-doc-detail__hint" data-testid="document-detail-mentions-empty">
+                        Aucune mention de facturation paramétrée pour ce document.
+                    </p>
+                }
+            </SectionCard>
         </StratumTab>
 
         @* ── Onglet 2 : Contrôles avant envoi (F04) ─────────────────────────────────────── *@
@@ -342,6 +371,21 @@
 
     /// <summary>Taux en pourcentage français (« 20 % »), ou « — » si inconnu / non uniforme sur la ligne.</summary>
     private static string FormatRate(decimal? rate) => rate is { } value ? $"{value.ToString("0.##", Fr)} %" : "—";
+
+    /// <summary>
+    /// Libellé FRANÇAIS d'une mention de facturation (BUG-26) dérivé de son code sujet UNTDID 4451 (BT-21). Pure
+    /// PRÉSENTATION : aucun texte fiscal inventé (seul le libellé du code est traduit, le CONTENU vient du tenant —
+    /// CLAUDE.md n°2). Un code inconnu retombe sur sa valeur brute (jamais d'exception, jamais de mention masquée) ;
+    /// une note sans code → libellé générique « Mention ».
+    /// </summary>
+    private static string MentionLabel(string? subjectCode) => subjectCode switch
+    {
+        "PMD" => "Pénalités de retard",
+        "PMT" => "Indemnité forfaitaire de recouvrement",
+        "AAB" => "Escompte / absence d'escompte",
+        null or "" => "Mention",
+        _ => subjectCode,
+    };
 
     // Piste d'audit et archive : horodatage affiché en UTC EXPLICITE, pour s'aligner sur le dossier d'export
     // pour contrôle fiscal (rendu en UTC ISO-8601) — un vérificateur recoupe écran et export sans ambiguïté de

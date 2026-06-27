@@ -8,6 +8,7 @@ using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Infrastructure.Serialization;
 using Liakont.Modules.Staging.Contracts;
+using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Liakont.Modules.TvaMapping.Contracts.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -31,7 +32,12 @@ using Stratum.Common.Abstractions.MultiTenancy;
 /// <para>L'émetteur (SIREN/raison sociale) n'est PAS résolu ici : il n'entre pas dans le contenu LIGNE à LIGNE
 /// (lignes + catégorie/VATEX/taux + cohérence totaux↔lignes) qu'expose ce service. <see cref="CheckTvaMapping"/>
 /// opère sur les seules lignes (codes régime + ventilations), donc le contenu affiché ne dépend pas de l'identité
-/// émetteur — on évite une lecture de profil tenant inutile.</para>
+/// émetteur — on évite une lecture de profil tenant inutile. En revanche, les MENTIONS DE FACTURATION effectives
+/// (BUG-26, BT-20 + notes légales FR BR-FR-05) SONT résolues, via la SOURCE UNIQUE d'injection
+/// (<see cref="PivotEmitterEnricher.Enrich"/> avec <c>profile</c>/<c>fiscal</c> nuls : seules les mentions sont
+/// remplies, l'émetteur reste inchangé) : on affiche ce que le document PORTE, sinon le défaut tenant
+/// (<see cref="ITenantSettingsQueries.GetBillingMentions"/>) — jamais une mention inventée (CLAUDE.md n°2). Société
+/// du tenant inconnue (paramétrage incomplet) → aucune mention (le contenu ligne reste exposé).</para>
 /// <para>Si le pivot source stagé n'est plus disponible (purgé après émission — ADR-0014 §4 —, absent, ou
 /// intégrité KO), on retourne <see cref="DocumentContentReplay.Unavailable"/> : l'appelant retombe sur le
 /// snapshot transmis (comportement historique préservé pour un document déjà émis/rejeté).</para>
@@ -86,9 +92,9 @@ internal sealed class DocumentContentReplayService : IDocumentContentReplayServi
             return DocumentContentReplay.Unavailable;
         }
 
-        // Compagnie du tenant (clé d'isolation du mapping). Absente = paramétrage tenant incomplet : on expose
-        // tout de même le pivot SOURCE (lignes + régime lu, catégorie/VATEX vides) — le détail reste diagnostiquable
-        // sans inventer de classification.
+        // Compagnie du tenant (clé d'isolation du mapping ET des mentions de facturation). Absente = paramétrage
+        // tenant incomplet : on expose tout de même le pivot SOURCE (lignes + régime lu, catégorie/VATEX vides) —
+        // le détail reste diagnostiquable — SANS mentions (rien à résoudre sans société : jamais inventées).
         var tenantSettings = _services.GetRequiredService<ITenantSettingsQueries>();
         var companyId = await tenantSettings.GetCurrentCompanyId(cancellationToken).ConfigureAwait(false);
         if (companyId is null)
@@ -96,25 +102,40 @@ internal sealed class DocumentContentReplayService : IDocumentContentReplayServi
             return DocumentContentReplay.From(sourcePivot);
         }
 
+        // Mentions de facturation EFFECTIVES (BUG-26, F12-A §3.4) : défaut TENANT, injecté SUR le pivot d'affichage
+        // au read-time UNIQUEMENT s'il ne les porte pas (la valeur du document prime). Résolues UNE fois ; appliquées
+        // au pivot finalement exposé (source OU enrichi-mapping) via la SOURCE UNIQUE d'injection (l'enricher).
+        var mentions = await tenantSettings.GetBillingMentions(companyId.Value, cancellationToken).ConfigureAwait(false);
+
         // REJEU du mapping via la SOURCE UNIQUE (CheckTvaMapping) — même chemin qu'au CHECK et qu'à l'envoi.
         // Aucune ligne de forme mappable (toutes hors forme V1) ou table absente/mapping bloqué → on expose le
         // pivot SOURCE (régime lu, catégorie/VATEX vides = le FAIT du blocage, jamais deviné — CLAUDE.md n°2).
         var plan = CheckTvaMapping.BuildPlan(sourcePivot);
         if (plan.Requests.Count == 0)
         {
-            return DocumentContentReplay.From(sourcePivot);
+            return ReplayWithMentions(sourcePivot, mentions);
         }
 
         var mapping = await _services.GetRequiredService<ITvaMappingService>()
             .MapAsync(companyId.Value, plan.Requests, cancellationToken).ConfigureAwait(false);
         if (!mapping.TableExists)
         {
-            return DocumentContentReplay.From(sourcePivot);
+            return ReplayWithMentions(sourcePivot, mentions);
         }
 
         var evaluation = CheckTvaMapping.Evaluate(sourcePivot, plan, mapping);
         return evaluation.IsBlocked
-            ? DocumentContentReplay.From(sourcePivot)
-            : DocumentContentReplay.From(evaluation.EnrichedDocument!);
+            ? ReplayWithMentions(sourcePivot, mentions)
+            : ReplayWithMentions(evaluation.EnrichedDocument!, mentions);
     }
+
+    /// <summary>
+    /// Surface le pivot d'affichage (source ou enrichi-mapping) AVEC ses mentions de facturation EFFECTIVES :
+    /// l'enricher injecte le défaut TENANT (BT-20 + notes BR-FR-05) seulement quand le document ne les porte pas
+    /// (la valeur du document prime — F12-A §3.4). <c>profile</c>/<c>fiscal</c> nuls : l'émetteur et la nature
+    /// d'opération restent INCHANGÉS (le contenu ligne ne dépend pas de l'identité émetteur). Mentions tenant
+    /// absentes → l'enricher renvoie le pivot tel quel (mentions vides) — jamais inventées (CLAUDE.md n°2).
+    /// </summary>
+    private static DocumentContentReplay ReplayWithMentions(PivotDocumentDto displayPivot, BillingMentionsDto? mentions) =>
+        DocumentContentReplay.From(PivotEmitterEnricher.Enrich(displayPivot, profile: null, fiscal: null, mentions));
 }

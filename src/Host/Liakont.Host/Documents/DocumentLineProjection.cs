@@ -84,7 +84,26 @@ public static class DocumentLineProjection
             Lines = pivot.Lines.Select(ToView).ToList(),
             Charges = pivot.DocumentCharges.Select(ToChargeView).ToList(),
             Totals = BuildTotalsCheck(pivot),
+            PaymentTerms = pivot.PaymentTerms,
+            Notes = ToNoteViews(pivot.Notes),
         };
+    }
+
+    /// <summary>
+    /// Mentions de facturation EFFECTIVES (BUG-26, BG-1) telles que le pivot les porte : valeur du document, sinon
+    /// défaut tenant déjà injecté en amont (transmis = SEND-time ; rejeu = read-time). PROJECTION pure — aucun texte
+    /// inventé. Pivot sans note → liste vide (la vue affiche alors son hint « aucune mention »).
+    /// </summary>
+    private static IReadOnlyList<DocumentNoteView> ToNoteViews(IReadOnlyList<PivotDocumentNoteDto>? notes)
+    {
+        if (notes is not { Count: > 0 })
+        {
+            return Array.Empty<DocumentNoteView>();
+        }
+
+        return notes
+            .Select(note => new DocumentNoteView { Content = note.Content, SubjectCode = note.SubjectCode })
+            .ToList();
     }
 
     private static DocumentLineView ToView(PivotLineDto line)

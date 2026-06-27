@@ -17,6 +17,8 @@ public sealed class DocumentDetailConsoleQueryServiceTests
 {
     private static readonly Guid DocId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
+    private static readonly string[] MentionsRegimeCodes = ["6"];
+
     /// <summary>JSON canonique d'un pivot TRANSMIS (déjà mappé) servant au repli sur le snapshot.</summary>
     private static readonly string TransmittedSnapshotJson = Liakont.Agent.Contracts.Serialization.CanonicalJson.Serialize(
         new PivotDocumentDto(
@@ -204,6 +206,56 @@ public sealed class DocumentDetailConsoleQueryServiceTests
     }
 
     [Fact]
+    public async Task GetDetailAsync_Should_Surface_Billing_Mentions_From_The_Read_Time_Replay()
+    {
+        // BUG-26 : les mentions de facturation EFFECTIVES portées par le pivot d'affichage (le rejeu read-time les a
+        // enrichies depuis le défaut tenant quand le document ne les porte pas) remontent dans le contenu projeté :
+        // termes de paiement (BT-20) + notes légales FR (PMD/PMT/AAB). Le contenu vient du pivot, jamais inventé.
+        var fake = new FakeDocumentQueries
+        {
+            Document = Doc("2026-110", "Blocked"),
+            Events = [Event("DocumentBlocked", new DateTimeOffset(2026, 6, 1, 8, 5, 0, TimeSpan.Zero), detail: "Régime TVA non mappé.")],
+        };
+        var pivotWithMentions = SourcePivotWithMentions(
+            paymentTerms: "Paiement à 30 jours.",
+            notes: new[]
+            {
+                new PivotDocumentNoteDto("Pénalités de retard au taux légal.", "PMD"),
+                new PivotDocumentNoteDto("Indemnité forfaitaire de 40 €.", "PMT"),
+                new PivotDocumentNoteDto("Pas d'escompte.", "AAB"),
+            });
+        var replay = FakeContentReplay.Returning(pivotWithMentions);
+
+        var result = await Build(fake, replay).GetDetailAsync(DocId);
+
+        result!.Content.PaymentTerms.Should().Be("Paiement à 30 jours.");
+        result.Content.HasMentions.Should().BeTrue();
+        result.Content.Notes.Should().HaveCount(3);
+        result.Content.Notes.Should().ContainSingle(n => n.SubjectCode == "PMD" && n.Content == "Pénalités de retard au taux légal.");
+        result.Content.Notes.Should().ContainSingle(n => n.SubjectCode == "PMT" && n.Content == "Indemnité forfaitaire de 40 €.");
+        result.Content.Notes.Should().ContainSingle(n => n.SubjectCode == "AAB" && n.Content == "Pas d'escompte.");
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_Should_Leave_Mentions_Empty_When_The_Replay_Pivot_Carries_None()
+    {
+        // BUG-26 : un pivot sans mention → contenu sans mention (HasMentions faux) ; la vue affiche son hint, jamais
+        // une mention inventée (CLAUDE.md n°2).
+        var fake = new FakeDocumentQueries
+        {
+            Document = Doc("2026-111", "Blocked"),
+            Events = [Event("DocumentBlocked", new DateTimeOffset(2026, 6, 1, 8, 5, 0, TimeSpan.Zero), detail: "Régime TVA non mappé.")],
+        };
+        var replay = FakeContentReplay.Returning(SourcePivot("Adjudication lot 12", sourceRegime: "6", netAmount: 500m));
+
+        var result = await Build(fake, replay).GetDetailAsync(DocId);
+
+        result!.Content.HasMentions.Should().BeFalse("le pivot ne porte aucune mention → rien n'est inventé");
+        result.Content.PaymentTerms.Should().BeNull();
+        result.Content.Notes.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task GetDetailAsync_Should_Prefer_The_Transmitted_Snapshot_Over_The_Read_Time_Replay()
     {
         // BUG-5 (P2 review) : un document TRANSMIS (Issued) porte un PayloadSnapshot = la VÉRITÉ envoyée à la PA.
@@ -265,6 +317,27 @@ public sealed class DocumentDetailConsoleQueryServiceTests
                 sourceRegimeCodes: new[] { sourceRegime },
                 taxes: new[] { new PivotLineTaxDto(taxAmount: 0m) }),
         });
+
+    /// <summary>Pivot d'affichage portant des mentions de facturation (BT-20 + notes BG-1) — exerce leur remontée (BUG-26).</summary>
+    private static PivotDocumentDto SourcePivotWithMentions(string paymentTerms, PivotDocumentNoteDto[] notes) => new(
+        sourceDocumentKind: "invoice",
+        number: "2026-110",
+        issueDate: new DateTime(2026, 6, 1),
+        sourceReference: "src/2026-110",
+        supplier: null,
+        totals: new PivotTotalsDto(totalNet: 500m, totalTax: 0m, totalGross: 500m),
+        operationCategory: null,
+        lines: new[]
+        {
+            new PivotLineDto(
+                description: "Adjudication lot 12",
+                netAmount: 500m,
+                quantity: 1m,
+                sourceRegimeCodes: MentionsRegimeCodes,
+                taxes: new[] { new PivotLineTaxDto(taxAmount: 0m) }),
+        },
+        paymentTerms: paymentTerms,
+        notes: notes);
 
     private static DocumentDto Doc(string number, string state) => new()
     {

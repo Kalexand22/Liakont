@@ -157,6 +157,76 @@ public sealed class DocumentDetailViewTests : BunitContext
     }
 
     [Fact]
+    public void Should_Render_Billing_Mentions_With_French_Labels_On_The_Content_Tab()
+    {
+        // BUG-26 (F12-A §3.4) : les mentions de facturation EFFECTIVES du document sont restituées dans une carte
+        // dédiée — termes de paiement (BT-20) + les 3 mentions légales FR mappées en libellé français depuis leur
+        // code sujet (PMD → « Pénalités de retard », PMT → « Indemnité forfaitaire de recouvrement », AAB →
+        // « Escompte / absence d'escompte »). Restitution LISIBLE, jamais de JSON (F10 §1) ni de code brut.
+        var notes = new[]
+        {
+            Note("Pénalités de retard au taux légal.", "PMD"),
+            Note("Indemnité forfaitaire de recouvrement de 40 €.", "PMT"),
+            Note("Pas d'escompte pour paiement anticipé.", "AAB"),
+        };
+        var content = Content(
+            [Line("Vente", netAmount: 1000m, category: "S — Taux normal", taxAmount: 162.80m)],
+            paymentTerms: "Paiement à 30 jours fin de mois.",
+            notes: notes);
+        var model = BuildModel(doc: Doc("2026-020", "Issued"), content: content);
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        var card = cut.Find("[data-testid='document-detail-mentions']").TextContent;
+        cut.Find("[data-testid='document-detail-payment-terms']").TextContent.Should().Contain("Paiement à 30 jours fin de mois.");
+
+        cut.FindAll("[data-testid='document-detail-mention']").Should().HaveCount(3);
+        card.Should().Contain("Pénalités de retard").And.Contain("Pénalités de retard au taux légal.")
+            .And.Contain("Indemnité forfaitaire de recouvrement").And.Contain("Indemnité forfaitaire de recouvrement de 40 €.")
+            .And.Contain("Escompte / absence d'escompte").And.Contain("Pas d'escompte pour paiement anticipé.");
+
+        // Le code sujet brut (PMD/PMT/AAB) n'apparaît pas en clair : seul le libellé français est affiché.
+        card.Should().NotContain("PMD").And.NotContain("PMT").And.NotContain("AAB");
+
+        // Aucune note d'absence quand des mentions sont portées.
+        cut.FindAll("[data-testid='document-detail-mentions-empty']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Should_Show_Mentions_Hint_When_No_Billing_Mention_Is_Carried()
+    {
+        // BUG-26 : un document sans mention (ni termes de paiement ni note) affiche un hint honnête, jamais une
+        // mention inventée (CLAUDE.md n°2). Le défaut tenant non paramétré reste vide → hint.
+        var content = Content([Line("Vente", netAmount: 1000m, category: "S — Taux normal", taxAmount: 162.80m)]);
+        var model = BuildModel(doc: Doc("2026-021", "Issued"), content: content);
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        cut.FindAll("[data-testid='document-detail-mentions-empty']").Should().ContainSingle();
+        cut.Find("[data-testid='document-detail-mentions-empty']").TextContent.Should()
+            .Contain("Aucune mention de facturation paramétrée");
+        cut.FindAll("[data-testid='document-detail-mention']").Should().BeEmpty();
+        cut.FindAll("[data-testid='document-detail-payment-terms']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Should_Render_Payment_Terms_Even_When_No_Legal_Notes_Are_Carried()
+    {
+        // Mentions partielles : seuls les termes de paiement sont portés (les 3 notes légales absentes). La carte
+        // s'affiche (termes présents), sans note légale — jamais de note inventée.
+        var content = Content(
+            [Line("Vente", netAmount: 1000m, category: "S — Taux normal", taxAmount: 162.80m)],
+            paymentTerms: "Paiement comptant à réception.");
+        var model = BuildModel(doc: Doc("2026-022", "Issued"), content: content);
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        cut.Find("[data-testid='document-detail-payment-terms']").TextContent.Should().Contain("Paiement comptant à réception.");
+        cut.FindAll("[data-testid='document-detail-mention']").Should().BeEmpty();
+        cut.FindAll("[data-testid='document-detail-mentions-empty']").Should().BeEmpty();
+    }
+
+    [Fact]
     public void Should_Highlight_Blocking_Reason_On_Content_And_Controls_When_Blocked()
     {
         var model = BuildModel(doc: Doc("2026-002", "Blocked"), blockingReason: "Le SIREN de l'émetteur est invalide.");
@@ -367,11 +437,21 @@ public sealed class DocumentDetailViewTests : BunitContext
     private static DocumentContentView Content(
         IReadOnlyList<DocumentLineView> lines,
         IReadOnlyList<DocumentChargeView>? charges = null,
-        DocumentTotalsCheck? totals = null) => new()
+        DocumentTotalsCheck? totals = null,
+        string? paymentTerms = null,
+        IReadOnlyList<DocumentNoteView>? notes = null) => new()
     {
         Lines = lines,
         Charges = charges ?? [],
         Totals = totals ?? Check(),
+        PaymentTerms = paymentTerms,
+        Notes = notes ?? [],
+    };
+
+    private static DocumentNoteView Note(string content, string? subjectCode) => new()
+    {
+        Content = content,
+        SubjectCode = subjectCode,
     };
 
     private static DocumentLineView Line(

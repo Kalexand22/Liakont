@@ -139,7 +139,7 @@ internal sealed class DocumentControlActionsService : IDocumentControlActions
             case DocumentRecheckOutcome.NotBlocked:
                 return DocumentControlActionResult.Failure(string.Create(
                     CultureInfo.CurrentCulture,
-                    $"La re-vérification ne s'applique qu'à un document bloqué (état actuel : {result.State})."));
+                    $"La re-vérification ne s'applique qu'à un document bloqué ou rejeté par la Plateforme Agréée (état actuel : {result.State})."));
 
             case DocumentRecheckOutcome.ContentUnavailable:
                 return DocumentControlActionResult.Failure(
@@ -168,7 +168,10 @@ internal sealed class DocumentControlActionsService : IDocumentControlActions
                 }
 
                 // StillBlocked : le document reste bloqué avec un (nouveau) motif — succès de l'opération, mais
-                // l'opérateur doit voir pourquoi il reste bloqué (CLAUDE.md n°12). La page recharge les contrôles.
+                // l'opérateur doit voir pourquoi il reste bloqué (CLAUDE.md n°12). Cas d'un document REJETÉ par la
+                // PA dont la cause n'est pas corrigée : il a été transitionné vers Blocked (il quitte le cul-de-sac
+                // pour montrer le motif à corriger) ; le message « reste bloqué » reste juste pour les deux cas
+                // (le document est, dans les deux, dans un état bloqué non envoyable). La page recharge les contrôles.
                 var reason = string.IsNullOrWhiteSpace(result.BlockingReason)
                     ? "Consultez l'onglet Contrôles pour le détail."
                     : result.BlockingReason!;

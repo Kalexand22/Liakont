@@ -19,21 +19,26 @@ using Microsoft.Extensions.DependencyInjection;
 using Stratum.Common.Abstractions.MultiTenancy;
 
 /// <summary>
-/// Re-vérification À LA DEMANDE d'UN document bloqué (item API02b). Réutilise la SOURCE UNIQUE de la décision
-/// de blocage fiscal (<see cref="DocumentCheckEvaluator"/>) — exactement comme le CHECK (PIP01b) et la
-/// réconciliation des avoirs (PIP02) — pour ne jamais diverger sur ce qui bloque (CLAUDE.md n°2/3). Exécutée
-/// DANS le scope de la requête HTTP : le tenant est déjà résolu (<see cref="ITenantContext"/>), les services
-/// (staging, mapping, validation, cycle de vie, paramétrage) sont routés vers la base du tenant
-/// (database-per-tenant). N'incorpore que des décisions OPÉRATEUR sourcées (verdict B2C, F08 §A.4) ; la
-/// garde-fou production et toutes les autres règles restent appliquées sans changement.
+/// Re-vérification À LA DEMANDE d'UN document bloqué OU rejeté par la Plateforme Agréée (item API02b). Réutilise
+/// la SOURCE UNIQUE de la décision de blocage fiscal (<see cref="DocumentCheckEvaluator"/>) — exactement comme le
+/// CHECK (PIP01b) et la réconciliation des avoirs (PIP02) — pour ne jamais diverger sur ce qui bloque
+/// (CLAUDE.md n°2/3). Exécutée DANS le scope de la requête HTTP : le tenant est déjà résolu
+/// (<see cref="ITenantContext"/>), les services (staging, mapping, validation, cycle de vie, paramétrage) sont
+/// routés vers la base du tenant (database-per-tenant). N'incorpore que des décisions OPÉRATEUR sourcées (verdict
+/// B2C, F08 §A.4) ; la garde-fou production et toutes les autres règles restent appliquées sans changement.
 /// </summary>
 /// <remarks>
-/// <para>La seule transition d'ÉTAT possible est <c>Blocked → ReadyToSend</c> : la machine à états interdit
-/// <c>Blocked → Blocked</c> (TRK02). Mais CHAQUE re-vérification qui tourne laisse une trace d'audit append-only
-/// attribuée à l'opérateur (item FIX02) : au déblocage, l'événement <c>ReadyToSend</c> porte l'opérateur ; si le
-/// document reste bloqué, un événement <c>RecheckedStillBlocked</c> (SANS transition d'état) inscrit le geste et
-/// le motif RÉÉVALUÉ — ce motif devient le motif COURANT affiché (plus de motif périmé après rechargement). Les
-/// nouveaux motifs sont aussi renvoyés dans le résultat pour affichage immédiat dans la console (WEB03b).</para>
+/// <para>Selon l'état d'ENTRÉE et la réévaluation, les transitions d'ÉTAT possibles sont : <c>Blocked → ReadyToSend</c>
+/// (débloqué, cause corrigée), <c>RejectedByPa → ReadyToSend</c> (le rejet est réparable, on repart en envoi) et
+/// <c>RejectedByPa → Blocked</c> (la cause du rejet n'est pas corrigée : le document quitte le cul-de-sac pour
+/// montrer le motif à corriger — « bloquer plutôt qu'envoyer faux », CLAUDE.md n°3). Un document déjà <c>Blocked</c>
+/// qui reste « pas prêt » NE transitionne PAS (la machine à états interdit <c>Blocked → Blocked</c>, TRK02). Mais
+/// CHAQUE re-vérification qui tourne laisse une trace d'audit append-only attribuée à l'opérateur (item FIX02) :
+/// au passage <c>ReadyToSend</c>, l'événement porte l'opérateur ; si le document reste bloqué, un événement
+/// (<c>RecheckedStillBlocked</c> sans transition pour un Blocked, ou <c>DocumentBlocked</c> pour la transition
+/// d'un RejectedByPa) inscrit le geste et le motif RÉÉVALUÉ — ce motif devient le motif COURANT affiché (plus de
+/// motif périmé après rechargement). Les nouveaux motifs sont aussi renvoyés dans le résultat pour affichage
+/// immédiat dans la console (WEB03b).</para>
 /// <para>Au passage <c>ReadyToSend</c>, le snapshot de ventilation TVA sourcée est écrit AVANT la transition
 /// (ADR-0015 §4, happened-before — sinon le document débloqué par recheck serait absent de l'agrégation de
 /// paiement PIP03a), exactement comme le consommateur CHECK. Idempotent sur (document_id, mapping_version).</para>
@@ -42,6 +47,9 @@ internal sealed class DocumentRecheckService : IDocumentRecheckService
 {
     /// <summary>Nom sérialisé de l'état <c>DocumentState.Blocked</c> (exposé en chaîne par les Contracts Documents).</summary>
     private const string BlockedStateName = "Blocked";
+
+    /// <summary>Nom sérialisé de l'état <c>DocumentState.RejectedByPa</c> (exposé en chaîne par les Contracts Documents).</summary>
+    private const string RejectedByPaStateName = "RejectedByPa";
 
     private readonly IServiceProvider _services;
     private readonly ITenantContext _tenantContext;
@@ -83,9 +91,12 @@ internal sealed class DocumentRecheckService : IDocumentRecheckService
             return DocumentRecheckResult.NotFound();
         }
 
-        if (!string.Equals(document.State, BlockedStateName, StringComparison.Ordinal))
+        // La re-vérification s'applique à un document BLOQUÉ ou REJETÉ par la PA (cohérent avec la pré-vérification
+        // de l'endpoint). On mémorise l'état d'ENTRÉE pour router la branche « pas prêt » : un Blocked reste Blocked
+        // (pas de transition), un RejectedByPa rejeté quitte le cul-de-sac pour Blocked avec le motif réévalué.
+        var wasRejectedByPa = string.Equals(document.State, RejectedByPaStateName, StringComparison.Ordinal);
+        if (!string.Equals(document.State, BlockedStateName, StringComparison.Ordinal) && !wasRejectedByPa)
         {
-            // La re-vérification ne s'applique qu'à un document bloqué (cohérent avec la pré-vérification de l'endpoint).
             return DocumentRecheckResult.NotBlocked(document.State);
         }
 
@@ -98,8 +109,9 @@ internal sealed class DocumentRecheckService : IDocumentRecheckService
         }
 
         // Relecture du contenu pivot stagé (PIP00). Le magasin re-vérifie le hash. Absent = transitoire (ADR-0014) ;
-        // altéré = intégrité : dans les deux cas on ne peut pas re-vérifier — le document reste Blocked (déjà bloqué,
-        // jamais Blocked → Blocked) et l'opérateur reçoit un message « contenu indisponible » (CLAUDE.md n°12).
+        // altéré = intégrité : dans les deux cas on ne peut pas re-vérifier — AUCUNE transition n'est appliquée (le
+        // document garde son état d'entrée, Blocked ou RejectedByPa) et l'opérateur reçoit un message « contenu
+        // indisponible » (CLAUDE.md n°12). L'état d'entrée est reporté tel quel (pas de fausse mention « Blocked »).
         var staging = _services.GetRequiredService<IPayloadStagingStore>();
         var key = new StagedPayloadKey(tenantId, documentId, document.PayloadHash);
         PivotDocumentDto pivot;
@@ -110,11 +122,11 @@ internal sealed class DocumentRecheckService : IDocumentRecheckService
         }
         catch (StagedPayloadNotFoundException)
         {
-            return DocumentRecheckResult.ContentUnavailable();
+            return DocumentRecheckResult.ContentUnavailable(document.State);
         }
         catch (StagedPayloadIntegrityException)
         {
-            return DocumentRecheckResult.ContentUnavailable();
+            return DocumentRecheckResult.ContentUnavailable(document.State);
         }
 
         // RE-ÉVALUATION COMPLÈTE (mapping → garde-fou production → validation) via la source UNIQUE de la décision
@@ -132,13 +144,18 @@ internal sealed class DocumentRecheckService : IDocumentRecheckService
 
         if (!decision.IsReady)
         {
-            // Toujours bloqué : aucune transition (Blocked → Blocked interdit), mais on TRACE le geste opérateur
-            // et le motif réévalué (item FIX02) — la re-vérification n'est plus invisible dans la piste (F06 §3)
-            // et le motif affiché devient le dernier évalué (plus de motif périmé après rechargement). Le cycle de
-            // vie vérifie l'état SOUS le verrou : un geste concurrent qui a débloqué/résolu le document est rendu
-            // gracieusement (jamais un faux audit ni un 500), une vraie erreur de persistance remonte.
-            var stillBlocked = await lifecycle.RecordRecheckStillBlockedAsync(documentId, decision.BlockReason!, operatorIdentity, operatorName, cancellationToken);
-            return stillBlocked == DocumentRecheckPersistOutcome.Persisted
+            // Pas prêt : on TRACE le geste opérateur et le motif réévalué (item FIX02) — la re-vérification n'est
+            // jamais invisible dans la piste (F06 §3) et le motif affiché devient le dernier évalué (plus de motif
+            // périmé après rechargement). Le cycle de vie vérifie l'état SOUS le verrou : un geste concurrent qui a
+            // résolu/déplacé le document est rendu gracieusement (jamais un faux audit ni un 500), une vraie erreur
+            // de persistance remonte.
+            //   • Document REJETÉ par la PA → on le TRANSITIONNE RejectedByPa → Blocked : il quitte le cul-de-sac
+            //     pour montrer la cause à corriger (« bloquer plutôt qu'envoyer faux », CLAUDE.md n°3).
+            //   • Document déjà BLOQUÉ → aucune transition (Blocked → Blocked interdit), juste la trace du geste.
+            var persisted = wasRejectedByPa
+                ? await lifecycle.MarkBlockedByRecheckAsync(documentId, decision.BlockReason!, operatorIdentity, operatorName, cancellationToken)
+                : await lifecycle.RecordRecheckStillBlockedAsync(documentId, decision.BlockReason!, operatorIdentity, operatorName, cancellationToken);
+            return persisted == DocumentRecheckPersistOutcome.Persisted
                 ? DocumentRecheckResult.StillBlocked(decision.BlockReason!)
                 : await CurrentStateResultAsync(queries, documentId, cancellationToken);
         }

@@ -142,6 +142,44 @@ public sealed class DocumentLifecycleTests
             .Should().Be(DocumentRecheckPersistOutcome.DocumentNotFound);
         (await lifecycle.MarkReadyToSendByRecheckAsync(Guid.NewGuid(), "2026.1", "alice@cmp", "Alice Comptable"))
             .Should().Be(DocumentRecheckPersistOutcome.DocumentNotFound);
+        (await lifecycle.MarkBlockedByRecheckAsync(Guid.NewGuid(), "Motif.", "alice@cmp", "Alice Comptable"))
+            .Should().Be(DocumentRecheckPersistOutcome.DocumentNotFound);
+        unitOfWork.Committed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task MarkBlockedByRecheckAsync_On_A_Rejected_Document_Transitions_To_Blocked_With_Operator_And_Commits()
+    {
+        // Re-vérification d'un document rejeté par la PA dont la cause n'est pas corrigée : RejectedByPa → Blocked,
+        // fait d'audit attribué à l'opérateur portant le motif réévalué (devient le motif courant).
+        var document = RejectedByPa();
+        var unitOfWork = new FakeUnitOfWork(document);
+        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
+
+        var outcome = await lifecycle.MarkBlockedByRecheckAsync(document.Id, "Mentions B2B manquantes.", "alice@cmp", "Alice Comptable");
+
+        outcome.Should().Be(DocumentRecheckPersistOutcome.Persisted);
+        document.State.Should().Be(DocumentState.Blocked, "un rejeté re-vérifié non prêt quitte le cul-de-sac pour Blocked");
+        unitOfWork.AppendedEvents.Should().ContainSingle().Which.EventType.Should().Be(DocumentEventType.DocumentBlocked);
+        unitOfWork.AppendedEvents[0].OperatorIdentity.Should().Be("alice@cmp", "la transition de blocage par recheck est attribuée à l'opérateur");
+        unitOfWork.AppendedEvents[0].OperatorName.Should().Be("Alice Comptable", "le nom d'affichage de l'opérateur est persisté AVEC l'événement (FIX305)");
+        unitOfWork.AppendedEvents[0].Detail.Should().Contain("Mentions B2B manquantes.", "le motif réévalué est porté dans la piste d'audit");
+        unitOfWork.Committed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task MarkBlockedByRecheckAsync_When_No_Longer_Rejected_Returns_StateChanged_Without_Writing()
+    {
+        // Course concurrente : un geste opérateur a déjà sorti le document de RejectedByPa (RejectedByPa → Blocked
+        // est alors illégal depuis Blocked) → refus gracieux, AUCUN faux audit, AUCUN commit, jamais une exception.
+        var document = Blocked();
+        var unitOfWork = new FakeUnitOfWork(document);
+        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
+
+        var outcome = await lifecycle.MarkBlockedByRecheckAsync(document.Id, "Motif.", "alice@cmp", "Alice Comptable");
+
+        outcome.Should().Be(DocumentRecheckPersistOutcome.StateChanged);
+        unitOfWork.AppendedEvents.Should().BeEmpty("aucun fait d'audit n'est inscrit sur un document qui n'est plus rejeté");
         unitOfWork.Committed.Should().BeFalse();
     }
 
@@ -164,6 +202,15 @@ public sealed class DocumentLifecycleTests
     {
         var document = Detected();
         document.MarkBlocked(At.AddMinutes(1), "Table TVA non validée");
+        return document;
+    }
+
+    private static Document RejectedByPa()
+    {
+        var document = Detected();
+        document.MarkReadyToSendWithMapping(At.AddMinutes(1), "2026.1");
+        document.BeginSending(At.AddMinutes(2));
+        document.MarkRejectedByPa(new RejectionSnapshots("{\"payload\":true}", "{\"rejected\":true}"), At.AddMinutes(3), "Rejeté : mentions B2B manquantes.");
         return document;
     }
 

@@ -28,6 +28,8 @@ public sealed class DocumentStateMachineTests
         (DocumentState.TechnicalError, DocumentState.ReadyToSend),
         (DocumentState.RejectedByPa, DocumentState.Superseded),
         (DocumentState.RejectedByPa, DocumentState.ManuallyHandled),
+        (DocumentState.RejectedByPa, DocumentState.ReadyToSend),
+        (DocumentState.RejectedByPa, DocumentState.Blocked),
     };
 
     [Fact]
@@ -73,5 +75,26 @@ public sealed class DocumentStateMachineTests
         var act = () => DocumentStateMachine.EnsureCanTransition(DocumentState.Detected, DocumentState.ReadyToSend);
 
         act.Should().NotThrow();
+    }
+
+    [Theory]
+    [InlineData(DocumentState.ReadyToSend)]
+    [InlineData(DocumentState.Blocked)]
+    public void RejectedByPa_Can_Be_ReVerified_To_ReadyToSend_Or_Blocked(DocumentState target)
+    {
+        // Re-vérification d'un document rejeté par la PA après correction : ReadyToSend (cause corrigée) ou Blocked
+        // (cause non corrigée — le document quitte le cul-de-sac pour montrer le motif). « Bloquer plutôt qu'envoyer
+        // faux » (CLAUDE.md n°3).
+        DocumentStateMachine.IsAllowed(DocumentState.RejectedByPa, target).Should().BeTrue(
+            $"la re-vérification autorise RejectedByPa → {target} (F06 §3).");
+    }
+
+    [Fact]
+    public void RejectedByPa_Cannot_Reach_Sending_Or_Issued_Directly()
+    {
+        // La re-vérification ne court-circuite jamais le flux d'envoi : un rejeté repasse par ReadyToSend/Blocked,
+        // jamais directement Sending/Issued (qui resteraient des transitions illégales).
+        DocumentStateMachine.IsAllowed(DocumentState.RejectedByPa, DocumentState.Sending).Should().BeFalse();
+        DocumentStateMachine.IsAllowed(DocumentState.RejectedByPa, DocumentState.Issued).Should().BeFalse();
     }
 }

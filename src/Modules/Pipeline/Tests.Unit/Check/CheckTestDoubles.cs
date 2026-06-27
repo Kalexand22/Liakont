@@ -179,6 +179,10 @@ internal static class CheckTestDoubles
 
         public string? RecheckStillBlockedReason { get; private set; }
 
+        public Guid? RecheckBlockedFromRejectedId { get; private set; }
+
+        public string? RecheckBlockedFromRejectedReason { get; private set; }
+
         public Task BlockAsync(Guid documentId, string reason, CancellationToken cancellationToken = default)
         {
             BlockedId = documentId;
@@ -203,6 +207,13 @@ internal static class CheckTestDoubles
         {
             RecheckStillBlockedId = documentId;
             RecheckStillBlockedReason = reevaluatedReason;
+            return Task.FromResult(DocumentRecheckPersistOutcome.Persisted);
+        }
+
+        public Task<DocumentRecheckPersistOutcome> MarkBlockedByRecheckAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
+        {
+            RecheckBlockedFromRejectedId = documentId;
+            RecheckBlockedFromRejectedReason = reevaluatedReason;
             return Task.FromResult(DocumentRecheckPersistOutcome.Persisted);
         }
 
