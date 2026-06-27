@@ -39,9 +39,11 @@ public static class B2cMarginMarking
     /// <summary>
     /// Codes VATEX du régime de la marge (F03 §2.2) : <c>F</c> = biens d'occasion, <c>I</c> = œuvres d'art,
     /// <c>J</c> = objets de collection et d'antiquité. Seuls ces codes (issus de la table VALIDÉE) signalent
-    /// sans ambiguïté le régime de la marge — comparaison ORDINALE stricte (jamais une glose).
+    /// sans ambiguïté le régime de la marge — comparaison ORDINALE stricte (jamais une glose). SOURCE CANONIQUE
+    /// exposée pour que les consommateurs d'affichage (ex. <c>Host.MarginRegimeDisplay</c>) verrouillent leur set
+    /// dessus par test, plutôt que de diverger silencieusement.
     /// </summary>
-    private static readonly HashSet<string> MarginVatexCodes = new(System.StringComparer.Ordinal)
+    public static readonly IReadOnlySet<string> MarginVatexCodes = new HashSet<string>(System.StringComparer.Ordinal)
     {
         "VATEX-EU-F",
         "VATEX-EU-I",

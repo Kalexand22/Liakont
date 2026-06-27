@@ -120,6 +120,10 @@ public static class DocumentLineProjection
                 : string.Join(JoinSeparator, line.SourceRegimeCodes),
             Category = CategoryDisplay(taxes),
             Vatex = VatexDisplay(taxes),
+
+            // Mention explicite du régime de la marge (présentation pure) : une ligne marge porte exactement UNE
+            // ventilation (E + VATEX-EU-F/I/J, cf. B2cMarginMarking) ; sinon null (ligne affichée normalement).
+            MarginMention = taxes.Count == 1 ? MarginRegimeDisplay.For(taxes[0].CategoryCode, taxes[0].VatexCode) : null,
             TaxAmount = taxes.Count == 0 ? null : taxes.Sum(t => t.TaxAmount),
             Rate = UniformRate(taxes),
         };

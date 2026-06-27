@@ -81,6 +81,52 @@ public sealed class DocumentDetailViewTests : BunitContext
     }
 
     [Fact]
+    public void Should_Show_Explicit_Margin_Regime_Mention_Instead_Of_Generic_Exemption()
+    {
+        // Lisibilité (recette enchères) : sous le régime de la marge, la ligne (catégorie E + VATEX-EU-J) a une TVA
+        // à 0 — mais ce N'EST PAS une exonération classique. La cellule Catégorie affiche la mention EXPLICITE
+        // « Régime de la marge – … » au lieu du sec « E — Exonéré (motif VATEX requis) » qui prête à confusion ;
+        // une note 297 E sous le tableau rappelle que la TVA est due par l'opérateur, non récupérable par l'acheteur.
+        var lines = new[]
+        {
+            Line("Adjudication lot 2", netAmount: 100m, category: "E — Exonéré (motif VATEX requis)", sourceRegime: "6", vatex: "VATEX-EU-J", taxAmount: 0m, rate: 0m, marginMention: "Régime de la marge – objets de collection et d'antiquité"),
+            Line("Honoraires acheteur lot 2", netAmount: 10m, category: "E — Exonéré (motif VATEX requis)", sourceRegime: "6", vatex: "VATEX-EU-J", taxAmount: 0m, rate: 0m, marginMention: "Régime de la marge – objets de collection et d'antiquité"),
+        };
+        var model = BuildModel(doc: Doc("9000004", "Issued"), content: Content(lines, totals: Check()));
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        // La cellule Catégorie (index 4) porte la mention marge explicite — pas l'« Exonéré (motif VATEX requis) ».
+        var firstLineCells = cut.FindAll("[data-testid='document-detail-line']")[0].QuerySelectorAll("td");
+        firstLineCells[4].TextContent.Trim().Should().Be("Régime de la marge – objets de collection et d'antiquité");
+
+        var table = cut.Find("[data-testid='document-detail-lines']").TextContent;
+        table.Should().NotContain("Exonéré (motif VATEX requis)", "la mention marge remplace le libellé trompeur sur une ligne marge");
+
+        // Note 297 E présente et claire.
+        cut.FindAll("[data-testid='document-detail-margin-note']").Should().ContainSingle();
+        cut.Find("[data-testid='document-detail-margin-note']").TextContent.Should()
+            .Contain("Régime de la marge").And.Contain("297 E").And.Contain("récupérable").And.Contain("déclaration de TVA");
+    }
+
+    [Fact]
+    public void Should_Not_Show_Margin_Note_For_A_Document_Without_Margin_Lines()
+    {
+        // Hors marge : aucune note 297 E, et les libellés de catégorie nominaux restent inchangés.
+        var lines = new[]
+        {
+            Line("Vente principale", netAmount: 900m, category: "S — Taux normal", sourceRegime: "FR-STD", taxAmount: 180m, rate: 20m),
+        };
+        var model = BuildModel(doc: Doc("2026-030", "Issued"), content: Content(lines));
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        cut.FindAll("[data-testid='document-detail-margin-note']").Should().BeEmpty();
+        var cells = cut.FindAll("[data-testid='document-detail-line']")[0].QuerySelectorAll("td");
+        cells[4].TextContent.Trim().Should().Be("S — Taux normal", "une ligne taxable garde son libellé de catégorie nominal");
+    }
+
+    [Fact]
     public void Should_Render_Lines_With_Source_Regime_For_A_Blocked_Document_Even_Without_Mapping()
     {
         // BUG-5 : un document BLOQUÉ (mapping non abouti) montre tout de même ses lignes — projetées au read-time
@@ -462,7 +508,8 @@ public sealed class DocumentDetailViewTests : BunitContext
         string sourceRegime = "FR-STD",
         string vatex = "—",
         decimal? taxAmount = null,
-        decimal? rate = 20m) => new()
+        decimal? rate = 20m,
+        string? marginMention = null) => new()
     {
         Label = label,
         Quantity = quantity,
@@ -472,6 +519,7 @@ public sealed class DocumentDetailViewTests : BunitContext
         Vatex = vatex,
         TaxAmount = taxAmount,
         Rate = rate,
+        MarginMention = marginMention,
     };
 
     private static DocumentChargeView Charge(string label, bool isCharge, decimal amount) => new()

@@ -181,6 +181,76 @@ public sealed class DocumentLineProjectionTests
         content.Lines[0].Vatex.Should().Be("VATEX-EU-AE");
     }
 
+    [Fact]
+    public void FromTransmittedSnapshot_Exposes_Margin_Mention_Only_For_Margin_Regime_Lines()
+    {
+        // Une ligne au régime de la marge (catégorie E + VATEX de marge EU-F/I/J) porte une mention EXPLICITE
+        // (« Régime de la marge – … ») ; une ligne exonérée NON marge (ici VATEX-EU-AE = autoliquidation) reste
+        // sans mention (null) — elle s'affiche normalement. Présentation pure, aucune règle inventée.
+        var pivot = new PivotDocumentDto(
+            sourceDocumentKind: "invoice",
+            number: "9000004",
+            issueDate: new DateTime(2026, 6, 26),
+            sourceReference: "src/9000004",
+            supplier: new PivotPartyDto(name: "SVV INNEXA", siren: "000000002"),
+            totals: new PivotTotalsDto(totalNet: 110m, totalTax: 0m, totalGross: 110m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            lines: new[]
+            {
+                new PivotLineDto(
+                    description: "Adjudication lot 2",
+                    netAmount: 100m,
+                    sourceRegimeCodes: StdRegime,
+                    taxes: new[] { new PivotLineTaxDto(taxAmount: 0m, rate: 0m, categoryCode: VatCategory.E, vatexCode: "VATEX-EU-J") }),
+                new PivotLineDto(
+                    description: "Autre exonération",
+                    netAmount: 10m,
+                    sourceRegimeCodes: StdRegime,
+                    taxes: new[] { new PivotLineTaxDto(taxAmount: 0m, rate: 0m, categoryCode: VatCategory.E, vatexCode: "VATEX-EU-AE") }),
+            });
+
+        var content = DocumentLineProjection.FromTransmittedSnapshot(CanonicalJson.Serialize(pivot));
+
+        content.Lines.Should().HaveCount(2);
+        content.Lines[0].MarginMention.Should().Be("Régime de la marge – objets de collection et d'antiquité");
+        content.Lines[1].MarginMention.Should().BeNull("VATEX-EU-AE (autoliquidation) n'est pas un régime de la marge");
+        content.HasMarginLines.Should().BeTrue("au moins une ligne est au régime de la marge");
+    }
+
+    [Fact]
+    public void FromTransmittedSnapshot_Does_Not_Mark_Margin_When_A_Line_Carries_More_Than_One_Tax()
+    {
+        // Garde `taxes.Count == 1` : une ligne de marge porte EXACTEMENT une ventilation (cf. B2cMarginMarking).
+        // Une ligne à 2 ventilations (même si l'une est E+VATEX-EU-J) n'est PAS une marge pure → aucune mention
+        // (fail-safe : jamais une mention marge sur une ligne ambiguë). Anti-régression d'une future agrégation.
+        var pivot = new PivotDocumentDto(
+            sourceDocumentKind: "invoice",
+            number: "2026-040",
+            issueDate: new DateTime(2026, 6, 1),
+            sourceReference: "src/2026-040",
+            supplier: new PivotPartyDto(name: "Vendeur SARL", siren: "123456782"),
+            totals: new PivotTotalsDto(totalNet: 100m, totalTax: 20m, totalGross: 120m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            lines: new[]
+            {
+                new PivotLineDto(
+                    description: "Ligne à deux ventilations",
+                    netAmount: 100m,
+                    sourceRegimeCodes: StdRegime,
+                    taxes: new[]
+                    {
+                        new PivotLineTaxDto(taxAmount: 0m, rate: 0m, categoryCode: VatCategory.E, vatexCode: "VATEX-EU-J"),
+                        new PivotLineTaxDto(taxAmount: 20m, rate: 20m, categoryCode: VatCategory.S),
+                    }),
+            });
+
+        var content = DocumentLineProjection.FromTransmittedSnapshot(CanonicalJson.Serialize(pivot));
+
+        content.Lines.Should().ContainSingle();
+        content.Lines[0].MarginMention.Should().BeNull("une ligne à plusieurs ventilations n'est pas une marge pure");
+        content.HasMarginLines.Should().BeFalse();
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

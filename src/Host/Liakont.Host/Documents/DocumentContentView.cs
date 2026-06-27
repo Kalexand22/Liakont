@@ -2,6 +2,7 @@ namespace Liakont.Host.Documents;
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 /// <summary>
 /// Contenu affichable d'un document pour l'onglet « Contenu » du détail (FIX205, F10 §2.3) : les lignes, les
@@ -35,6 +36,9 @@ public sealed record DocumentContentView
 
     /// <summary><c>true</c> s'il y a des lignes à afficher (document transmis).</summary>
     public bool HasLines => Lines.Count > 0;
+
+    /// <summary><c>true</c> si au moins une ligne est au régime de la marge (mention explicite portée) — déclenche la note 297 E sous le tableau.</summary>
+    public bool HasMarginLines => Lines.Any(line => line.MarginMention is not null);
 
     /// <summary><c>true</c> si au moins une mention de facturation effective est portée (termes de paiement OU note).</summary>
     public bool HasMentions => !string.IsNullOrWhiteSpace(PaymentTerms) || Notes.Count > 0;

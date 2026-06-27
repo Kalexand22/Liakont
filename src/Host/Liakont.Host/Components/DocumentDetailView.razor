@@ -99,7 +99,10 @@
                                     <td class="liakont-doc-detail__num">@FormatQuantity(line.Quantity)</td>
                                     <td class="liakont-doc-detail__num">@FormatMoney(line.NetAmount)</td>
                                     <td>@line.SourceRegime</td>
-                                    <td>@line.Category</td>
+                                    @* Ligne au régime de la marge : mention EXPLICITE (« Régime de la marge – … »)
+                                     * au lieu du sec « E — Exonéré » qui prête à confusion (TVA 0 = marge, pas
+                                     * exonération classique). Présentation pure (MarginRegimeDisplay), note 297 E sous le tableau. *@
+                                    <td>@(line.MarginMention ?? line.Category)</td>
                                     <td>@line.Vatex</td>
                                     <td class="liakont-doc-detail__num">@(line.TaxAmount is { } tax ? FormatMoney(tax) : "—")</td>
                                     <td class="liakont-doc-detail__num">@FormatRate(line.Rate)</td>
@@ -107,6 +110,17 @@
                             }
                         </tbody>
                     </table>
+
+                    @* Note de lisibilité du régime de la marge (art. 297 E) : la TVA 0 des lignes marge n'est PAS une
+                     * exonération classique — elle est due par l'opérateur sur sa marge (déclaration de TVA), jamais
+                     * récupérable par l'acheteur. Texte sourcé (297 E / F03 §2.3-§2.4), aucun montant ni règle inventés. *@
+                    @if (Content.HasMarginLines)
+                    {
+                        <p class="liakont-doc-detail__hint" data-testid="document-detail-margin-note">
+                            Régime de la marge (art. 297 E) : la TVA ne figure pas sur le document et n'est pas
+                            récupérable par l'acheteur. La TVA sur la marge est due par l'opérateur dans sa déclaration de TVA.
+                        </p>
+                    }
 
                     @* Charges et remises de NIVEAU DOCUMENT (BG-20/BG-21 : éco-contribution, remise globale…) : affichées
                      * à part des lignes pour que le rapprochement avec le Total HT soit complet et lisible. *@
