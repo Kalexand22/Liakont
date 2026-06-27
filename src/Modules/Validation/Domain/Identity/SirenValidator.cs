@@ -30,7 +30,9 @@ public static class SirenValidator
     /// destinataire/émetteur ADRESSABLE du sandbox PA (SuperPDP « Tricatel » 000000001, « Burger Queen »
     /// 000000002) n'est PAS un SIREN réel et ne satisfait PAS la clé de Luhn ; on l'autorise EXPLICITEMENT
     /// (liste fermée, même mécanique que <see cref="LaPosteSiren"/>) pour exercer le pipeline e-invoicing B2B
-    /// en recette. ⚠️ À RESTREINDRE à l'environnement PA Staging/Sandbox (suivi BUG-23 : gating par env PA).
+    /// en recette. GÂTÉ PAR L'ENVIRONNEMENT PA (BUG-23) : la dérogation n'est appliquée QUE lorsque l'appelant
+    /// passe <c>allowSandboxTestSirens = true</c> (contexte PA Staging/Sandbox) ; en PRODUCTION la clé de Luhn
+    /// reste stricte — jamais d'affaiblissement silencieux d'une validation Blocking (CLAUDE.md n°3).
     /// </summary>
     private static readonly HashSet<string> PaSandboxTestSirens = new(StringComparer.Ordinal)
     {
@@ -38,17 +40,22 @@ public static class SirenValidator
         "000000002",
     };
 
-    /// <summary>Indique si <paramref name="siren"/> est un SIREN valide (9 chiffres + Luhn ; ou La Poste / SIREN de test sandbox PA).</summary>
+    /// <summary>Indique si <paramref name="siren"/> est un SIREN valide (9 chiffres + Luhn ; ou La Poste ; ou SIREN de test sandbox PA UNIQUEMENT si <paramref name="allowSandboxTestSirens"/>).</summary>
     /// <param name="siren">Le SIREN à contrôler (absent = <c>null</c>).</param>
+    /// <param name="allowSandboxTestSirens">
+    /// Autorise les SIREN de test sandbox PA (<see cref="PaSandboxTestSirens"/>) — à passer <c>true</c> UNIQUEMENT
+    /// quand le compte PA actif n'est PAS en production (BUG-23). Défaut <c>false</c> = STRICT (clé de Luhn exigée,
+    /// production-safe) : aucun appelant ne tolère ces faux SIREN par accident (CLAUDE.md n°3).
+    /// </param>
     /// <returns><c>true</c> si le SIREN est valide, sinon <c>false</c>.</returns>
-    public static bool IsValid(string? siren)
+    public static bool IsValid(string? siren, bool allowSandboxTestSirens = false)
     {
         if (string.IsNullOrEmpty(siren) || siren.Length != 9)
         {
             return false;
         }
 
-        if (siren == LaPosteSiren || PaSandboxTestSirens.Contains(siren))
+        if (siren == LaPosteSiren || (allowSandboxTestSirens && PaSandboxTestSirens.Contains(siren)))
         {
             return true;
         }

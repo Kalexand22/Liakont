@@ -55,13 +55,13 @@ public sealed class PartyRoleConsistencyRule : IDocumentRule
         var document = context.Document;
         var issues = new List<ValidationIssue>();
 
-        AddSelfBillingIssues(document, issues);
+        AddSelfBillingIssues(document, context.AllowSandboxTestIdentifiers, issues);
         AddPayeeDeferralWarning(document, issues);
 
         return Task.FromResult<IReadOnlyList<ValidationIssue>>(issues);
     }
 
-    private static void AddSelfBillingIssues(PivotDocumentDto document, List<ValidationIssue> issues)
+    private static void AddSelfBillingIssues(PivotDocumentDto document, bool allowSandboxTestSirens, List<ValidationIssue> issues)
     {
         var invoicer = document.Invoicer;
 
@@ -78,7 +78,7 @@ public sealed class PartyRoleConsistencyRule : IDocumentRule
                     "IsSelfBilled=true mais Invoicer absent (émetteur matériel non porté ; ADR-0004 D3-6, F15 §1.2).",
                     "BT-3"));
             }
-            else if (!SirenValidator.IsValid(invoicer.Siren))
+            else if (!SirenValidator.IsValid(invoicer.Siren, allowSandboxTestSirens))
             {
                 // « identifié » = SIREN BT-30 présent et valide (clé de Luhn) — règle de rôle générale (F15 §1.8),
                 // comme l'identité émetteur/acheteur (VAL02). Un SIRET seul ne suffit pas (acceptance RD404).

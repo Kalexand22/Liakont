@@ -36,7 +36,7 @@ public sealed class BuyerIdentityRule : IDocumentRule
         }
 
         var buyerSiren = buyer.Siren;
-        if (!string.IsNullOrWhiteSpace(buyerSiren) && !SirenValidator.IsValid(buyerSiren))
+        if (!string.IsNullOrWhiteSpace(buyerSiren) && !SirenValidator.IsValid(buyerSiren, context.AllowSandboxTestIdentifiers))
         {
             issues.Add(ValidationIssue.Blocking(
                 BuyerSirenInvalid,

@@ -119,7 +119,12 @@ internal static class DocumentCheckEvaluator
                 services, companyId, documentNumber, TableAbsentReason, pivot, buyerConfirmedB2C, cancellationToken);
         }
 
-        if (!mapping.IsValidated && await IsProductionContextAsync(tenantSettings, companyId, cancellationToken))
+        // Contexte d'environnement PA (compte ACTIF), calculé une fois : sert au garde-fou production (table non
+        // validée) ET au gating de la dérogation SIREN de test sandbox (BUG-23) — hors production, les règles
+        // d'identité tolèrent les SIREN de test sandbox ; en production la clé de Luhn reste stricte (CLAUDE.md n°3).
+        var isProductionPaContext = await IsProductionContextAsync(tenantSettings, companyId, cancellationToken);
+
+        if (!mapping.IsValidated && isProductionPaContext)
         {
             // GARDE-FOU PRODUCTION (item PIP01b §3) — table non validée + compte PA production = tout reste Blocked.
             // SÉQUENTIELLE (FIX06, décision D5) : on n'agrège PAS d'autres motifs ici — en production avec table non
@@ -152,7 +157,7 @@ internal static class DocumentCheckEvaluator
 
         var validation = services.GetRequiredService<IValidationService>();
         var validationResult = await validation.ValidateAsync(
-            new DocumentValidationContext(evaluation.EnrichedDocument!, companyId, buyerConfirmedB2C), cancellationToken);
+            new DocumentValidationContext(evaluation.EnrichedDocument!, companyId, buyerConfirmedB2C, allowSandboxTestIdentifiers: !isProductionPaContext), cancellationToken);
 
         if (validationResult.HasBlockingIssue)
         {
@@ -520,9 +525,14 @@ internal static class DocumentCheckEvaluator
     {
         var reasons = new List<string> { WithDocumentNumber(documentNumber, mappingReason) };
 
+        // Même gating sandbox que la voie nominale (BUG-23) : dans l'agrégation des motifs bloquants, une identité
+        // de test sandbox PA ne doit pas ajouter un motif Luhn parasite hors production (le compte PA actif tranche).
+        var tenantSettings = services.GetRequiredService<ITenantSettingsQueries>();
+        var allowSandboxTestIdentifiers = !await IsProductionContextAsync(tenantSettings, companyId, cancellationToken);
+
         var validation = services.GetRequiredService<IValidationService>();
         var validationResult = await validation.ValidateMappingIndependentAsync(
-            new DocumentValidationContext(pivot, companyId, buyerConfirmedB2C), cancellationToken);
+            new DocumentValidationContext(pivot, companyId, buyerConfirmedB2C, allowSandboxTestIdentifiers), cancellationToken);
 
         reasons.AddRange(validationResult.Issues
             .Where(issue => issue.Severity == ValidationSeverity.Blocking)
