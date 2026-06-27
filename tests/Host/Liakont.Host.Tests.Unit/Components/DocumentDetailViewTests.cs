@@ -85,8 +85,8 @@ public sealed class DocumentDetailViewTests : BunitContext
     {
         // Lisibilité (recette enchères) : sous le régime de la marge, la ligne (catégorie E + VATEX-EU-J) a une TVA
         // à 0 — mais ce N'EST PAS une exonération classique. La cellule Catégorie affiche la mention EXPLICITE
-        // « Régime de la marge – … » au lieu du sec « E — Exonéré (motif VATEX requis) » qui prête à confusion ;
-        // une note 297 E sous le tableau rappelle que la TVA est due par l'opérateur, non récupérable par l'acheteur.
+        // « Régime de la marge – … » au lieu du sec « E — Exonéré (motif VATEX requis) » qui prête à confusion.
+        // L'explication 297 E + le détail HT/TVA vivent dans le récap de marge (pas de note redondante sous le tableau).
         var lines = new[]
         {
             Line("Adjudication lot 2", netAmount: 100m, category: "E — Exonéré (motif VATEX requis)", sourceRegime: "6", vatex: "VATEX-EU-J", taxAmount: 0m, rate: 0m, marginMention: "Régime de la marge – objets de collection et d'antiquité"),
@@ -94,6 +94,7 @@ public sealed class DocumentDetailViewTests : BunitContext
         };
         var model = BuildModel(doc: Doc("9000004", "Issued"), content: Content(lines, totals: Check()));
 
+        // Pas de récap fourni (panne / fail-closed) → la note 297 E de REPLI préserve l'explication.
         var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
 
         // La cellule Catégorie (index 4) porte la mention marge explicite — pas l'« Exonéré (motif VATEX requis) ».
@@ -103,16 +104,32 @@ public sealed class DocumentDetailViewTests : BunitContext
         var table = cut.Find("[data-testid='document-detail-lines']").TextContent;
         table.Should().NotContain("Exonéré (motif VATEX requis)", "la mention marge remplace le libellé trompeur sur une ligne marge");
 
-        // Note 297 E présente et claire.
-        cut.FindAll("[data-testid='document-detail-margin-note']").Should().ContainSingle();
+        // Récap absent → note 297 E de repli présente (l'explication n'est jamais perdue sur un document marge).
         cut.Find("[data-testid='document-detail-margin-note']").TextContent.Should()
-            .Contain("Régime de la marge").And.Contain("297 E").And.Contain("récupérable").And.Contain("déclaration de TVA");
+            .Contain("297 E").And.Contain("récupérable").And.Contain("déclaration de TVA");
     }
 
     [Fact]
-    public void Should_Not_Show_Margin_Note_For_A_Document_Without_Margin_Lines()
+    public void Should_Not_Duplicate_The_297E_Note_When_The_Margin_Recap_Is_Shown()
     {
-        // Hors marge : aucune note 297 E, et les libellés de catégorie nominaux restent inchangés.
+        // Récap chiffré présent → PAS de note 297 E de repli (le récap porte déjà l'explication) : aucun doublon.
+        var lines = new[]
+        {
+            Line("Adjudication lot 2", netAmount: 100m, category: "E — Exonéré (motif VATEX requis)", sourceRegime: "6", vatex: "VATEX-EU-J", taxAmount: 0m, rate: 0m, marginMention: "Régime de la marge – objets de collection et d'antiquité"),
+        };
+        var recap = new MarginRecapView { BuyerFeesTtc = 10m, SellerFeesTtc = 0m, MarginTtc = 10m, BaseHt = 8.33m, Tva = 1.67m, RatePercent = 20m };
+        var model = BuildModel(doc: Doc("9000004", "Issued"), content: Content(lines, totals: Check()), marginRecap: recap);
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        cut.FindAll("[data-testid='document-detail-margin-note']").Should().BeEmpty("le récap porte l'explication 297 E — pas de note redondante");
+        cut.FindAll("[data-testid='document-detail-margin-recap']").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Should_Keep_The_Nominal_Category_Label_For_A_Non_Margin_Line()
+    {
+        // Hors marge : les libellés de catégorie nominaux restent inchangés, et aucune note 297 E.
         var lines = new[]
         {
             Line("Vente principale", netAmount: 900m, category: "S — Taux normal", sourceRegime: "FR-STD", taxAmount: 180m, rate: 20m),
@@ -121,9 +138,9 @@ public sealed class DocumentDetailViewTests : BunitContext
 
         var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
 
-        cut.FindAll("[data-testid='document-detail-margin-note']").Should().BeEmpty();
         var cells = cut.FindAll("[data-testid='document-detail-line']")[0].QuerySelectorAll("td");
         cells[4].TextContent.Trim().Should().Be("S — Taux normal", "une ligne taxable garde son libellé de catégorie nominal");
+        cut.FindAll("[data-testid='document-detail-margin-note']").Should().BeEmpty();
     }
 
     [Fact]
@@ -222,7 +239,7 @@ public sealed class DocumentDetailViewTests : BunitContext
         var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
 
         var card = cut.Find("[data-testid='document-detail-margin-recap']").TextContent;
-        card.Should().Contain("297 E").And.Contain("déclaration de TVA");
+        card.Should().Contain("297 E").And.Contain("récupérable").And.Contain("déclaration de TVA");
         cut.Find("[data-testid='document-detail-margin-buyer']").TextContent.Should().Contain("10,00");
         cut.Find("[data-testid='document-detail-margin-seller']").TextContent.Should().Contain("5,00");
         cut.Find("[data-testid='document-detail-margin-ttc']").TextContent.Should().Contain("15,00");

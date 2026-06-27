@@ -101,7 +101,8 @@
                                     <td>@line.SourceRegime</td>
                                     @* Ligne au régime de la marge : mention EXPLICITE (« Régime de la marge – … »)
                                      * au lieu du sec « E — Exonéré » qui prête à confusion (TVA 0 = marge, pas
-                                     * exonération classique). Présentation pure (MarginRegimeDisplay), note 297 E sous le tableau. *@
+                                     * exonération classique). Présentation pure (MarginRegimeDisplay) ; l'explication
+                                     * 297 E + le détail HT/TVA vivent dans le récap de marge ci-dessous. *@
                                     <td>@(line.MarginMention ?? line.Category)</td>
                                     <td>@line.Vatex</td>
                                     <td class="liakont-doc-detail__num">@(line.TaxAmount is { } tax ? FormatMoney(tax) : "—")</td>
@@ -111,10 +112,11 @@
                         </tbody>
                     </table>
 
-                    @* Note de lisibilité du régime de la marge (art. 297 E) : la TVA 0 des lignes marge n'est PAS une
-                     * exonération classique — elle est due par l'opérateur sur sa marge (déclaration de TVA), jamais
-                     * récupérable par l'acheteur. Texte sourcé (297 E / F03 §2.3-§2.4), aucun montant ni règle inventés. *@
-                    @if (Content.HasMarginLines)
+                    @* Note 297 E de REPLI : la clarification (TVA due par l'opérateur, non récupérable) vit normalement
+                     * dans le récap de marge chiffré ci-dessous — on n'affiche cette note QUE si le récap est absent
+                     * (échec/fail-closed) pour qu'un document marge garde toujours son explication 297 E, sans doublon
+                     * quand le récap s'affiche. Texte sourcé (297 E / F03 §2.3-§2.4), aucun montant ni règle inventés. *@
+                    @if (Content.HasMarginLines && Model.MarginRecap is null)
                     {
                         <p class="liakont-doc-detail__hint" data-testid="document-detail-margin-note">
                             Régime de la marge (art. 297 E) : la TVA ne figure pas sur le document et n'est pas
@@ -202,8 +204,9 @@
             {
                 <SectionCard Title="Récapitulatif de marge — aide à la déclaration de TVA" TestId="document-detail-margin-recap">
                     <p class="liakont-doc-detail__hint">
-                        Régime de la marge (art. 297 E) : la TVA ci-dessous ne figure pas sur la facture — elle est
-                        due par l'opérateur sur sa marge (commission), à reporter en déclaration de TVA.
+                        Régime de la marge (art. 297 E) : la TVA ci-dessous ne figure pas sur la facture et n'est pas
+                        récupérable par l'acheteur — elle est due par l'opérateur sur sa marge (commission), à reporter
+                        en déclaration de TVA.
                     </p>
                     <dl class="liakont-doc-detail__defs">
                         <div class="liakont-doc-detail__row">

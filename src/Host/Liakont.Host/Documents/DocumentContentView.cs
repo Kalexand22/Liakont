@@ -37,7 +37,7 @@ public sealed record DocumentContentView
     /// <summary><c>true</c> s'il y a des lignes à afficher (document transmis).</summary>
     public bool HasLines => Lines.Count > 0;
 
-    /// <summary><c>true</c> si au moins une ligne est au régime de la marge (mention explicite portée) — déclenche la note 297 E sous le tableau.</summary>
+    /// <summary><c>true</c> si au moins une ligne est au régime de la marge (mention explicite portée) — pilote la note 297 E de REPLI (affichée seulement si le récap de marge chiffré est absent).</summary>
     public bool HasMarginLines => Lines.Any(line => line.MarginMention is not null);
 
     /// <summary><c>true</c> si au moins une mention de facturation effective est portée (termes de paiement OU note).</summary>
