@@ -479,3 +479,189 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
 - **Critère d'acceptation** : depuis une vue détail, préc./suiv. parcourt la **liste filtrée** sans repasser par la
   grille ; bornes gérées (1er/dernier) ; contexte (filtre/tri) préservé ; **transverse** (≥ documents + une 2ᵉ
   entité) ; test bUnit (règle review 19) ; provenance socle consignée si `Stratum.*` modifié.
+
+## BUG-20 (P2) — Type de pièce (famille BA/BV/facture client/note hono) absent comme champ affichable (relevé Karl 27/06)
+
+- **Symptôme** : sur le document (console), rien n'indique sa **famille** (Bordereau acheteur / Bordereau vendeur /
+  Facture client / Note d'honoraires). Karl : « ça serait bien d'avoir le type de document sur le document ».
+- **Faits (sourcés code)** : la famille n'existe **que dans le préfixe du `SourceReference`** (`encheresv6:ba:`,
+  `:bv:`, `:fc:`, `:nh:` — `EncheresV6RowMapper`). Le champ `PivotDocumentDto.SourceDocumentKind` porte aujourd'hui
+  la **nature B/A** (vente/avoir, depuis `bordereau_ou_avoir` / `facture_ou_avoir`), **PAS** la famille. Donc aucun
+  champ de famille n'est exposé.
+- **À corriger** : surfacer une **famille de pièce** sur le document (libellé console : Bordereau acheteur/vendeur,
+  Facture client, Note d'honoraires). Dérivable du préfixe `SourceReference` au minimum ; mieux = champ propre porté
+  par l'agent (sans logique métier — c'est de la structure, pas du fiscal, CLAUDE.md n°6). Lié à BUG-21 (la famille
+  est la clé de désambiguïsation du numéro).
+- **Fichiers (pistes)** : `PivotDocumentDto` (champ famille ?), `EncheresV6RowMapper` (le poser), `DocumentDetailView`
+  / liste documents (l'afficher). UI Liakont — règle review 19.
+- **Critère d'acceptation** : chaque document affiche sa famille ; un BA et un BV de même numéro sont distinguables à
+  l'œil ; test.
+
+## BUG-21 (P1 probable — intégrité PA) — Numéro de pièce non unique entre familles → collision anti-doublon PA (relevé Karl 27/06)
+
+- **Symptôme / risque** : un même numéro peut exister sur un **BA** et un **BV** (et potentiellement facture/note).
+  Le **`Number`** transmis sert d'identité ET de clé d'anti-doublon côté PA (SuperPDP dédoublonne par numéro). Deux
+  pièces de familles différentes au même numéro → la PA peut les confondre / en rejeter une.
+- **Faits (sourcés code)** : `SourceReference` est **déjà** préfixé par famille (`encheresv6:ba:`…) → unicité
+  **interne** OK. Mais `Number` = numéro **brut** (`no_ba`/`no_bv`/`no_fact`/`no_note_hono`, `EncheresV6RowMapper`)
+  → **non unique entre familles**. Touche surtout la **voie document / e-invoicing** (où le numéro part à la PA) ;
+  l'e-reporting B2C agrégé est moins exposé (pas de numéro de pièce par opération).
+- **À NE PAS inventer** : la numérotation de pièce est **réglementée** (numérotation par mandant/séquence, F06/F14,
+  BOI) → ne pas fabriquer un schéma `BA-xxx`. À trancher avec la spec : (a) désambiguïser la **référence transmise**
+  par famille sans toucher au numéro légal affiché, (b) confirmer la **clé d'anti-doublon SuperPDP** (champ exact)
+  et si un identifiant composite est permis, (c) la règle de numérotation par la spec.
+- **Fichiers (pistes)** : `EncheresV6RowMapper` (`Number`/`SourceReference`), la voie document / plug-in SuperPDP
+  (clé d'envoi + anti-doublon), `docs/conception/F06`/`F14`. Lié à BUG-20.
+- **Critère d'acceptation** : deux pièces de familles différentes au même numéro ne collisionnent PAS à la PA ;
+  la solution est **sourcée** (pas un préfixe inventé) ; test sur un couple BA/BV de même numéro.
+
+## BUG-22 (P2 observabilité) — Pas de détail d'une émission e-reporting B2C dans l'UI (motif de rejet PA + pièces composant l'agrégat) (relevé Karl 27/06)
+
+- **Symptôme** : sur `/emissions-marge-b2c`, impossible d'ouvrir le **détail** d'une ligne d'émission : ni le
+  **motif de rejet PA**, ni la **liste des documents** qui composent l'agrégat ne sont consultables. En recette il a
+  fallu lire la base (`pipeline.b2c_margin_emissions`, colonnes `pa_response_snapshot` / `detail` / `document_id` /
+  `emission_batch_id`) pour comprendre un rejet — l'opérateur ne peut pas diagnostiquer depuis la console.
+- **Faits (sourcés)** : la donnée EST stockée — `pa_response_snapshot`
+  (`{"http_status_code":400,"message":"cannot add transaction at date 2024-01-03"}`), `detail`
+  (`[SPDP_B2C_REJECTED] …`), et chaque ligne porte `document_id` + `source_reference`, groupées par
+  `emission_batch_id` (= l'agrégat jour×devise×taux). Il manque juste la **vue**.
+- **À corriger** : page/fiche de **détail d'émission** (depuis `/emissions-marge-b2c`) affichant : statut + **motif PA**
+  (`pa_response_snapshot`/`detail`, message opérateur en français), période/catégorie/rôle, et la **liste des pièces
+  composant l'agrégat** (par `emission_batch_id`) avec lien vers chaque document. CLAUDE.md n°12 (message opérateur
+  avec action corrective). Contrainte F10 « zéro JSON brut » → présenter le motif lisible, pas le snapshot brut.
+- **Fichiers (pistes)** : `B2cMarginEmissions.razor` (+ détail), `IB2cMarginEmissionQueries` (exposer batch + pièces +
+  snapshot), `PostgresB2cMarginEmissionStore`. UI Liakont — règle review 19 (bUnit). Recoupe BUG-5 (exposer le détail
+  au read-time) et BUG-19 (navigation préc./suiv.).
+- **Critère d'acceptation** : depuis une émission, l'opérateur voit le motif de rejet PA **et** les documents qui la
+  composent, sans ouvrir la base ; test bUnit.
+
+## BUG-23 (P2 — à border avant prod) — Dérogation Luhn des SIREN de test sandbox PA non gâtée par l'environnement (relevé Karl 27/06)
+
+- **Contexte** : pour exercer l'e-invoicing B2B en recette, le destinataire adressable du sandbox SuperPDP
+  (« Tricatel » `000000001`) est nécessaire, mais il **ne satisfait pas la clé de Luhn** → bloqué par
+  `BuyerIdentityRule` (`SirenValidator.IsValid`, F04 §3.2/§4.1). Décision Karl (27/06) : autoriser les SIREN de test
+  sandbox côté acheteur.
+- **Fait livré (27/06)** : liste fermée `PaSandboxTestSirens = { 000000001, 000000002 }` ajoutée à
+  `SirenValidator.IsValid` (même mécanique que la dérogation La Poste). + test unitaire. Côté émetteur, la dérogation
+  no-Luhn existait déjà (`IsWellFormed`, décision 18/06).
+- **Risque résiduel (à corriger avant prod)** : la dérogation est **non gâtée** — ces faux SIREN passeraient AUSSI en
+  **Production**. C'est un **affaiblissement d'une validation Blocking** (P1 en registre prod, P2 en build jetable).
+  La voie propre : **restreindre la dérogation à l'environnement PA Staging/Sandbox** (le compte PA actif porte son
+  `Environment`) — la dérogation ne s'applique que si la PA cible est Sandbox, jamais en Production.
+- **Fichiers** : `src/Modules/Validation/Domain/Identity/SirenValidator.cs` (dérogation), à coupler à l'`Environment`
+  du compte PA (TenantSettings / Transmission) — nécessite de passer le contexte env à la règle (aujourd'hui pure).
+- **Critère d'acceptation** : `000000001` accepté quand la PA active est Sandbox ; **refusé** (Luhn) quand elle est
+  Production ; tests des deux cas.
+
+## BUG-24 (P2 — cohérence d'état) — Un document e-reporté (B2C) reste « À envoyer » (ReadyToSend) indéfiniment (relevé Karl 27/06)
+
+- **Symptôme** : après un e-reporting B2C réussi (déclaration **Émis** côté SuperPDP), les **documents** qui composaient
+  l'agrégat restent affichés **« À envoyer »**. L'opérateur ne distingue pas un doc déjà e-reporté d'un doc réellement
+  en attente d'envoi.
+- **Faits (sourcés code)** : « À envoyer » = état **`ReadyToSend`**. Les jobs B4 (`B2cMarginAggregatorTenantJob` &
+  cie) **lisent** `GetByStateAsync(ReadyToSend)` et émettent l'agrégat, mais **ne transitionnent jamais le document**
+  (le « reporté » vit dans `pipeline.b2c_margin_emissions`, pas dans l'état du doc). La garde D1 exclut ces docs de la
+  voie document (`SendTenantJob`) → ils ne seront JAMAIS « envoyés » → bloqués visuellement en `ReadyToSend`.
+- **Pas un bug de transmission** : pas de double-envoi (D1 + émission idempotente par `content_hash`). Mais l'UI propose
+  même « Envoyer » sur ces docs (`DocumentActionBar`, `IsReadyToSend`) — action qui ne fait rien pour un B2C (differé).
+- **À corriger (décision de design)** : un doc dont l'e-reporting est **Émis** doit refléter un état terminal
+  **« E-reporté »** (et non « À envoyer », et sans action « Envoyer »). Deux voies :
+  (a) **transition d'état** `ReadyToSend → Reported` après émission réussie (attention au ré-agrégat jour×taux : l'agrégat
+  est recalculé depuis les `ReadyToSend` — sortir un doc du pool change le recalcul ; à concilier avec l'idempotence
+  par `content_hash`) ; (b) **refléter** l'état d'émission au read-time (lien doc ↔ `emission_batch_id`, libellé
+  « e-reporté » + masquer « Envoyer ») sans toucher la machine à états. Recoupe BUG-22 (lien doc↔émission) et BUG-5.
+- **Fichiers (pistes)** : `B2cMarginAggregatorTenantJob` (+ taxable/export/plain — même schéma), machine à états du
+  document (Pipeline.Domain), `DocumentActionBar.razor` / `DocumentDetailView.razor` (libellé + action). UI — règle 19.
+- **Critère d'acceptation** : un doc e-reporté n'apparaît plus « À envoyer » ni ne propose « Envoyer » ; il montre
+  « e-reporté » avec lien vers sa déclaration ; tests (job : pas de double-POST ; UI : libellé/action).
+
+## BUG-25 (P3 cosmétique — fuseau) — Admin des planifications : « Prochaine exécution » en UTC, « Dernière exécution » en heure locale (relevé Karl 27/06)
+
+- **Symptôme** : dans la liste des planifications (Jobs), la **« Prochaine exécution »** affiche l'heure **UTC**
+  (suffixe « U », ex. `27/06/2026 11:21 U`) alors que la **« Dernière exécution »** est en **heure locale**
+  (ex. `27/06/2026 13:19`). Résultat : la prochaine *paraît antérieure* à la dernière (alors qu'en UTC 11:21 > 11:19).
+- **Pas un bug d'ordonnancement** : le `*/1 * * * *` tourne bien chaque minute ; c'est uniquement un **mélange de
+  fuseaux à l'affichage**. Tous les « prochaine » sont en UTC (00:00, 11:01, 11:30…), tous les « dernière » en local.
+- **À corriger** : afficher les deux colonnes au **même fuseau** = celui du **navigateur** (convention RB6, comme la
+  page Traitements qui utilise `LiakontDate`/`DateTimeOffset` local). Au minimum, marquer le fuseau de façon cohérente.
+- **Emplacement** : page **admin des planifications du SOCLE Stratum** (`Stratum.Modules.Job`, vendored) — la colonne
+  « prochaine » rend l'heure cron en UTC, « dernière » via un composant local. **Socle modifiable + provenance**
+  ([[socle-stratum-modifiable]] ; règle review 19/20 — page socle MODIFIÉE entre dans le périmètre test).
+- **Critère d'acceptation** : « prochaine » et « dernière » dans le même fuseau (navigateur) ; la prochaine n'est
+  jamais affichée avant la dernière pour un job qui vient de tourner ; test.
+
+## BUG-26 (P1 — e-invoicing B2B) — Le Factur-X généré échoue la validation EN16931/CTC-FR de la PA (champs obligatoires manquants) (relevé Karl 27/06)
+
+- **Symptôme** : les B2B (9000003 marge×pro-FR SIREN 967890120, 9000004 Tricatel 000000001) routent bien en
+  e-invoicing, transmettent, mais sont **RejectedByPa** au `POST /v1.beta/invoices/convert` (HTTP **400**) — notre
+  Factur-X/CII échoue la validation EN16931 + PEPPOL + CTC-FR de SuperPDP.
+- **Motifs PA (sourcés `document_events.pa_response_snapshot`)** :
+  1. **[BR-CO-25]** — montant dû (BT-115) > 0 mais **ni date d'échéance (BT-9) ni conditions de paiement (BT-20)**.
+  2. **[BR-FR-05]/BT-22 (×3)** — mentions légales FR obligatoires absentes des notes (BG-1) : **frais de recouvrement
+     (code PMT)**, **pénalités de retard (code PMD)**, **escompte ou son absence (code AAB)**.
+  3. **[PEPPOL-EN16931-R008]** — élément **vide** interdit (`ApplicableHeaderTradeDelivery`).
+- **Diagnostic** : le sérialiseur CII maison (F16, profil COMFORT) n'émet pas les conditions de paiement (BT-9/BT-20)
+  ni les 3 mentions légales FR, et laisse un bloc `delivery` vide. C'est un trou de **contenu**, pas de routage/date/SIREN.
+- **À corriger** : émettre BT-9 (ou BT-20) quand un montant est dû ; ajouter les 3 mentions FR (notes BT-22 PMT/PMD/AAB) ;
+  supprimer/peupler le `delivery` vide. **Sourcer** (F16 + obligations FR de facturation) — les VALEURS (date d'échéance,
+  texte des termes/mentions) viennent de la spec/paramétrage, jamais inventées (CLAUDE.md n°2).
+- **Fichiers (pistes)** : sérialiseur CII/Factur-X (F16), construction de l'invoice depuis le pivot (voie document SEND).
+- **Critère d'acceptation** : un B2B passe le `/invoices/convert` SuperPDP sans erreur bloquante (BR-CO-25 + BR-FR-05 +
+  R008 levés) ; test sur le profil COMFORT (goldens Factur-X mis à jour).
+- **✅ RÉSOLU (2026-06-27, validé bout-en-bout — 9000004 Émis)** : lot mentions de facturation paramétrables (défaut
+  tenant `BillingMentions`, surchargeable doc, **bloquant si absent** sur B2B FR) — commits `0c03148c` (pivot + tenant +
+  builder SuperPDP + sérialiseur CII + delivery R008), `2fb62935` (mentions dans la page Paramètres fiscaux),
+  `f1c7776a` (relance d'un rejet + visuel des mentions). **Cause racine FINALE du « rien ne change »** : `CheckTvaMapping.Rebuild`
+  (rejeu du mapping au SEND, juste APRÈS l'injection des mentions par l'enricher) reconstruisait le pivot en **oubliant
+  les champs additifs** (`paymentTerms`/`notes`/`deliveryDate`/`invoicePeriod`, ADR-0007) → mentions amputées avant
+  sérialisation → payload sans mentions (rejet) ET snapshot sans mentions (fiche vide). Fix `a16b310e` (Rebuild reporte
+  tous les additifs) + test de non-régression `Evaluate_Preserves_Additive_Fields_Through_The_Mapping_Rebuild`.
+  **État des repros** : **9000004** (TRICATEL `000000001`) → **Émis** ✅ ; **9000003** (GOURRIER Samuel, SIREN
+  `967890120`, **PRO confirmé Karl**) → mentions OK mais rejet **différent** « pre-check: receiver address does not
+  exist in peppol directory » = **limite SANDBOX** (SuperPDP ne connaît comme destinataire que `000000001`), non
+  reproductible en PPF/PDP réel (un pro est dans l'annuaire) → **pas un bug produit**.
+
+## BUG-27 (P2 observabilité — jumeau document de BUG-22) — Le motif de rejet PA d'un DOCUMENT n'est pas affiché dans l'UI (relevé Karl 27/06)
+
+- **Symptôme** : sur un document **RejectedByPa**, l'onglet **Contrôles** dit « Le motif de rejet figure dans l'onglet
+  Historique », mais l'**Historique** n'affiche que « Transition Sending → RejectedByPa » — **sans le motif**.
+  L'opérateur ne peut pas savoir POURQUOI sans lire la base.
+- **Faits (sourcés)** : la raison COMPLÈTE est stockée — `documents.document_events.pa_response_snapshot` (JSON :
+  `errors[].Code/Message` + `rawResponse`, ex. les BR-CO-25 / BR-FR-05 ci-dessus). L'UI Historique ne lit que
+  `event_type` + `detail`, pas `pa_response_snapshot`.
+- **À corriger** : afficher le motif PA lisible (codes + messages opérateur en français, CLAUDE.md n°12) dans
+  l'Historique (et/ou un encart sous « Refusé par la PA » de l'onglet Contrôles). Contrainte F10 « zéro JSON brut » →
+  présenter les `errors[]` formatés, pas le snapshot brut. Jumeau de **BUG-22** (côté émission B2C) → traiter ensemble.
+- **Fichiers (pistes)** : onglet Historique / Contrôles du document (`DocumentDetailView` / vue piste d'audit),
+  `IDocumentEventQueries` (exposer `pa_response_snapshot`). UI Liakont — règle review 19.
+- **Critère d'acceptation** : depuis un document rejeté, l'opérateur voit les motifs PA (codes + messages) sans ouvrir
+  la base ; test bUnit.
+
+## BUG-28 (P2 affichage) — En-tête du document : « SIREN émetteur : non renseigné » alors que la facture transmise le porte (relevé Karl 27/06)
+
+- **Symptôme** : sur le détail d'un document **B2B Émis et accepté** par la PA (9000004), l'en-tête affiche
+  **« SIREN émetteur : non renseigné »**. Trompeur sur un produit de conformité (laisse croire qu'on a transmis une
+  facture sans SIREN vendeur).
+- **Faits (sourcés base + code)** :
+  - Le **snapshot transmis** (ce qui est parti à SuperPDP) porte bien l'émetteur :
+    `Supplier.Siren = 000000002`, `Supplier.VatNumber = FR18000000002` (SVV INNEXA). **La facture envoyée est
+    correcte** — c'est même ce qui a permis l'acceptation.
+  - L'entité persistée `documents.documents.supplier_siren` = **NULL** (vérifié : `[<NULL>]` sur 9000003 ET 9000004).
+  - `DocumentDetailView.razor:41` lit `Model.Document.SupplierSiren` (le champ **entité**) → vide → « non renseigné ».
+    L'**Acheteur** (TRICATEL), lui, s'affiche car il est porté par l'agent et **persisté** (`customer_name`).
+- **Diagnostic** : l'identité émetteur (SIREN/raison sociale/n° TVA vendeur) est injectée **au read-time/SEND depuis le
+  profil tenant** (`PivotEmitterEnricher`) et **jamais persistée** sur l'entité Document (ADR-0031 : l'identité émetteur
+  appartient à la plateforme, pas à l'agent). L'en-tête lit donc une source structurellement vide. Le **contenu**
+  réellement transmis (snapshot) la porte, mais l'en-tête ne le lit pas.
+- **À corriger** : faire lire à l'en-tête le **SIREN émetteur EFFECTIF** = celui du contenu transmis (le snapshot le
+  porte), repli sur l'entité sinon. Concrètement : exposer `SupplierSiren` (et raison sociale émetteur ?) dans
+  `DocumentContentView`, le peupler depuis `pivot.Supplier` dans `DocumentLineProjection.FromPivot`, et binder l'en-tête
+  sur `Content.SupplierSiren ?? Model.Document.SupplierSiren`. Pour un doc **non transmis** (Bloqué/Prêt-à-envoyer),
+  l'émetteur n'est pas encore résolu (`DocumentContentReplayService` passe `profile: null`) → soit le résoudre au
+  read-time via le profil tenant, soit afficher « résolu à l'émission » (jamais une valeur inventée — CLAUDE.md n°2).
+- **Fichiers (pistes)** : `src/Host/Liakont.Host/Components/DocumentDetailView.razor` (l.41), `DocumentContentView`
+  (champ), `src/Host/Liakont.Host/Documents/DocumentLineProjection.cs` (`FromPivot`), éventuellement
+  `DocumentContentReplayService` (résolution émetteur read-time). UI Liakont — règle review 19 (bUnit).
+- **Critère d'acceptation** : un document transmis affiche le SIREN émetteur **réellement transmis** ; « non renseigné »
+  n'apparaît que si l'émetteur n'est réellement pas résolu ; test bUnit. ⚠️ Affichage uniquement — la facture transmise
+  est correcte (aucune correction fiscale/données requise).
