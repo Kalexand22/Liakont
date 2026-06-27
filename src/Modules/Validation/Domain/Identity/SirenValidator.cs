@@ -1,9 +1,12 @@
 namespace Liakont.Modules.Validation.Domain.Identity;
 
+using System;
+using System.Collections.Generic;
+
 /// <summary>
 /// Validation d'un SIREN (F04 §3.1 / §4.1) : 9 chiffres satisfaisant la clé de Luhn.
-/// Dérogation documentée : le SIREN de La Poste (<see cref="LaPosteSiren"/>) est explicitement
-/// autorisé (F04 §4.1) — aucune règle n'est inventée, la valeur vient de la spec.
+/// Dérogations documentées (liste fermée) : le SIREN de La Poste (<see cref="LaPosteSiren"/>, F04 §4.1)
+/// et les SIREN de TEST des sandboxes PA (<see cref="PaSandboxTestSirens"/>) — aucune règle inventée.
 /// </summary>
 /// <remarks>
 /// Validateur élémentaire du lot VAL (item VAL02), destiné à remplacer la copie temporaire de CFG02
@@ -22,7 +25,20 @@ public static class SirenValidator
     /// </summary>
     public const string LaPosteSiren = "356000000";
 
-    /// <summary>Indique si <paramref name="siren"/> est un SIREN valide (9 chiffres + Luhn, ou La Poste).</summary>
+    /// <summary>
+    /// SIREN de TEST des sandboxes PA, autorisés par dérogation de RECETTE (Karl, 27/06/2026) : un
+    /// destinataire/émetteur ADRESSABLE du sandbox PA (SuperPDP « Tricatel » 000000001, « Burger Queen »
+    /// 000000002) n'est PAS un SIREN réel et ne satisfait PAS la clé de Luhn ; on l'autorise EXPLICITEMENT
+    /// (liste fermée, même mécanique que <see cref="LaPosteSiren"/>) pour exercer le pipeline e-invoicing B2B
+    /// en recette. ⚠️ À RESTREINDRE à l'environnement PA Staging/Sandbox (suivi BUG-23 : gating par env PA).
+    /// </summary>
+    private static readonly HashSet<string> PaSandboxTestSirens = new(StringComparer.Ordinal)
+    {
+        "000000001",
+        "000000002",
+    };
+
+    /// <summary>Indique si <paramref name="siren"/> est un SIREN valide (9 chiffres + Luhn ; ou La Poste / SIREN de test sandbox PA).</summary>
     /// <param name="siren">Le SIREN à contrôler (absent = <c>null</c>).</param>
     /// <returns><c>true</c> si le SIREN est valide, sinon <c>false</c>.</returns>
     public static bool IsValid(string? siren)
@@ -32,7 +48,7 @@ public static class SirenValidator
             return false;
         }
 
-        if (siren == LaPosteSiren)
+        if (siren == LaPosteSiren || PaSandboxTestSirens.Contains(siren))
         {
             return true;
         }

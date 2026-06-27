@@ -30,6 +30,16 @@ public sealed class SirenValidatorTests
     }
 
     [Theory]
+    [InlineData("000000001")] // SuperPDP « Tricatel » (destinataire B2B adressable sandbox) — Luhn invalide
+    [InlineData("000000002")] // SuperPDP « Burger Queen » (émetteur sandbox) — Luhn invalide
+    public void IsValid_with_pa_sandbox_test_siren_returns_true(string siren)
+    {
+        // Dérogation de recette fermée (Karl, 27/06/2026) : les SIREN de test sandbox PA sont autorisés
+        // bien qu'ils ne satisfassent PAS la clé de Luhn (exercer le pipeline e-invoicing B2B en recette).
+        SirenValidator.IsValid(siren).Should().BeTrue("les SIREN de test sandbox PA sont autorisés par dérogation fermée.");
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("12345678")] // trop court
