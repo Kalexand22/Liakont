@@ -102,6 +102,49 @@ public sealed class CheckTvaMappingTests
     }
 
     [Fact]
+    public void Evaluate_Preserves_Additive_Fields_Through_The_Mapping_Rebuild()
+    {
+        // BUG-26 (régression) : le rejeu du mapping reconstruit le pivot pour poser catégorie/VATEX par ligne ;
+        // il DOIT reporter TELS QUELS les champs ADDITIFS (ADR-0007). Sinon les mentions de facturation (BT-20 +
+        // notes FR) injectées par l'enricher AVANT le mapping sont AMPUTÉES → le SEND sérialise un pivot sans
+        // mentions → rejet CTC-FR (BR-CO-25 / BR-FR-05). Ce test verrouille la conservation au mapping.
+        var regimeCodes = new[] { "NORMAL" };
+        var line = new PivotLineDto(
+            description: "Adjudication lot 7",
+            netAmount: 120.00m,
+            quantity: 1m,
+            unitPriceNet: 120.00m,
+            sourceRegimeCodes: regimeCodes,
+            taxes: new[] { new PivotLineTaxDto(24.00m, 20m) },
+            sourceLineRef: "ligne#1");
+        var pivot = new PivotDocumentDto(
+            sourceDocumentKind: "F",
+            number: "F-2026-0007",
+            issueDate: new DateTime(2026, 1, 10),
+            sourceReference: "no_ba=4007",
+            supplier: new PivotPartyDto("Étude Fictïve SVV", siren: "111111111"),
+            totals: new PivotTotalsDto(120.00m, 24.00m, 144.00m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            customer: new PivotPartyDto("Client SARL", isCompanyHint: true),
+            lines: new[] { line },
+            invoicePeriod: new PivotInvoicePeriodDto(new DateTime(2026, 1, 1), new DateTime(2026, 1, 31)),
+            paymentTerms: "Paiement comptant exigible à la vente",
+            notes: new[] { new PivotDocumentNoteDto("Pénalités au taux légal", "PMD") },
+            deliveryDate: new DateTime(2026, 1, 10));
+
+        var plan = CheckTvaMapping.BuildPlan(pivot);
+        var evaluation = CheckTvaMapping.Evaluate(pivot, plan, CheckTestData.MappedResult());
+
+        evaluation.IsBlocked.Should().BeFalse();
+        var enriched = evaluation.EnrichedDocument!;
+        enriched.Lines[0].Taxes[0].CategoryCode.Should().Be(VatCategory.S, "le rebuild a bien posé la catégorie (le mapping a tourné)");
+        enriched.PaymentTerms.Should().Be("Paiement comptant exigible à la vente", "BT-20 doit survivre au rebuild du mapping (BUG-26)");
+        enriched.Notes.Should().ContainSingle().Which.SubjectCode.Should().Be("PMD", "les notes légales FR doivent survivre au rebuild (BUG-26)");
+        enriched.DeliveryDate.Should().Be(new DateTime(2026, 1, 10), "BT-72 doit survivre au rebuild (R008)");
+        enriched.InvoicePeriod.Should().NotBeNull("le champ additif BG-14 doit survivre au rebuild (ADR-0007)");
+    }
+
+    [Fact]
     public void Evaluate_All_Mapped_Enriches_Category_And_Vatex_And_Keeps_Source_Amounts()
     {
         var pivot = CheckTestData.SingleLinePivot(regimeCode: "NORMAL", net: 120.00m, tax: 24.00m, rate: 20m);

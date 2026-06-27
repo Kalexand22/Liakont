@@ -218,6 +218,10 @@ internal static class CheckTvaMapping
 
     private static PivotDocumentDto Rebuild(PivotDocumentDto pivot, IReadOnlyList<PivotLineDto> lines, bool isB2cReportingDeclaration)
     {
+        // Ce rebuild ne touche QUE les lignes (catégorie/VATEX du mapping) : TOUS les autres champs sont reportés
+        // tels quels, y compris les ADDITIFS (ADR-0007). Oublier un champ additif l'AMPUTE après le mapping —
+        // c'est ce qui faisait perdre les mentions de facturation (BT-20 + notes FR, BUG-26) injectées par
+        // l'enricher AVANT ce rejeu (le SEND sérialise CE pivot, pas le pré-mapping). invoicePeriod idem.
         return new PivotDocumentDto(
             sourceDocumentKind: pivot.SourceDocumentKind,
             number: pivot.Number,
@@ -240,7 +244,11 @@ internal static class CheckTvaMapping
             paymentDueDate: pivot.PaymentDueDate,
             isB2cReportingDeclaration: isB2cReportingDeclaration,
             sellerFees: pivot.SellerFees,
-            buyerFees: pivot.BuyerFees);
+            buyerFees: pivot.BuyerFees,
+            invoicePeriod: pivot.InvoicePeriod,
+            paymentTerms: pivot.PaymentTerms,
+            notes: pivot.Notes,
+            deliveryDate: pivot.DeliveryDate);
     }
 
     /// <summary>
