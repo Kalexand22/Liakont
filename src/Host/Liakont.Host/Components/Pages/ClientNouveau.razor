@@ -252,6 +252,9 @@
 
             if (!_profilApplied)
             {
+                // PARAMÉTRAGE d'abord (si un seed est choisi), TANT QU'AUCUN PROFIL n'existe : l'override de
+                // société du provisioning (garde ancrée sur le profil) n'est honoré que sur un tenant sans
+                // profil — le seed doit donc précéder la création du profil (BUG-14).
                 if (_seedDirectory is { } seedDir)
                 {
                     var seed = await Clients.ImportSeedAsync(profil.TenantId, seedDir);
@@ -261,23 +264,24 @@
                         return;
                     }
                 }
-                else
+
+                // IDENTITÉ LÉGALE toujours saisie à la main (jamais seedée — BUG-14) : crée le profil du tenant
+                // avec les valeurs de l'étape « Profil ». Cet appel est INCONDITIONNEL — sans lui, un client créé
+                // avec un seed resterait SANS profil (GetCurrentCompanyId null ⇒ pipeline suspendu, récap vide).
+                var saved = await Clients.SaveProfileAsync(profil.TenantId, new ClientProfileInput
                 {
-                    var saved = await Clients.SaveProfileAsync(profil.TenantId, new ClientProfileInput
-                    {
-                        Siren = profil.Siren,
-                        RaisonSociale = profil.RaisonSociale,
-                        Street = profil.Street,
-                        PostalCode = profil.PostalCode,
-                        City = profil.City,
-                        Country = profil.Country,
-                        ContactEmailAlerte = profil.Email,
-                    });
-                    if (saved.Status != ClientActionStatus.Succeeded)
-                    {
-                        _creationError = saved.Message ?? "L'enregistrement du profil a échoué. Réessayez cette étape.";
-                        return;
-                    }
+                    Siren = profil.Siren,
+                    RaisonSociale = profil.RaisonSociale,
+                    Street = profil.Street,
+                    PostalCode = profil.PostalCode,
+                    City = profil.City,
+                    Country = profil.Country,
+                    ContactEmailAlerte = profil.Email,
+                });
+                if (saved.Status != ClientActionStatus.Succeeded)
+                {
+                    _creationError = saved.Message ?? "L'enregistrement du profil a échoué. Réessayez cette étape.";
+                    return;
                 }
 
                 _profilApplied = true;

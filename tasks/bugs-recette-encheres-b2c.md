@@ -46,8 +46,22 @@ vert + revue Claude **clean** au round 3). Détail + commit sous chaque bug.
 | BUG-19 | `84ed063b` | revue P2 | `517d247c` | | |
 
 **Hors lot (toujours ouverts)** : BUG-21 (P1 numérotation — bloqué spec F06/F14, ne pas deviner), BUG-5 (lignes avant
-transmission — décision A/B en attente), BUG-12 à 16 (UX éditeur TVA / publication SIREN / seed identité / profil
-éditable / densité — relevés « pas pour maintenant »).
+transmission — décision A/B en attente).
+
+---
+
+## ÉTAT — lot UX recette « BUG-12 à 16 » (run 2026-06-28)
+
+Lot UX/seed relevé Karl 26/06 (« pas pour maintenant ») : **éditeur TVA** (12), **publication SIREN par capacité PA**
+(13), **identité jamais seedée** (14), **profil légal éditable** (15), **densité Standard par défaut** (16). **Les 5
+✅ RÉSOLUS** et poussés sur `feat/ereporting-b2c` (verify-fast **Release** vert + run-tests Testcontainers vert +
+revue Claude **clean** au round 3). Détail + commit sous chaque bug.
+
+| Bug | Commit | Bug | Commit |
+|---|---|---|---|
+| BUG-16 | `8c0aded2` | BUG-13 | `35bad969` |
+| BUG-12 | `1d692312` | BUG-15 | `abaebc85` |
+| BUG-14 (+ correctifs review 12/13/16) | ce commit | | |
 
 ---
 
@@ -309,6 +323,13 @@ transmission — décision A/B en attente), BUG-12 à 16 (UX éditeur TVA / publ
   (libellés composante l.526, `PartNotConsulted` l.607). UI Liakont — règle review 19 (test bUnit/Playwright).
 - **NB** : le fond fonctionne (marge/taxable exigent une règle Frais — cf. seed `82e6361b`) ; c'est purement la
   LISIBILITÉ de l'éditeur qui est en cause.
+- **✅ RÉSOLU (2026-06-28, commit `1d692312` + correctif review « ce commit »)** : « Adjudication » (part morte)
+  retirée de la création (filtrée par le handler `GetTvaMappingEditOptions`) ; « Autre » renommée
+  **« Adjudication et factures (lignes de la pièce) »**, « Frais » → **« Frais (taux des honoraires acheteur/vendeur) »** ;
+  texte d'aide explicite par composante. En MODIFICATION, une règle héritée portant `Part="Adjudication"` est rendue
+  en **texte lisible** (`TvaComposanteVocabulary.ValueLabel`), jamais un `<select>` désactivé sans option (afficherait
+  « — Choisir — »). Relabel purement présentationnel (énum domaine inchangée, parts réellement consultées intactes).
+  Tests bUnit (`TvaRuleEditor`/`TableTvaView`) + handler.
 
 ## BUG-13 — Publication SIREN : champs « Type d'opération » / « Taille d'entreprise » requis MÊME quand la PA les ignore (relevé Karl 26/06, PAS pour maintenant)
 
@@ -324,6 +345,11 @@ transmission — décision A/B en attente), BUG-12 à 16 (UX éditeur TVA / publ
   Idéalement, proposer/valider les valeurs attendues par la PA quand elle en a (au lieu de « jamais devinée »).
 - **Fichiers (pistes)** : l'écran de publication SIREN (Host Components, `PaPublicationConsoleService`),
   `PaTaxReportSettingRequest` (Transmission.Contracts). UI Liakont — règle review 19.
+- **✅ RÉSOLU (2026-06-28, commit `35bad969` + correctif NRE « ce commit »)** : le « requis » des champs
+  « Type d'opération » / « Taille d'entreprise » est piloté par la **capacité PA déclarée**
+  `SupportsTaxReportSettingWritable` (B2Brouter `true` ; SuperPDP/Générique/Chorus Pro `false`), jamais en dur ni
+  `if (pa is …)` (CLAUDE.md n°8). La publication d'une PA qui les ignore (SuperPDP) n'est plus bloquée. Garde anti-NRE
+  `(form.TypeOperation ?? string.Empty).Trim()` en aval (champ devenu facultatif). Tests bUnit.
 
 ## BUG-14 — Le seed importe l'IDENTITÉ LÉGALE du tenant (ne devrait JAMAIS) + écrase la saisie manuelle (relevé Karl 26/06, PAS pour maintenant)
 
@@ -344,6 +370,21 @@ transmission — décision A/B en attente), BUG-12 à 16 (UX éditeur TVA / publ
   lever l'exclusivité du wizard (identité = saisie manuelle, paramétrage = seed, combinés). Fichiers :
   `tenant-profile.json` (structure), `ImportTenantSeedHandler`, `TenantSeedReader`, `ClientNouveau.razor` /
   `ClientWizardSeedStep.razor` (lever le « seed XOR manuel » sur le légal). UI Liakont — règle review 19.
+- **✅ RÉSOLU (2026-06-28, ce commit ; décision Karl : option A « identité jamais seedée »)** :
+  - **Seed** : `tenant-profile.json` ne porte PLUS QUE le paramétrage (fiscal/planif/seuils) — identité légale retirée
+    (3 fichiers : exemple + volontaire + judiciaire) ; `AddressSeed` supprimé, `ImportProfileAsync`/`ProfileImported`
+    retirés de `ImportTenantSeedHandler`/`ImportTenantSeedResult`.
+  - **Wizard** : `ClientNouveau.razor` n'est plus « seed XOR manuel » — il importe le seed PUIS crée TOUJOURS le profil
+    avec l'identité saisie (ordre seed→profil : la garde override n'honore le companyId explicite que tant qu'aucun
+    profil n'existe). Sans cet ordre, un client créé avec un seed restait sans profil (pipeline suspendu, CFG02).
+  - **Garde create-only** ré-ancrée sur « un composant de paramétrage présent » (`HasAnyConfigurationAsync` : fiscal OU
+    planif OU seuils OU compte PA), endpoint OPS03 (409) + DevTenantSeeder ; ancrer sur le seul fiscal aurait laissé un
+    seed sans bloc fiscal écraser silencieusement des réglages console.
+  - **DevTenantSeeder** : identité de dev posée PROGRAMMATIQUEMENT depuis `appsettings.Development.json` (hors fichier de
+    seed, SIREN fictif), auto-réparation d'un split-brain « paramétrage présent / profil absent ».
+  - **Tests** : unitaires (`TenantConfigurationProbe` toutes branches, `DevTenantSeeder`, wizard) + intégration
+    (cohérence `companyId` profil↔fiscal↔registre, back→forward idempotent). verify-fast Release + run-tests verts,
+    revue Claude clean round 3.
 
 ## BUG-15 — Profil légal du tenant NON éditable après création (relevé Karl 26/06, PAS pour maintenant)
 
@@ -361,6 +402,12 @@ transmission — décision A/B en attente), BUG-12 à 16 (UX éditeur TVA / publ
 - **Fichiers** : `ParametrageView.razor` (ajouter l'action/formulaire), `ClientConsoleService.SaveProfileAsync`
   (déjà présent). UI Liakont — règle review 19. Lié à [[BUG-14]] (mieux : traiter les deux ensemble — gestion
   complète du profil légal : saisie à la création, jamais seedé, éditable après).
+- **✅ RÉSOLU (2026-06-28, commit `abaebc85` + test page « ce commit »)** : page **« Paramétrage › Profil légal »**
+  (`/parametrage/profil`, policy `Settings`) éditant raison sociale / adresse / contact d'alerte ; **SIREN en LECTURE
+  SEULE** (clé fonctionnelle immuable, INV-TENANTSETTINGS-001 — repris du profil persisté, ce chemin ne peut pas le
+  changer ; un changement lève `ConflictException` côté handler). Lien d'accès depuis `ParametrageView`. Aucune logique
+  métier dans la page (déléguée au service MediatR — règle 19). Tests bUnit (`ProfilView` + page `Profil` : permission,
+  échec de chargement, profil absent, swallow du reload après save — WEB09) + intégration (`TenantProfileIntegrationTests`).
 
 ## BUG-16 — Densité d'interface par défaut = Compact au lieu de Standard pour un nouvel utilisateur (relevé Karl 26/06, PAS pour maintenant)
 
@@ -377,6 +424,12 @@ transmission — décision A/B en attente), BUG-12 à 16 (UX éditeur TVA / publ
   (consigner la provenance si on touche `Stratum.*`).
 - **Fichiers (pistes)** : `Stratum.Common.UI` (composant densité / layout), `Identity` préférences
   (`UserPreferences`, `PostgresUserPreferencesService`). Règle review 19/20 (socle).
+- **✅ RÉSOLU (2026-06-28, commit `8c0aded2`)** : le défaut EFFECTIF est aligné sur **Standard**. Cause = repli
+  pré-paint du socle (`stratum-ui.js`, constante de défaut « compact » appliquée avant le circuit, qui primait sur le
+  défaut C# `UserPreferences.Density = standard`). Changement VENDORED `compact`→`standard` aux 3 points de défaut JS +
+  prélude `App.razor` (Host, non vendored), **consigné en provenance §4.43** (drift socle — règle 20). Vérif :
+  `UserPreferencesTests` (défaut modèle) ; la garde de non-régression du repli pré-paint est **manuelle** (recette —
+  no silent cap, explicité §4.43, pas de projet Playwright Host en V1).
 
 ## BUG-17 (MAJEUR — aiguillage) — La garde « marge non classée » bloque TOUT acheteur identifié au lieu de router vers son canal (relevé Karl 26/06)
 

@@ -63,6 +63,10 @@ Deux jeux de paramétrage **fictifs** (CLAUDE.md n°7), un par tenant — format
 - `tenant-seed/volontaire/` — SVV INNEXA, **SIREN fictif `976543215`** (vérifié non attribué, data.gouv).
 - `tenant-seed/judiciaire/` — SCP INNEXA, **SIREN fictif `960123453`** (vérifié non attribué, data.gouv).
 
+> **L'identité légale (SIREN + raison sociale ci-dessus) se saisit À LA MAIN** dans la console à la
+> création du tenant — elle n'est **jamais seedée** (BUG-14). `tenant-profile.json` ne porte que le
+> **paramétrage** (fiscal / planification / seuils).
+
 Chaque dossier porte `tenant-profile.json`, `pa-accounts.json` (compte **`Fake`** Staging, **sans
 secret**) et `mapping-tva.json`.
 

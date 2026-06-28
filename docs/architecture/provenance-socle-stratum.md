@@ -1211,6 +1211,13 @@ consigné). Le prélude inline `App.razor` (Liakont Host, **non** vendored) est 
 ne porte aucune logique C# testable en bUnit (constante de repli côté navigateur) ; garde `socle-provenance-check`
 verte (drift consigné). Recette manuelle Karl : un nouvel utilisateur voit « standard ».
 
+**Garde de non-régression — explicitement MANUELLE (no silent cap).** Le défaut pré-paint vit dans une constante JS
+évaluée AVANT la connexion du circuit Blazor : il n'est testable ni en bUnit (pas de DOM/JS) ni en intégration
+in-process, et le Host ne porte aucun projet Playwright/E2E navigateur en V1. Un retour silencieux des quatre points
+de défaut à `compact` ne serait donc PAS rattrapé par un test automatisé — seulement par la recette manuelle
+ci-dessus. Dette assumée et tracée : si un projet E2E navigateur Host est introduit, y ajouter le cas « nouvel
+utilisateur sans préférence → `document.documentElement[data-density] === 'standard'` » pour fermer ce trou.
+
 ## 5. ADR du socle hérités
 
 Les ADR Stratum pertinents au socle sont copiés dans `docs/adr/socle/` (référence, non re-décidés).

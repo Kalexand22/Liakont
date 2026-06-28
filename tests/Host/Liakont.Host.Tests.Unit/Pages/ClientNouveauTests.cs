@@ -210,27 +210,29 @@ public sealed class ClientNouveauTests : BunitContext
     }
 
     [Fact]
-    public void Going_Back_From_Creation_On_The_Seed_Path_Re_Imports_The_Seed_Not_The_Manual_Profile()
+    public void The_Seed_Path_Imports_Settings_And_Always_Creates_The_Profile_From_The_Manual_Identity()
     {
-        // Régression possible du retour-arrière : si la sélection « seed » n'est pas restaurée, un
-        // ré-avancement écraserait le profil IMPORTÉ par la saisie manuelle (SaveProfileAsync).
+        // BUG-14 : l'identité légale n'est JAMAIS seedée. Le chemin seed importe le PARAMÉTRAGE puis crée
+        // TOUJOURS le profil par la saisie manuelle (sans quoi le tenant resterait sans profil ⇒ pipeline
+        // suspendu, récap vide). Le retour-arrière restaure le choix « seed » et ré-exécute les DEUX
+        // (idempotents), jamais un tenant sans profil.
         _service.SeedDirectories = ["client-demo"];
 
         var cut = Render<ClientNouveau>();
         FillProfil(cut);
         cut.Find("[data-testid='client-wizard-profil-continue']").Click();   // → Seed
         cut.Find("[data-testid='client-wizard-seed-use']").Change(true);     // « Importer un seed »
-        cut.Find("[data-testid='client-wizard-seed-continue']").Click();     // → Création (seed importé)
+        cut.Find("[data-testid='client-wizard-seed-continue']").Click();     // → Création (seed + profil)
         _service.SeedCalls.Should().ContainSingle();
-        _service.ProfileCalls.Should().BeEmpty("le profil vient du seed, jamais de la saisie manuelle");
+        _service.ProfileCalls.Should().ContainSingle("l'identité est toujours saisie à la main (BUG-14)");
 
         // Retour Création → Seed : le choix « seed » doit être restauré.
         cut.Find("[data-testid='client-wizard-creation-back']").Click();
         cut.Find("[data-testid='client-wizard-seed-continue']").Click();     // ré-avance SANS re-cocher
 
-        // Le seed est RÉ-importé, jamais remplacé par la saisie manuelle.
+        // Seed ET profil RÉ-exécutés (idempotents) : le tenant a toujours un profil.
         _service.SeedCalls.Should().HaveCount(2);
-        _service.ProfileCalls.Should().BeEmpty("la saisie manuelle ne doit jamais écraser le profil du seed");
+        _service.ProfileCalls.Should().HaveCount(2, "l'identité manuelle est ré-enregistrée après le seed");
     }
 
     [Fact]

@@ -2,6 +2,7 @@ namespace Liakont.Host.Startup;
 
 using System.Globalization;
 using System.Text.RegularExpressions;
+using Liakont.Host.MultiTenancy;
 using Liakont.Host.PaAccounts;
 using Liakont.Modules.TenantSettings.Contracts.Commands;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
@@ -35,13 +36,13 @@ internal static partial class DevTenantSeeder
     /// <summary>Action d'amorçage à exécuter, décidée par <see cref="DecideSeedAction"/>.</summary>
     internal enum DevSeedAction
     {
-        /// <summary>Boot à froid (aucun profil) : importer le seed complet — les 4 composants, table comprise.</summary>
+        /// <summary>Boot à froid (aucun paramétrage) : importer le seed complet (paramétrage + table) puis poser l'identité de dev.</summary>
         ImportFullSeed,
 
-        /// <summary>Profil présent + un fichier de mapping est disponible : rattraper la SEULE table (idempotent).</summary>
+        /// <summary>Paramétrage présent + un fichier de mapping est disponible : rattraper la SEULE table (idempotent).</summary>
         BackfillMappingTable,
 
-        /// <summary>Profil présent, aucun fichier de mapping à amorcer : rien à faire.</summary>
+        /// <summary>Paramétrage présent, aucun fichier de mapping à amorcer : rien à faire.</summary>
         Skip,
     }
 
@@ -168,11 +169,14 @@ internal static partial class DevTenantSeeder
             var sender = scope.Services.GetRequiredService<ISender>();
 
             // Amorçage idempotent PAR COMPOSANT (FIX203a) — décision extraite dans DecideSeedAction.
+            // BUG-14 : l'identité n'est plus seedée, le profil ne marque donc plus « tenant paramétré » ;
+            // on ancre l'idempotence sur la présence d'UN composant de paramétrage (fiscal/planif/seuils/
+            // compte PA — un seed peut n'écrire que l'un d'eux), scopée sur le companyId de DEV fixé en config.
             var settingsQueries = scope.Services.GetRequiredService<ITenantSettingsQueries>();
-            var existingCompanyId = await settingsQueries.GetCurrentCompanyId();
+            var alreadyConfigured = await settingsQueries.HasAnyConfigurationAsync(options.CompanyId);
             var mappingFilePath = Path.Combine(seedDir, ImportTenantSeedCommand.MappingSeedFileName);
 
-            switch (DecideSeedAction(existingCompanyId is not null, File.Exists(mappingFilePath)))
+            switch (DecideSeedAction(alreadyConfigured, File.Exists(mappingFilePath)))
             {
                 case DevSeedAction.ImportFullSeed:
                 {
@@ -182,20 +186,20 @@ internal static partial class DevTenantSeeder
                         CompanyId = options.CompanyId,
                     });
 
-                    LogDevProfileSeeded(logger, options.TenantId, result.ProfileImported, result.FiscalImported, result.PaAccountsImported);
+                    LogDevProfileSeeded(logger, options.TenantId, result.FiscalImported, result.PaAccountsImported);
                     break;
                 }
 
                 case DevSeedAction.BackfillMappingTable:
                 {
-                    // Profil déjà présent : ne JAMAIS rejouer le paramétrage (un ré-import écraserait des
+                    // Réglages déjà présents : ne JAMAIS rejouer le paramétrage (un ré-import écraserait des
                     // réglages édités via la console) ; rattraper la SEULE table qui a pu manquer, scopée sur
-                    // le companyId RÉEL du profil présent (pas la config, qui pourrait diverger d'un boot
-                    // antérieur — sinon la table irait dans une société sans profil). Import idempotent.
+                    // le companyId de DEV fixé en configuration (BUG-14 : plus de profil seedé d'où déduire la
+                    // société — le tenant de dev a un companyId stable). Import idempotent.
                     var mappingImported = await sender.Send(new ImportMappingTableSeedCommand
                     {
                         SeedFilePath = mappingFilePath,
-                        CompanyId = existingCompanyId,
+                        CompanyId = options.CompanyId,
                     });
 
                     if (mappingImported)
@@ -214,6 +218,18 @@ internal static partial class DevTenantSeeder
                     LogDevProfileAlreadyConfigured(logger, options.TenantId);
                     break;
             }
+
+            // L'identité légale n'est jamais seedée (BUG-14) : on la pose PROGRAMMATIQUEMENT (depuis la config
+            // de dev, HORS fichier de seed) dès qu'aucun profil n'existe — au boot à froid après l'import du
+            // paramétrage, ET en auto-réparation d'un split-brain « paramétrage présent / profil absent » (un
+            // boot précédent a pu committer le paramétrage puis échouer à poser le profil). Sans profil, le
+            // pipeline de dev reste suspendu (CFG02). Idempotent (upsert) ; sans effet si le profil existe déjà.
+            // Ordre seed→profil : la garde override n'honore le companyId explicite que tant qu'aucun profil
+            // n'existe (le seed n'en crée pas).
+            if (await settingsQueries.GetCurrentCompanyId() is null)
+            {
+                await CreateDevProfileAsync(sender, options, logger);
+            }
         }
         catch (Exception ex)
         {
@@ -226,9 +242,10 @@ internal static partial class DevTenantSeeder
     /// Publie le SIREN / active le <c>tax_report_setting</c> du compte PA actif (Fake) du tenant de dev, à
     /// CHAQUE démarrage (décision E1, point 2 ; FIX201). C'est l'étape d'onboarding qui rend l'envoi
     /// EXERÇABLE : sans elle, le diagnostic pré-envoi (F04 §3.1) répond « Transport not available » et aucun
-    /// document n'est jamais émis. Appelée APRÈS l'amorçage du profil (le compte PA et le SIREN doivent
-    /// exister). Idempotente (<c>EnsureTaxReportSettingAsync</c>) et REJOUÉE à chaque démarrage : l'état du
-    /// plug-in factice vit en mémoire (par compte) et est perdu au redémarrage du processus.
+    /// document n'est jamais émis. Appelée APRÈS l'amorçage du paramétrage (le compte PA actif doit exister ;
+    /// le SIREN n'est plus requis ici — il n'est pas seedé depuis BUG-14 et <c>TaxReportSettingRequestBuilder.Build</c>
+    /// ne l'utilise pas). Idempotente (<c>EnsureTaxReportSettingAsync</c>) et REJOUÉE à chaque démarrage : l'état
+    /// du plug-in factice vit en mémoire (par compte) et est perdu au redémarrage du processus.
     /// <para>
     /// Garde-fous : Development uniquement ; nécessite <c>DevTenantSeed:TaxReportSetting</c> (valeurs FICTIVES
     /// pour le Fake — jamais une vraie PA). Strictement NON FATAL : toute défaillance est journalisée et
@@ -272,15 +289,10 @@ internal static partial class DevTenantSeeder
         {
             await using var scope = app.Services.GetRequiredService<ITenantScopeFactory>().Create(options.TenantId);
 
+            // BUG-14 : l'identité n'est plus seedée (aucun profil au boot) ; on s'appuie sur le companyId de
+            // DEV fixé en configuration (validé non vide ci-dessus) pour résoudre le compte PA à publier.
             var settingsQueries = scope.Services.GetRequiredService<ITenantSettingsQueries>();
-            var companyId = await settingsQueries.GetCurrentCompanyId();
-            if (companyId is null)
-            {
-                LogDevPublicationNoProfile(logger, options.TenantId);
-                return;
-            }
-
-            var accounts = await settingsQueries.GetPaAccounts(companyId.Value);
+            var accounts = await settingsQueries.GetPaAccounts(options.CompanyId);
             var active = accounts.FirstOrDefault(a => a.IsActive);
             if (active is null)
             {
@@ -313,16 +325,16 @@ internal static partial class DevTenantSeeder
 
     /// <summary>
     /// Décision d'amorçage idempotente PAR COMPOSANT (FIX203a), pure et testable hors d'un WebApplication.
-    /// Le paramétrage TenantSettings (profil, fiscal, comptes PA, planification, seuils) est importé en UNE
+    /// Le paramétrage TenantSettings (fiscal, comptes PA, planification, seuils) est importé en UNE
     /// transaction — il n'est donc jamais partiel ; seule la table de mapping TVA (transaction distincte)
     /// peut rester absente après un échec, et c'est le seul composant à rattraper sans rejouer (ni écraser)
     /// le reste du paramétrage.
     /// </summary>
-    /// <param name="profileExists">Un profil tenant est déjà présent (un import a déjà eu lieu).</param>
+    /// <param name="alreadyConfigured">Le tenant a déjà du paramétrage (un import a déjà eu lieu).</param>
     /// <param name="mappingSeedFileExists">Un fichier de seed de mapping TVA est disponible dans le dossier.</param>
-    internal static DevSeedAction DecideSeedAction(bool profileExists, bool mappingSeedFileExists)
+    internal static DevSeedAction DecideSeedAction(bool alreadyConfigured, bool mappingSeedFileExists)
     {
-        if (!profileExists)
+        if (!alreadyConfigured)
         {
             return DevSeedAction.ImportFullSeed;
         }
@@ -339,6 +351,40 @@ internal static partial class DevTenantSeeder
         !string.IsNullOrEmpty(databaseName)
         && databaseName.Length <= 63
         && DatabaseIdentifierRegex().IsMatch(databaseName);
+
+    /// <summary>
+    /// Pose PROGRAMMATIQUEMENT l'identité légale FICTIVE du tenant de dev (depuis <c>DevTenantSeed:Profile</c>),
+    /// au boot à froid uniquement (cas <see cref="DevSeedAction.ImportFullSeed"/>). L'identité n'est JAMAIS
+    /// seedée par fichier (BUG-14) : ce chemin de dev la fournit HORS du seed, comme le ferait le provisioning
+    /// de démo. La commande est un upsert (idempotente) et l'appel est encapsulé dans le try NON FATAL de
+    /// l'appelant. Sans section <c>Profile</c> (ou SIREN vide), l'amorçage est ignoré : le pipeline restera
+    /// suspendu jusqu'à une saisie via la console (CFG02).
+    /// </summary>
+    private static async Task CreateDevProfileAsync(ISender sender, DevTenantSeedOptions options, ILogger logger)
+    {
+        var profile = options.Profile;
+        if (profile is null || string.IsNullOrWhiteSpace(profile.Siren))
+        {
+            LogDevProfileIdentitySkipped(logger, options.TenantId);
+            return;
+        }
+
+        await sender.Send(new SaveTenantProfileCommand
+        {
+            CompanyId = options.CompanyId,
+            Siren = profile.Siren.Trim(),
+            RaisonSociale = profile.RaisonSociale,
+            Street = profile.Street,
+            PostalCode = profile.PostalCode,
+            City = profile.City,
+            Country = profile.Country,
+            ContactEmailAlerte = string.IsNullOrWhiteSpace(profile.ContactEmailAlerte)
+                ? null
+                : profile.ContactEmailAlerte.Trim(),
+        });
+
+        LogDevProfileIdentitySeeded(logger, options.TenantId);
+    }
 
     /// <summary>
     /// Amorce les tenants de recette additionnels dans <c>outbox.tenants</c> AVEC leur <c>company_id</c>.
@@ -454,9 +500,6 @@ internal static partial class DevTenantSeeder
     [LoggerMessage(Level = LogLevel.Warning, Message = "Publication de dev ignorée : date de début « {StartDate} » invalide (format attendu yyyy-MM-dd) pour « {TenantId} ».")]
     private static partial void LogDevPublicationBadDate(ILogger logger, string startDate, string tenantId);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Publication de dev ignorée pour « {TenantId} » : aucun profil tenant (companyId) — amorcez d'abord le profil.")]
-    private static partial void LogDevPublicationNoProfile(ILogger logger, string tenantId);
-
     [LoggerMessage(Level = LogLevel.Warning, Message = "Publication de dev ignorée pour « {TenantId} » : aucun compte Plateforme Agréée actif.")]
     private static partial void LogDevPublicationNoAccount(ILogger logger, string tenantId);
 
@@ -481,8 +524,14 @@ internal static partial class DevTenantSeeder
     [LoggerMessage(Level = LogLevel.Information, Message = "Table de mapping TVA rattrapée pour « {TenantId} » (profil déjà présent mais table absente — seed partiel récupéré, FIX203a).")]
     private static partial void LogDevMappingBackfilled(ILogger logger, string tenantId);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Profil de dev amorcé pour « {TenantId} » (profil={ProfileImported}, fiscal={FiscalImported}, comptes PA={PaAccounts}).")]
-    private static partial void LogDevProfileSeeded(ILogger logger, string tenantId, bool profileImported, bool fiscalImported, int paAccounts);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Paramétrage de dev amorcé pour « {TenantId} » (fiscal={FiscalImported}, comptes PA={PaAccounts}). Identité légale jamais seedée (BUG-14).")]
+    private static partial void LogDevProfileSeeded(ILogger logger, string tenantId, bool fiscalImported, int paAccounts);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Identité légale FICTIVE du tenant de dev « {TenantId} » posée programmatiquement (hors seed — BUG-14) ; le pipeline de dev est fonctionnel.")]
+    private static partial void LogDevProfileIdentitySeeded(ILogger logger, string tenantId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Identité légale du tenant de dev « {TenantId} » non amorcée (section DevTenantSeed:Profile absente ou SIREN vide) : le pipeline restera suspendu jusqu'à une saisie via la console (CFG02).")]
+    private static partial void LogDevProfileIdentitySkipped(ILogger logger, string tenantId);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Échec de l'amorçage du profil de dev pour « {TenantId} » (non fatal — le démarrage continue).")]
     private static partial void LogDevProfileSeedFailed(ILogger logger, string tenantId, Exception exception);

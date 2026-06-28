@@ -253,6 +253,8 @@ function Show-Help {
     Write-Host "Resume des etapes PILOTEES PAR LA CONSOLE (Karl) :" -ForegroundColor Cyan
     Write-Host "  1. Plateforme propre : deployments\bucodi\demo.ps1 reset   (Host + PG + Keycloak)"
     Write-Host "  2. Console (sysadmin) -> Clients -> creer 2 tenants : volontaire (SVV) et judiciaire (SCP)"
+    Write-Host "     IDENTITE LEGALE (SIREN + raison sociale) saisie A LA MAIN -- jamais seedee (BUG-14)."
+    Write-Host "     Valeurs exactes par tenant : voir README.md (section 'tenant-seed')."
     Write-Host "  3. Par tenant : Parametrage fiscal -> saisir le mapping (cf. tenant-seed\<inst>\mapping-tva.json)"
     Write-Host "                  + Plateforme Agreee -> ajouter le compte 'Fake' (Staging)"
     Write-Host "                  + enroler un agent -> recuperer sa cle API"

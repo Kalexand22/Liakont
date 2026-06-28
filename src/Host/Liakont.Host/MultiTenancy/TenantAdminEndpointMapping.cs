@@ -178,13 +178,17 @@ public static class TenantAdminEndpointMapping
         // vers sa base et le companyId explicite est la clé de scoping écrite (aucun profil n'existe encore).
         await using var scope = scopeFactory.Create(tenantId);
 
-        // PROVISIONING create-only : si le tenant a DÉJÀ un profil, refuser (409) plutôt que de réimporter
-        // — un re-seed remettrait des réglages fiscaux saisis via la console à la baseline du seed (null).
-        // La reconfiguration passe par la console, jamais par un ré-import de provisioning.
+        // PROVISIONING create-only : si le tenant a DÉJÀ du paramétrage, refuser (409) plutôt que de réimporter
+        // — un re-seed remettrait des réglages saisis via la console à la baseline du seed. La reconfiguration
+        // passe par la console, jamais par un ré-import de provisioning. Ancré sur la présence d'UN composant de
+        // paramétrage (fiscal/planif/seuils/compte PA), et non plus sur le profil : l'identité légale n'étant
+        // plus seedée (BUG-14), le profil ne marque plus « tenant paramétré » ; et un seed dont le seul bloc est
+        // p.ex. le planning n'écrirait aucun fiscal — ancrer sur le seul fiscal laisserait un tel ré-import
+        // écraser silencieusement des réglages édités via la console.
         var settingsQueries = scope.Services.GetRequiredService<ITenantSettingsQueries>();
-        if (await settingsQueries.GetCurrentCompanyId(ct) is not null)
+        if (await settingsQueries.HasAnyConfigurationAsync(companyId.Value, ct))
         {
-            return Results.Conflict(new { ErrorMessage = "Tenant déjà paramétré (profil existant) — reconfigurez via la console, pas par un ré-import de provisioning." });
+            return Results.Conflict(new { ErrorMessage = "Tenant déjà paramétré — reconfigurez via la console, pas par un ré-import de provisioning." });
         }
 
         var sender = scope.Services.GetRequiredService<ISender>();

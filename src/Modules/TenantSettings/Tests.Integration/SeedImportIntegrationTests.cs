@@ -13,12 +13,10 @@ using Xunit;
 [Collection("TenantSettingsIntegration")]
 public sealed class SeedImportIntegrationTests
 {
+    // BUG-14 : le seed ne porte QUE du paramétrage — l'identité légale (siren/raisonSociale/address/contact)
+    // n'est jamais seedée (saisie manuelle à la création, jamais écrasée par une baseline).
     private const string ProfileJson = """
         {
-          "siren": "123456782",
-          "raisonSociale": "Société Fictive de Démonstration",
-          "address": { "street": "1 rue de l'Exemple", "postalCode": "35000", "city": "Rennes", "country": "FR" },
-          "contactEmailAlerte": "alertes@exemple.test",
           "fiscal": { "vatOnDebits": null, "operationCategory": null, "reportingFrequency": null },
           "schedule": { "hours": ["03:00"], "catchUpOnStart": true },
           "thresholds": { "agentSilentHours": 12, "alertTenantContact": true }
@@ -39,7 +37,7 @@ public sealed class SeedImportIntegrationTests
     }
 
     [Fact]
-    public async Task Import_Loads_Profile_Fiscal_Schedule_Thresholds_And_PaAccounts_Without_Secret()
+    public async Task Import_Loads_Fiscal_Schedule_Thresholds_And_PaAccounts_Without_Secret()
     {
         var dir = CreateSeedDir();
         try
@@ -56,14 +54,14 @@ public sealed class SeedImportIntegrationTests
             result.TvaMappingImported.Should().BeFalse();
             harness.Sender.LastRequest.Should().BeNull();
 
-            result.ProfileImported.Should().BeTrue();
             result.FiscalImported.Should().BeTrue();
             result.ScheduleImported.Should().BeTrue();
             result.ThresholdsImported.Should().BeTrue();
             result.PaAccountsImported.Should().Be(1);
             result.Warnings.Should().ContainSingle(w => w.Contains("non importée", StringComparison.Ordinal));
 
-            (await harness.Queries.GetTenantProfile(harness.CompanyId))!.Siren.Should().Be("123456782");
+            // BUG-14 : le seed ne crée AUCUN profil (identité jamais seedée) — seul le paramétrage est importé.
+            (await harness.Queries.GetTenantProfile(harness.CompanyId)).Should().BeNull();
 
             var fiscal = await harness.Queries.GetFiscalSettings(harness.CompanyId);
             fiscal!.VatOnDebits.Should().BeNull("le seed laisse le fiscal en attente (jamais deviné).");
@@ -99,10 +97,10 @@ public sealed class SeedImportIntegrationTests
             await handler.Handle(command, CancellationToken.None);
             await handler.Handle(command, CancellationToken.None);
 
-            // Rejouable : un seul profil, un seul compte PA (pas de doublon).
+            // Rejouable : un seul compte PA (pas de doublon) ; aucun profil créé par le seed (BUG-14).
             var accounts = await harness.Queries.GetPaAccounts(harness.CompanyId);
             accounts.Should().ContainSingle();
-            (await harness.Queries.GetTenantProfile(harness.CompanyId))!.Siren.Should().Be("123456782");
+            (await harness.Queries.GetTenantProfile(harness.CompanyId)).Should().BeNull();
         }
         finally
         {
@@ -156,7 +154,7 @@ public sealed class SeedImportIntegrationTests
     {
         // Chemin amorçage / endpoint admin : aucun actor du tenant cible n'est établi. Un companyId
         // explicite DOIT être utilisé directement (le filtre actor n'est jamais consulté) — sinon le
-        // 1er profil ne pourrait pas être créé (FIX01a).
+        // 1er paramétrage ne pourrait pas être écrit (FIX01a).
         var dir = CreateSeedDir();
         try
         {
@@ -170,8 +168,9 @@ public sealed class SeedImportIntegrationTests
                 new ImportTenantSeedCommand { SeedDirectoryPath = dir, CompanyId = companyId },
                 CancellationToken.None);
 
-            result.ProfileImported.Should().BeTrue();
-            (await harness.Queries.GetTenantProfile(companyId))!.Siren.Should().Be("123456782");
+            // Le paramétrage est écrit sous le companyId explicite (BUG-14 : aucun profil seedé).
+            result.FiscalImported.Should().BeTrue();
+            (await harness.Queries.GetFiscalSettings(companyId)).Should().NotBeNull();
         }
         finally
         {

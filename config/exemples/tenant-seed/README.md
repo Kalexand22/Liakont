@@ -8,8 +8,10 @@ Un **vrai** déploiement vit dans [`deployments/<client>/`](../../../deployments
 
 ## Fichiers
 
-- `tenant-profile.json` — profil (SIREN **fictif** `123456782`), paramétrage fiscal, planification
-  et seuils. Les paramètres fiscaux sont volontairement `null` (= décision de l'expert-comptable
+- `tenant-profile.json` — **paramétrage seul** : fiscal, planification et seuils. L'**identité légale**
+  (SIREN, raison sociale, adresse, contact d'alerte) n'est **jamais seedée** (BUG-14) — donnée
+  tenant-spécifique réelle, saisie **manuellement** à la création du tenant et jamais écrasée par une
+  baseline de démo. Les paramètres fiscaux sont volontairement `null` (= décision de l'expert-comptable
   en attente = suspension ; jamais de valeur devinée — F12-A §3.1).
 - `pa-accounts.json` — deux comptes **fictifs** : la PA `Fake` (clé API **placeholder** `${...}`)
   et un compte **`ChorusPro`** en environnement `Staging` (qualif). L'import **n'écrit jamais** de
@@ -41,9 +43,10 @@ avec l'expert-comptable). Le produit ne devine jamais une cadence.
 
 L'import de ce format est câblé sur deux points d'entrée :
 
-- **Développement** : `DevTenantSeeder` amorce le profil du tenant `default` au démarrage du Host
+- **Développement** : `DevTenantSeeder` amorce le **paramétrage** du tenant `default` au démarrage du Host
   (Development uniquement, section `DevTenantSeed` avec `CompanyId` + `SeedDirectoryPath`). Le
-  `CompanyId` **doit** correspondre au claim `company_id` du realm de dev.
+  `CompanyId` **doit** correspondre au claim `company_id` du realm de dev. L'identité légale n'est pas
+  seedée (BUG-14) : elle est saisie via la console (« Profil légal »).
 - **Production (OPS03)** : `POST /api/v1/admin/tenants/{tenantId}/seed` (rôle **SystemAdmin**), corps
   `{ "companyId": "<guid>", "seedDirectoryPath": "<dossier serveur>" }`. Le `companyId` est celui que
   l'IdP du tenant présentera (claim `company_id` de son realm).
@@ -55,8 +58,8 @@ Aucune clé API n'est jamais importée (placeholder ⇒ saisie ensuite via la co
 Sans profil tenant, le CHECK ne peut pas mapper/valider : il **suspend** le document (il reste
 `Detected`) — état rendu **explicite** dans la console (bandeau « Paramétrage incomplet — le traitement
 des documents est suspendu », tableau de bord et Paramétrage). Ce blocage est **transitoire** : l'outbox
-re-livre l'événement, donc créer le profil **avant** que l'agent ne pousse des documents suffit (cas
-nominal — c'est ce que fait l'amorçage au démarrage / le provisioning). Pour des documents poussés
+re-livre l'événement, donc saisir le profil légal (console « Profil légal », jamais seedé — BUG-14)
+**avant** que l'agent ne pousse des documents suffit (cas nominal du provisioning). Pour des documents poussés
 **avant** la création du profil et dont la fenêtre de re-livraison de l'outbox est épuisée (dead-letter),
 le **rejeu** se fait en **re-poussant** le document depuis l'agent : l'extraction re-déclenche
 l'ingestion puis le CHECK, qui aboutit cette fois (profil présent).

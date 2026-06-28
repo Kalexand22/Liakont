@@ -68,7 +68,12 @@ public sealed class TvaRuleEditorTests : BunitContext
 
         // La clé (régime, part) identifie la règle : non modifiable en édition (supprimer puis recréer).
         cut.Find("[data-testid='tva-rule-code']").HasAttribute("disabled").Should().BeTrue();
-        cut.Find("[data-testid='tva-rule-part']").HasAttribute("disabled").Should().BeTrue();
+
+        // La composante figée est rendue en TEXTE (lecture seule), jamais en <select> sans option
+        // correspondante (BUG-12) : l'opérateur voit la vraie valeur héritée, pas « — Choisir — ».
+        var part = cut.Find("[data-testid='tva-rule-part']");
+        part.NodeName.Should().NotBe("SELECT");
+        part.TextContent.Should().Contain("Adjudication");
     }
 
     [Fact]
@@ -278,8 +283,8 @@ public sealed class TvaRuleEditorTests : BunitContext
         ],
 
         // BUG-12 : la composante « Adjudication » (part morte) n'est PLUS offerte à la création — le handler
-        // la filtre. Les règles héritées la portant restent éditables (clé figée), d'où des modèles de test
-        // avec Part = "Adjudication" rendus en <select> désactivé sans option correspondante (cas réel).
+        // la filtre. Les règles héritées la portant restent éditables (clé figée) : en modification, la
+        // composante est rendue en TEXTE lisible (jamais un <select> sans option correspondante).
         Parts =
         [
             new TvaMappingOptionDto("Frais", "Frais (taux des honoraires acheteur/vendeur)"),

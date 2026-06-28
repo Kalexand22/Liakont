@@ -1,13 +1,4 @@
 {
-  "siren": "000000002",
-  "raisonSociale": "SVV INNEXA (démo) — ventes volontaires",
-  "address": {
-    "street": "1 rue des Enchères",
-    "postalCode": "75009",
-    "city": "Paris",
-    "country": "FR"
-  },
-  "contactEmailAlerte": "alertes.svv@encheres-demo.test",
   "fiscal": {
     "vatOnDebits": null,
     "operationCategory": "PrestationServices",

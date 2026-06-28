@@ -38,6 +38,15 @@ internal sealed class DevTenantSeedOptions
     public string? SeedDirectoryPath { get; init; }
 
     /// <summary>
+    /// Identité légale FICTIVE du tenant de dev (SIREN, raison sociale, adresse, contact), saisie
+    /// PROGRAMMATIQUEMENT au boot à froid — JAMAIS via le fichier de seed (BUG-14 : l'identité n'est jamais
+    /// seedée). Sans elle, le tenant de dev n'a pas de profil, donc <c>GetCurrentCompanyId()</c> reste
+    /// <c>null</c> et le pipeline suspend tout document (CFG02) : un environnement de dev vierge ne traiterait
+    /// rien. <c>null</c> = profil non amorcé (le pipeline reste suspendu jusqu'à une saisie console).
+    /// </summary>
+    public DevTenantProfileOptions? Profile { get; init; }
+
+    /// <summary>
     /// Valeurs FICTIVES de publication du SIREN pour le compte PA actif (Fake) — décision E1, point 2 :
     /// un environnement de dev vierge devient transmissible sans geste manuel. <c>null</c> = publication de
     /// dev désactivée.

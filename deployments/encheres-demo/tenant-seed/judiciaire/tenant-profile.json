@@ -1,13 +1,4 @@
 {
-  "siren": "000000002",
-  "raisonSociale": "SCP INNEXA (démo) — ventes judiciaires",
-  "address": {
-    "street": "2 rue du Tribunal",
-    "postalCode": "75001",
-    "city": "Paris",
-    "country": "FR"
-  },
-  "contactEmailAlerte": "alertes.scp@encheres-demo.test",
   "fiscal": {
     "vatOnDebits": null,
     "operationCategory": "PrestationServices",

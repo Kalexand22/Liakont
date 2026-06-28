@@ -5,8 +5,9 @@ using Stratum.Common.Abstractions.Exceptions;
 
 /// <summary>
 /// Lit les fichiers de seed d'un dossier <c>deployments/&lt;client&gt;/</c> (F12-A §8.1) :
-/// <c>tenant-profile.json</c> (profil + fiscal + planification + seuils) et <c>pa-accounts.json</c>
-/// (comptes PA, sans secret). Lecture pure : aucune écriture, aucune logique métier.
+/// <c>tenant-profile.json</c> (PARAMÉTRAGE seul : fiscal + planification + seuils — l'identité légale
+/// n'est jamais seedée, BUG-14) et <c>pa-accounts.json</c> (comptes PA, sans secret). Lecture pure :
+/// aucune écriture, aucune logique métier.
 /// </summary>
 internal static class TenantSeedReader
 {

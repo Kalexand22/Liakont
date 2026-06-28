@@ -190,7 +190,7 @@ internal sealed partial class PaPublicationConsoleService : IPaPublicationConsol
             }
 
             var request = TaxReportSettingRequestBuilder.Build(
-                form.StartDate, form.TypeOperation.Trim(), form.EnterpriseSize.Trim(), form.NafCode);
+                form.StartDate, (form.TypeOperation ?? string.Empty).Trim(), (form.EnterpriseSize ?? string.Empty).Trim(), form.NafCode);
             await client.EnsureTaxReportSettingAsync(request, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)

@@ -267,11 +267,18 @@ Le paramétrage d'un tenant peut être **versionné en seed** lorsqu'il doit êt
 
 ```
 deployments/<client>/
-├─ tenant-profile.json     # Profil (§2) + paramétrage fiscal (§3) + planification (§5) + seuils (§6)
+├─ tenant-profile.json     # paramétrage fiscal (§3) + planification (§5) + seuils (§6) — PAS l'identité (§2)
 ├─ tva-table.csv           # Table TVA du tenant (codes régime source → catégorie/taux/VATEX) — lot TVA
 ├─ pa-accounts.json        # Comptes PA (§4) avec secrets en PLACEHOLDER (jamais en clair)
 └─ fixtures/               # Jeux de données fictifs de démo/recette (facultatif)
 ```
+
+> **L'identité légale (§2 : SIREN, raison sociale, adresse, contact d'alerte) n'est JAMAIS seedée**
+> (BUG-14) : c'est une donnée tenant-spécifique RÉELLE, saisie **manuellement** à la création du tenant
+> (console « Profil légal ») et jamais écrasée par une baseline de démo. Seul le **paramétrage**
+> réutilisable est seedable. Conséquence : la garde *create-only* du provisioning (refus de ré-import
+> qui écraserait des réglages saisis en console) s'ancre sur les **réglages fiscaux** présents, plus
+> sur l'existence du profil.
 
 - **Aucun secret en clair** dans un fichier versionné (CLAUDE.md n°10) : `pa-accounts.json` ne
   porte que des **placeholders** ; la clé API réelle est saisie depuis la console (chiffrée en
@@ -285,7 +292,9 @@ deployments/<client>/
 
 - **Opération** : `ImportTenantSeed(deployments/<client>/)` (handler CFG02), consommée par le
   **provisioning OPS03** (« Créer un tenant », F12 §6.3).
-- **Idempotence** : l'import **crée ou met à jour** le profil et son paramétrage (rejouable).
+- **Idempotence** : l'import **crée ou met à jour** le paramétrage (rejouable). L'identité légale
+  n'est pas importée (BUG-14) ; un ré-import sur un tenant ayant déjà des réglages est refusé
+  (create-only) pour ne pas écraser une saisie console.
 - **Secrets** : l'import **n'écrit jamais** un secret en clair ; les placeholders restent à
   compléter via la console (saisie chiffrée). La table TVA importée **n'est pas pré-validée** :
   elle suit le workflow de validation expert-comptable (§7).

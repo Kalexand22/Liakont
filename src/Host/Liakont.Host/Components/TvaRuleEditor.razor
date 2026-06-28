@@ -38,18 +38,31 @@
                implicitement (OnParametersSet). *@
             <FormField Label="@TvaComposanteVocabulary.FieldLabel" FieldId="tva-rule-part" Required="true"
                        HelpText="@PartHelpText">
-                <select id="tva-rule-part"
-                        class="form-select"
-                        value="@Model.Part"
-                        @onchange="OnPartChange"
-                        disabled="@(!IsCreate || Busy)"
-                        data-testid="tva-rule-part">
-                    <option value="">— Choisir —</option>
-                    @foreach (var part in Options.Parts)
-                    {
-                        <option value="@part.Code">@part.Label</option>
-                    }
-                </select>
+                @if (IsCreate)
+                {
+                    <select id="tva-rule-part"
+                            class="form-select"
+                            value="@Model.Part"
+                            @onchange="OnPartChange"
+                            disabled="@Busy"
+                            data-testid="tva-rule-part">
+                        <option value="">— Choisir —</option>
+                        @foreach (var part in Options.Parts)
+                        {
+                            <option value="@part.Code">@part.Label</option>
+                        }
+                    </select>
+                }
+                else
+                {
+                    @* Modification : la composante fait partie de la CLÉ (figée). Rendue en texte lisible
+                       (via le vocabulaire), jamais en <select> dont la value (ex. « Adjudication » héritée
+                       du seed/import) n'aurait pas d'<option> correspondante — le navigateur afficherait
+                       alors « — Choisir — » au lieu de la vraie composante (BUG-12). *@
+                    <div id="tva-rule-part" class="form-control-plaintext" data-testid="tva-rule-part" data-part="@Model.Part">
+                        @TvaComposanteVocabulary.ValueLabel(Model.Part)
+                    </div>
+                }
             </FormField>
         }
 

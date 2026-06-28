@@ -13,9 +13,10 @@ using Xunit;
 /// <summary>
 /// Tests d'intégration in-process de l'endpoint d'import de seed d'un tenant (FIX01a,
 /// <c>POST /api/v1/admin/tenants/{tenantId}/seed</c>) : garde <c>SystemAdmin</c> (401/403), tenant
-/// inconnu (404), et import nominal (200) qui crée le profil du tenant cible (visible via
-/// <c>GET /settings</c>) SANS jamais importer de secret (INV-TENANTSETTINGS-007). Cible le tenant VIERGE
-/// dédié (<see cref="ConsoleApiFactory.TenantSeed"/>) pour ne polluer aucune autre suite.
+/// inconnu (404), et import nominal (200) qui paramètre le tenant cible (réglages visibles via
+/// <c>GET /settings</c>) SANS jamais importer de secret (INV-TENANTSETTINGS-007) ni l'identité légale
+/// (jamais seedée — BUG-14). Cible le tenant VIERGE dédié (<see cref="ConsoleApiFactory.TenantSeed"/>)
+/// pour ne polluer aucune autre suite.
 /// </summary>
 [Collection(ConsoleApiCollectionFixture.Name)]
 public sealed class TenantSeedAdminEndpointTests
@@ -23,12 +24,9 @@ public sealed class TenantSeedAdminEndpointTests
     private const string SettingsPath = "/api/v1/settings";
     private const string SystemAdminRole = "SystemAdmin";
 
+    // BUG-14 : le seed ne porte QUE du paramétrage — l'identité légale n'est jamais seedée.
     private const string ProfileJson = """
         {
-          "siren": "123456782",
-          "raisonSociale": "Société Fictive de Démonstration",
-          "address": { "street": "1 rue de l'Exemple", "postalCode": "35000", "city": "Rennes", "country": "FR" },
-          "contactEmailAlerte": "alertes@exemple.test",
           "fiscal": { "vatOnDebits": null, "operationCategory": null, "reportingFrequency": null },
           "schedule": { "hours": ["03:00"], "catchUpOnStart": true },
           "thresholds": { "agentSilentHours": 12 }
@@ -119,7 +117,7 @@ public sealed class TenantSeedAdminEndpointTests
     }
 
     [Fact]
-    public async Task SeedTenant_As_SystemAdmin_Imports_Profile_Visible_In_Settings_Without_Secret()
+    public async Task SeedTenant_As_SystemAdmin_Imports_Settings_Visible_In_Settings_Without_Secret_Or_Identity()
     {
         var dir = CreateSeedDir();
         try
@@ -135,25 +133,26 @@ public sealed class TenantSeedAdminEndpointTests
 
             seedResponse.StatusCode.Should().Be(HttpStatusCode.OK);
             var seedBody = await seedResponse.Content.ReadFromJsonAsync<SeedResultResponse>(JsonOptions);
-            seedBody!.ProfileImported.Should().BeTrue();
+            seedBody!.FiscalImported.Should().BeTrue();
             seedBody.PaAccountsImported.Should().Be(1);
 
-            // Le profil importé est désormais visible via GET /settings sur le tenant cible.
+            // Aucun secret importé : le compte PA est créé en PLACEHOLDER (clé jamais importée) — le seed le
+            // SIGNALE explicitement (INV-TENANTSETTINGS-007 ; jamais de clé en clair, à saisir via la console).
+            seedBody.Warnings.Should().Contain(w => w.Contains("non importée", StringComparison.Ordinal));
+
+            // BUG-14 : l'identité légale n'est JAMAIS seedée → aucun profil créé par l'import. Or le récap
+            // /settings s'ancre sur le profil (CFG02) : tant qu'il n'est pas saisi (console « Profil légal »),
+            // la vue reste VIDE (transitoire, 200). Le paramétrage importé devient visible une fois l'identité
+            // saisie — c'est le bandeau « PARAMÉTRAGE INCOMPLET » qui guide l'opérateur dans cet intervalle.
             var overviewResponse = await admin.GetAsync(SettingsPath);
             overviewResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-            var settingsBody = await overviewResponse.Content.ReadAsStringAsync();
+            var overview = JsonSerializer.Deserialize<OverviewResponse>(
+                await overviewResponse.Content.ReadAsStringAsync(), JsonOptions)!;
+            overview.Profile.Should().BeNull("l'identité légale n'est jamais seedée (BUG-14)");
+            overview.PaAccounts.Should().BeEmpty("sans profil, le récap reste vide jusqu'à la saisie de l'identité (CFG02)");
 
-            // Aucun secret importé : la clé reste vide (placeholder), jamais sérialisée en clair.
-            settingsBody.Should().NotContain("PA_API_KEY_FAKE_STAGING", "aucune clé du seed n'est jamais importée (INV-TENANTSETTINGS-007)");
-
-            var overview = JsonSerializer.Deserialize<OverviewResponse>(settingsBody, JsonOptions)!;
-            overview.Profile.Should().NotBeNull("le profil vient d'être importé");
-            overview.Profile!.Siren.Should().Be("123456782");
-            overview.PaAccounts.Should().ContainSingle();
-            overview.PaAccounts[0].Account.HasApiKey.Should().BeFalse("la clé API n'est jamais importée — à saisir via la console");
-
-            // Provisioning create-only : un ré-import sur un tenant déjà paramétré est REFUSÉ (409) — il
-            // n'écrase JAMAIS des réglages saisis via la console avec la baseline du seed.
+            // Provisioning create-only : un ré-import sur un tenant déjà paramétré (réglages fiscaux présents)
+            // est REFUSÉ (409) — il n'écrase JAMAIS des réglages saisis via la console avec la baseline du seed.
             var reseed = await admin.PostAsJsonAsync(
                 SeedPath(ConsoleApiFactory.TenantSeed),
                 new { companyId = ConsoleApiFactory.TenantSeedCompanyId, seedDirectoryPath = dir });
@@ -172,7 +171,10 @@ public sealed class TenantSeedAdminEndpointTests
         return dir;
     }
 
-    private sealed record SeedResultResponse(bool ProfileImported, bool FiscalImported, int PaAccountsImported);
+    private sealed record SeedResultResponse(
+        bool FiscalImported,
+        int PaAccountsImported,
+        System.Collections.Generic.IReadOnlyList<string> Warnings);
 
     private sealed record OverviewResponse(ProfileResponse? Profile, System.Collections.Generic.List<PaAccountResponse> PaAccounts);
 
