@@ -14,13 +14,14 @@
             document.documentElement.setAttribute('data-theme', t);
         })();
         // Apply saved density mode before first paint (UIF06).
-        // Compact is the Civic Blueprint default — standard is opt-in.
+        // Liakont default = 'standard' (aligné sur UserPreferences.DensityStandard, le défaut du modèle métier) :
+        // un nouvel utilisateur sans préférence enregistrée doit voir 'standard', pas 'compact' (BUG-16).
         // Setting the attribute here (before tokens.css is evaluated) guarantees
         // inputs/rows render at the final height on first paint, with no
         // flash-of-wrong-density when the circuit connects.
         (function() {
             var d = localStorage.getItem('stratum-density');
-            if (d !== 'compact' && d !== 'standard') d = 'compact';
+            if (d !== 'compact' && d !== 'standard') d = 'standard';
             document.documentElement.setAttribute('data-density', d);
         })();
         // Apply saved sidebar collapsed state before first paint to prevent FOUC.

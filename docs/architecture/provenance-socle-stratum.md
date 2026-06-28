@@ -311,6 +311,7 @@ src/Modules/Identity/Infrastructure/Queries/PostgresDelegationQueries.cs
 src/Modules/Identity/Infrastructure/Queries/PostgresIdentityQueries.cs
 src/Modules/Identity/Infrastructure/Queries/PostgresAgentQueries.cs
 src/Modules/Identity/Infrastructure/Queries/PostgresTeamQueries.cs
+src/Common/UI/wwwroot/js/stratum-ui.js
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -1189,6 +1190,26 @@ voisins par l'URL courante. Aucune entité codée en dur — l'identité est l'U
 **Vérification** : `ListNavigationContextTests` (bornes, hors-liste, normalisation, remplacement transverse) +
 `RecordNavigatorTests` bUnit (rendu préc/suiv + position, bornes désactivées, « Suivant » navigue, masqué hors
 contexte). Build Release 0/0 ; garde `socle-provenance-check` verte (drift consigné).
+
+### 4.43 BUG-16 — densité par défaut « standard » (alignée sur le défaut du modèle métier)
+
+Recette EncheresV6 (Karl, 26/06) : un NOUVEL utilisateur (sans préférence enregistrée) atterrissait en densité
+**« compact »** alors que le modèle métier Liakont a pour défaut **« standard »** (`UserPreferences.Density =
+DensityStandard`, déjà couvert par `UserPreferencesTests`). Cause : le socle applique son défaut « Civic Blueprint
+= compact » dans le prélude JS (avant la connexion du circuit), qui prime sur le défaut du modèle (appliqué après).
+Le `localStorage` étant vide pour un nouvel utilisateur, le repli `compact` s'affichait sans moyen de le corriger
+avant le rendu.
+
+**Changement VENDORED (consigné ici)** — `src/Common/UI/wwwroot/js/stratum-ui.js` : le repli de densité passe de
+`'compact'` à `'standard'` aux trois points de défaut (IIFE `apply()`, `MutationObserver` de l'enhanced navigation,
+et `getDensity()`), pour aligner le socle sur le défaut du modèle Liakont. Sans ce changement, le `MutationObserver`
+du socle réimposerait `compact` à chaque navigation, annulant le correctif côté hôte. Aucun nouveau pin (drift
+consigné). Le prélude inline `App.razor` (Liakont Host, **non** vendored) est aligné en parallèle (même défaut
+`standard`) pour le tout premier rendu (avant l'évaluation des tokens CSS).
+
+**Vérification** : `UserPreferencesTests.Default_…StandardDensity` (le modèle attend déjà `standard`) ; le socle JS
+ne porte aucune logique C# testable en bUnit (constante de repli côté navigateur) ; garde `socle-provenance-check`
+verte (drift consigné). Recette manuelle Karl : un nouvel utilisateur voit « standard ».
 
 ## 5. ADR du socle hérités
 
