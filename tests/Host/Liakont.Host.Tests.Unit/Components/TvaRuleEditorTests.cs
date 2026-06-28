@@ -106,7 +106,7 @@ public sealed class TvaRuleEditorTests : BunitContext
         cut.Find("[data-testid='tva-rule-save-btn']").HasAttribute("disabled").Should().BeTrue();
 
         cut.Find("[data-testid='tva-rule-code']").Input("6");
-        cut.Find("[data-testid='tva-rule-part']").Change("Adjudication");
+        cut.Find("[data-testid='tva-rule-part']").Change("Autre");
         cut.Find("[data-testid='tva-rule-category']").Change("E");
         cut.Find("[data-testid='tva-rule-ratemode']").Change("ComputedFromSource");
 
@@ -124,7 +124,7 @@ public sealed class TvaRuleEditorTests : BunitContext
             .Add(e => e.IsCreate, true));
 
         cut.Find("[data-testid='tva-rule-code']").Input("20");
-        cut.Find("[data-testid='tva-rule-part']").Change("Adjudication");
+        cut.Find("[data-testid='tva-rule-part']").Change("Autre");
         cut.Find("[data-testid='tva-rule-category']").Change("S");
         cut.Find("[data-testid='tva-rule-ratemode']").Change("Fixed");
 
@@ -139,7 +139,7 @@ public sealed class TvaRuleEditorTests : BunitContext
     public void Submitting_invokes_the_submit_callback()
     {
         var submitted = false;
-        var model = new TvaRuleFormModel { SourceRegimeCode = "6", Part = "Adjudication", Category = "E", RateMode = "ComputedFromSource" };
+        var model = new TvaRuleFormModel { SourceRegimeCode = "6", Part = "Autre", Category = "E", RateMode = "ComputedFromSource" };
         var cut = Render<TvaRuleEditor>(p => p
             .Add(e => e.Options, Options())
             .Add(e => e.Model, model)
@@ -217,7 +217,7 @@ public sealed class TvaRuleEditorTests : BunitContext
     }
 
     [Fact]
-    public void Composante_field_is_shown_with_label_and_hors_encheres_value_when_auction_vertical_on()
+    public void Composante_field_is_shown_with_label_and_adjudication_factures_value_when_auction_vertical_on()
     {
         var cut = Render<TvaRuleEditor>(p => p
             .Add(e => e.Options, Options())
@@ -228,9 +228,9 @@ public sealed class TvaRuleEditorTests : BunitContext
         cut.Find("[data-testid='tva-rule-part']").NodeName.Should().Be("SELECT");
         cut.FindAll("[data-testid='tva-rule-part-implicit']").Should().BeEmpty();
 
-        // Vocabulaire E2 : libellé « Composante », valeur Autre affichée « Hors Enchères ».
+        // Vocabulaire E2 / BUG-12 : libellé « Composante », valeur Autre affichée « Adjudication et factures ».
         cut.Markup.Should().Contain("Composante");
-        cut.Find("[data-testid='tva-rule-part']").TextContent.Should().Contain("Hors Enchères");
+        cut.Find("[data-testid='tva-rule-part']").TextContent.Should().Contain("Adjudication et factures");
     }
 
     [Fact]
@@ -276,11 +276,14 @@ public sealed class TvaRuleEditorTests : BunitContext
             new TvaMappingOptionDto("E", "Exonéré (motif VATEX requis)"),
             new TvaMappingOptionDto("O", "Hors champ d'application de la TVA"),
         ],
+
+        // BUG-12 : la composante « Adjudication » (part morte) n'est PLUS offerte à la création — le handler
+        // la filtre. Les règles héritées la portant restent éditables (clé figée), d'où des modèles de test
+        // avec Part = "Adjudication" rendus en <select> désactivé sans option correspondante (cas réel).
         Parts =
         [
-            new TvaMappingOptionDto("Adjudication", "Adjudication (le bien vendu)"),
-            new TvaMappingOptionDto("Frais", "Frais"),
-            new TvaMappingOptionDto("Autre", "Hors Enchères"),
+            new TvaMappingOptionDto("Frais", "Frais (taux des honoraires acheteur/vendeur)"),
+            new TvaMappingOptionDto("Autre", "Adjudication et factures (lignes de la pièce)"),
         ],
         RateModes =
         [

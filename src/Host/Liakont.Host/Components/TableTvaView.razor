@@ -523,7 +523,7 @@
     {
         _columnTemplates = new Dictionary<string, RenderFragment<MappingRuleDto>>
         {
-            // Composante (clé technique « Part ») : valeur d'affichage opérateur (Autre → « Hors Enchères »).
+            // Composante (clé technique « Part ») : valeur d'affichage opérateur (Autre → « Adjudication et factures »).
             // La colonne n'est registrée qu'en vertical enchères actif ; le template est inerte sinon.
             ["Part"] = rule => __builder =>
             {
@@ -604,13 +604,14 @@
 
     private string DescribeDeadRuleReason(string reason) => reason switch
     {
-        // PartNotConsulted ne concerne plus que la composante « Adjudication » : « Hors Enchères » (CHECK)
-        // et « Frais » (e-reporting B2C de la marge, B4) sont, elles, consultées (voir ConsultedMappingParts).
-        // Message VRAI et actionnable : on dit OÙ mapper l'adjudication plutôt qu'inciter à supprimer (BUG-3).
-        // Vocabulaire « Composante » en vertical enchères actif (E2) ; hors vertical, formulation neutre.
+        // PartNotConsulted ne concerne plus que la composante « Adjudication » (part MORTE, désormais non
+        // proposée à la création — BUG-12) : « Adjudication et factures » (CHECK) et « Frais » (e-reporting
+        // B2C de la marge, B4) sont, elles, consultées (voir ConsultedMappingParts). Message VRAI et
+        // actionnable : on dit OÙ mapper l'adjudication plutôt qu'inciter à supprimer (BUG-3). Vocabulaire
+        // « Composante » en vertical enchères actif (E2) ; hors vertical, formulation neutre.
         "PartNotConsulted" => Model.AuctionVerticalEnabled
-            ? "Composante « Adjudication » non consultée : pour mapper l'adjudication, utilisez la composante « Hors Enchères »"
-            : "composante non consultée : pour mapper cette ligne, utilisez la composante « Hors Enchères »",
+            ? "Composante « Adjudication » non consultée : pour mapper l'adjudication, utilisez la composante « Adjudication et factures »"
+            : "composante non consultée : pour mapper cette ligne, utilisez la composante « Adjudication et factures »",
         "RegimeNeverObserved" => "code régime jamais observé dans la source",
         _ => reason,
     };
@@ -702,7 +703,7 @@
 
     /// <summary>
     /// Suffixe « (Composante) » d'une règle, rendu UNIQUEMENT en vertical enchères actif (décision E2 :
-    /// aucune mention sinon), avec la valeur d'affichage opérateur (Autre → « Hors Enchères »). Vide hors
+    /// aucune mention sinon), avec la valeur d'affichage opérateur (Autre → « Adjudication et factures »). Vide hors
     /// vertical ou pour une part absente. Partagé par le rapport de cohérence, la suppression et le journal.
     /// </summary>
     private string ComposanteSuffix(string? part) =>

@@ -32,12 +32,29 @@ public sealed class GetTvaMappingEditOptionsHandlerTests
     }
 
     [Fact]
-    public async Task Parts_match_the_MappingPart_enum_names()
+    public async Task Parts_expose_the_MappingPart_enum_names_except_the_dead_Adjudication_part()
     {
         var options = await HandleAsync();
 
-        options.Parts.Select(p => p.Code).Should().Equal(Enum.GetNames<MappingPart>());
+        // BUG-12 : la part Adjudication n'est consultée par AUCUN consommateur (CHECK lit Autre, B4 lit Frais)
+        // → elle n'est jamais PROPOSÉE à la création (une règle posée dessus serait morte). Les autres codes
+        // restent EXACTEMENT ceux de l'énum (impossible de faire diverger l'UI du moteur).
+        var expected = Enum.GetNames<MappingPart>().Where(name => name != nameof(MappingPart.Adjudication));
+
+        options.Parts.Select(p => p.Code).Should().Equal(expected);
+        options.Parts.Select(p => p.Code).Should().NotContain(nameof(MappingPart.Adjudication));
         options.Parts.Should().OnlyContain(p => !string.IsNullOrWhiteSpace(p.Label));
+    }
+
+    [Fact]
+    public async Task The_Autre_part_is_labelled_for_both_auction_and_plain_invoices()
+    {
+        var options = await HandleAsync();
+
+        // BUG-12 : la part Autre est celle lue par le CHECK pour TOUTES les lignes (adjudication, factures
+        // clients, notes) → un libellé qui couvre aussi les cas hors enchères (facture client simple).
+        var autre = options.Parts.Single(p => p.Code == nameof(MappingPart.Autre));
+        autre.Label.Should().Contain("Adjudication et factures");
     }
 
     [Fact]
