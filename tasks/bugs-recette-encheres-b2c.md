@@ -45,8 +45,11 @@ vert + revue Claude **clean** au round 3). Détail + commit sous chaque bug.
 | BUG-18 | `9cb6d3d6` | BUG-23 | `9cf206f5` | BUG-25 | `c3e08589` |
 | BUG-19 | `84ed063b` | revue P2 | `517d247c` | | |
 
-**Hors lot (toujours ouvert)** : BUG-21 (P1 — collision d'identifiant transmis à la PA, voir section dédiée).
-*(BUG-5 « lignes avant transmission » ✅ RÉSOLU — commit `bca433fd`, voir sa section.)*
+**Hors lot** : BUG-21 rétrogradé **P1 → P3** — FAUX PROBLÈME sur le flux recette (B2C agrégé : aucun numéro envoyé à
+la PA ; affichage déjà distingué par famille, BUG-20). Résidu théorique full-B2B à confirmer en recette B2B (filet
+`external_id`=`SourceReference`). Voir sa section. *(BUG-5 ✅ RÉSOLU — commit `bca433fd`.)*
+
+**⇒ 0 bug réellement ouvert sur le flux recette EncheresV6 B2C.**
 
 ---
 
@@ -584,7 +587,7 @@ revue Claude **clean** au round 3). Détail + commit sous chaque bug.
   fail-closed sur préfixe inconnu) ; affichée en liste + en-tête détail ; tests. Compromis tri/recherche (opère sur
   la référence source brute, comme la colonne « État ») documenté (commit `517d247c`).
 
-## BUG-21 (P1 probable — intégrité PA) — Numéro de pièce non unique entre familles → collision anti-doublon PA (relevé Karl 27/06)
+## BUG-21 (P3 — à confirmer en recette B2B ; FAUX PROBLÈME sur le flux recette) — Numéro de pièce non unique entre familles (relevé Karl 27/06)
 
 - **Symptôme / risque** : un même numéro peut exister sur un **BA** et un **BV** (et potentiellement facture/note).
   Le **`Number`** transmis sert d'identité ET de clé d'anti-doublon côté PA (SuperPDP dédoublonne par numéro). Deux
@@ -602,16 +605,23 @@ revue Claude **clean** au round 3). Détail + commit sous chaque bug.
   source** — Liakont les transmet, ne les fabrique pas. Le bug est une **unicité d'identifiant transmis**, pas une
   règle fiscale à inventer. On ne colle pas `BA-` devant un numéro légal de facture, mais ça n'est qu'un garde-fou,
   pas un verrou de spec.
-- **Vraie question restante (1 fait source à confirmer avec Karl, expert criées)** : dans Enchères/Zen, le numéro
-  **légal réellement imprimé** sur un bordereau acheteur vs un bordereau vendeur — est-ce le même entier (deux séries
-  distinctes qui se recoupent) ou y a-t-il une **souche/série** qui les distingue ? Si une souche existe → la
-  transmettre fidèlement (le vrai numéro légal, distinct par construction). Sinon → confirmer que BV (décompte
-  vendeur / autofacturation) et BA (facture acheteur) relèvent de séries légales distinctes et porter ce
-  discriminant dans `Number` (BT-1) de façon **sourcée** (pas un préfixe inventé).
-- **Fichiers (pistes)** : `EncheresV6RowMapper` (`Number`/`SourceReference`), la voie document / plug-in SuperPDP
-  (clé d'envoi + anti-doublon), `docs/conception/F06`/`F14`. Lié à BUG-20.
-- **Critère d'acceptation** : deux pièces de familles différentes au même numéro ne collisionnent PAS à la PA ;
-  la solution est **sourcée** (pas un préfixe inventé) ; test sur un couple BA/BV de même numéro.
+- **Fait source confirmé (Karl, 28/06)** : dans Enchères/Zen, BA et BV partagent **le même entier** (séries
+  indépendantes qui se recoupent), **aucune souche** distinctive. (NB : l'autofacturation 389 = souche par mandant
+  est une feature FUTURE distincte — sans rapport avec ce bug.)
+- **✅ VERDICT (28/06, rétrogradé P1→P3 avec Karl) — FAUX PROBLÈME sur le flux recette EncheresV6** :
+  - **Transmission** : la voie document **rejette le B2C** (pas de destinataire identifié) → tout le flux marge/B2C
+    part en **agrégé** (`b2c_transactions`), **SANS numéro de pièce** (`SendTenantJob.cs:540-556` : « déclaration
+    10.3 … JAMAIS par cette voie document … différée vers son job B2C dédié »). On n'envoie donc **pas** le numéro
+    de BV à SuperPDP dans ce flux → **aucune collision**.
+  - **Affichage** : BA et BV déjà distingués à l'écran par la **« Famille de pièce »** (BUG-20, commit `5abbf1aa`).
+  - ⇒ Rien à corriger pour la recette : ni transmission (agrégé), ni affichage (famille).
+- **Résidu théorique (P3, à confirmer EN RECETTE B2B, pas dans ce flux)** : full B2B où un BA (acheteur B2B) ET un
+  BV-commission (vendeur assujetti B2B) au même entier, sous le **même SIREN office**, partiraient **tous deux**
+  comme e-factures numérotées → là seulement SuperPDP pourrait dédoublonner. À constater sur le terrain (pas deviné).
+  **Filet trivial si rencontré** : `external_id` = `SourceReference` (déjà unique par famille) au lieu du numéro brut
+  (`SuperPdpClient.cs:147`) ; le numéro légal BT-1 reste le numéro source (fidèle, rien d'inventé).
+- **Fichiers (pistes, si le résidu B2B se confirme)** : `SuperPdpClient.cs` (clé `external_id`), `EncheresV6RowMapper`.
+  Lié à BUG-20.
 
 ## BUG-22 (P2 observabilité) — Pas de détail d'une émission e-reporting B2C dans l'UI (motif de rejet PA + pièces composant l'agrégat) (relevé Karl 27/06)
 
