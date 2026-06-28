@@ -31,6 +31,10 @@ public sealed class ParametrageViewTests : BunitContext
         cut.Find("[data-testid='parametrage-profil-siren']").TextContent.Should().Contain("123456782");
         cut.Find("[data-testid='parametrage-profil-raison']").TextContent.Should().Contain("Étude des Enchères");
         cut.Find("[data-testid='parametrage-profil-contact']").TextContent.Should().Contain("alerte@exemple.fr");
+
+        // BUG-15 : l'édition post-création du profil légal est offerte (bouton vers /parametrage/profil)
+        // dès qu'un profil existe.
+        cut.FindAll("[data-testid='parametrage-profil-link']").Should().ContainSingle();
     }
 
     [Fact]
@@ -40,6 +44,9 @@ public sealed class ParametrageViewTests : BunitContext
 
         cut.FindAll("[data-testid='parametrage-profil-absent']").Should().ContainSingle();
         cut.FindAll("[data-testid='parametrage-profil-content']").Should().BeEmpty();
+
+        // Pas de profil : pas de lien d'édition (rien à modifier — création via le wizard).
+        cut.FindAll("[data-testid='parametrage-profil-link']").Should().BeEmpty();
     }
 
     [Fact]

@@ -1,0 +1,141 @@
+@namespace Liakont.Host.Components
+@using Liakont.Host.Profil
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* ProfilView — rendu PUR de l'écran « Paramétrage › Profil légal » (BUG-15). Reçoit son modèle et l'état
+ * d'enregistrement en paramètres (aucune injection métier, aucune logique) pour être testable en bUnit sans
+ * auth ni base. Le SIREN est affiché en LECTURE SEULE (clé fonctionnelle immuable du tenant,
+ * INV-TENANTSETTINGS-001 : pour le corriger, supprimer puis recréer le tenant). La raison sociale, l'adresse
+ * et le contact d'alerte sont éditables. La validation de FORMAT (Luhn déjà posé sur le SIREN, code pays,
+ * e-mail) reste au handler / domaine. Gabarit Stratum (SectionCard, FormField, StratumButton). 100 % français. *@
+
+<div class="liakont-profil" data-testid="profil">
+
+    <SectionCard Title="Profil légal du tenant" TestId="profil-editor">
+        <p class="liakont-profil__intro">
+            Identité légale du tenant. Le <strong>SIREN</strong> est la clé fonctionnelle du tenant : il est
+            <strong>immuable</strong> une fois posé (pour le corriger, le tenant doit être supprimé puis recréé).
+            La raison sociale, l'adresse et le contact d'alerte restent modifiables ici.
+        </p>
+
+        <div class="liakont-profil__form" data-testid="profil-form">
+            <FormField Label="SIREN" FieldId="profil-siren"
+                       HelpText="Clé fonctionnelle immuable du tenant (INV-TENANTSETTINGS-001) — non modifiable.">
+                <input id="profil-siren"
+                       class="form-control"
+                       type="text"
+                       value="@Model.Siren"
+                       disabled
+                       data-testid="profil-siren" />
+            </FormField>
+
+            <FormField Label="Raison sociale" FieldId="profil-raison-sociale">
+                <input id="profil-raison-sociale"
+                       class="form-control"
+                       type="text"
+                       @bind="Model.Form.RaisonSociale"
+                       disabled="@Busy"
+                       data-testid="profil-raison-sociale" />
+            </FormField>
+
+            <FormField Label="Adresse" FieldId="profil-street">
+                <input id="profil-street"
+                       class="form-control"
+                       type="text"
+                       @bind="Model.Form.Street"
+                       disabled="@Busy"
+                       data-testid="profil-street" />
+            </FormField>
+
+            <FormField Label="Code postal" FieldId="profil-postal-code">
+                <input id="profil-postal-code"
+                       class="form-control"
+                       type="text"
+                       @bind="Model.Form.PostalCode"
+                       disabled="@Busy"
+                       data-testid="profil-postal-code" />
+            </FormField>
+
+            <FormField Label="Ville" FieldId="profil-city">
+                <input id="profil-city"
+                       class="form-control"
+                       type="text"
+                       @bind="Model.Form.City"
+                       disabled="@Busy"
+                       data-testid="profil-city" />
+            </FormField>
+
+            <FormField Label="Pays" FieldId="profil-country"
+                       HelpText="Code pays ISO 3166-1 alpha-2 (2 lettres majuscules, ex. FR).">
+                <input id="profil-country"
+                       class="form-control"
+                       type="text"
+                       @bind="Model.Form.Country"
+                       disabled="@Busy"
+                       data-testid="profil-country" />
+            </FormField>
+
+            <FormField Label="Contact d'alerte (e-mail)" FieldId="profil-contact"
+                       HelpText="Adresse destinataire des alertes du tenant. Facultatif.">
+                <input id="profil-contact"
+                       class="form-control"
+                       type="email"
+                       @bind="Model.Form.ContactEmailAlerte"
+                       disabled="@Busy"
+                       data-testid="profil-contact" />
+            </FormField>
+
+            @if (!string.IsNullOrWhiteSpace(Message))
+            {
+                <div class="liakont-profil__feedback"
+                     role="@(IsError ? "alert" : "status")"
+                     data-testid="profil-feedback">
+                    @Message
+                </div>
+            }
+
+            <StratumButton Text="@(Busy ? "Enregistrement…" : "Enregistrer le profil légal")"
+                           Variant="ButtonVariant.Primary"
+                           Size="ButtonSize.Small"
+                           Disabled="@(Busy || !CanSubmit)"
+                           OnClick="@(_ => OnSave.InvokeAsync())"
+                           TestId="profil-save-btn" />
+        </div>
+    </SectionCard>
+
+</div>
+
+@code {
+    /// <summary>Données assemblées de l'écran (jamais <c>null</c> : la page en fournit toujours un).</summary>
+    [Parameter, EditorRequired]
+    public ProfilViewModel Model { get; set; } = null!;
+
+    /// <summary><c>true</c> pendant l'enregistrement (champs et bouton désactivés).</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>Message de retour de l'enregistrement, ou <c>null</c>.</summary>
+    [Parameter]
+    public string? Message { get; set; }
+
+    /// <summary><c>true</c> si <see cref="Message"/> est une erreur (rendu en alerte).</summary>
+    [Parameter]
+    public bool IsError { get; set; }
+
+    /// <summary>Déclenché à l'enregistrement du profil légal.</summary>
+    [Parameter]
+    public EventCallback OnSave { get; set; }
+
+    /// <summary>
+    /// Garde de PRÉSENCE des champs d'identité obligatoires (raison sociale, adresse, code postal, ville,
+    /// pays). La validation de FORMAT (code pays sur 2 lettres, e-mail) reste au handler / domaine — jamais
+    /// dupliquée côté UI. Le SIREN n'est pas concerné (immuable, en lecture seule).
+    /// </summary>
+    private bool CanSubmit =>
+        !string.IsNullOrWhiteSpace(Model.Form.RaisonSociale)
+        && !string.IsNullOrWhiteSpace(Model.Form.Street)
+        && !string.IsNullOrWhiteSpace(Model.Form.PostalCode)
+        && !string.IsNullOrWhiteSpace(Model.Form.City)
+        && !string.IsNullOrWhiteSpace(Model.Form.Country);
+}

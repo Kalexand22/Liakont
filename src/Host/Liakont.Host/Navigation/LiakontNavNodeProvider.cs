@@ -166,6 +166,7 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
             Children =
             [
                 new NavNode { Label = "Vue d'ensemble", Href = "/parametrage", ExactMatch = true },
+                new NavNode { Label = "Profil légal", Href = "/parametrage/profil" },
                 new NavNode { Label = "Paramètres fiscaux", Href = "/parametrage/fiscal" },
                 new NavNode { Label = "Table TVA", Href = "/parametrage/table-tva" },
                 new NavNode { Label = "Comptes PA", Href = "/parametrage/comptes-pa" },

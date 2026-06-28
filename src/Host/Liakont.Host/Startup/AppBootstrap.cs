@@ -760,6 +760,13 @@ public static class AppBootstrap
         // (BT-20 + BR-FR-05) portées sur la facture B2B — renseignables sans SQL.
         builder.Services.AddScoped<Liakont.Host.BillingMentions.IBillingMentionsConsoleService, Liakont.Host.BillingMentions.BillingMentionsConsoleService>();
 
+        // Composition de l'écran « Paramétrage › Profil légal » (BUG-15) : lecture du profil du tenant
+        // (GetTenantProfileQuery) et modification de la raison sociale / adresse / contact
+        // (SaveTenantProfileCommand, qui valide/journalise), déléguées en in-process (garde liakont.settings
+        // côté page). Le SIREN reste IMMUABLE (INV-TENANTSETTINGS-001), repassé inchangé par le service : on
+        // peut désormais corriger l'identité légale post-création sans supprimer/recréer tout le tenant.
+        builder.Services.AddScoped<Liakont.Host.Profil.IProfilConsoleService, Liakont.Host.Profil.ProfilConsoleService>();
+
         // Témoin de vie du dead-man's-switch (FIX210, F12 §5.1) : lit les exécutions du job SYSTÈME
         // d'évaluation (base système) via un scope SANS tenant ambiant. Horloge partagée (TimeProvider) pour
         // un « en retard » déterministe en test.
