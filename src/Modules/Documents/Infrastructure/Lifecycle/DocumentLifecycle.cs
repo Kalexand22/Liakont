@@ -95,6 +95,33 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
         return DocumentRecheckPersistOutcome.Persisted;
     }
 
+    public async Task<DocumentRecheckPersistOutcome> MarkBlockedByRecheckAsync(
+        Guid documentId, string reevaluatedReason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
+    {
+        await using IDocumentUnitOfWork unitOfWork = await _unitOfWorkFactory.BeginAsync(cancellationToken);
+
+        Document? document = await unitOfWork.GetForUpdateAsync(documentId, cancellationToken);
+        if (document is null)
+        {
+            return DocumentRecheckPersistOutcome.DocumentNotFound;
+        }
+
+        // Légalité de la transition RejectedByPa → Blocked vérifiée SOUS le verrou (source unique : la machine à
+        // états) : un geste opérateur concurrent qui a déjà sorti le document de RejectedByPa (remplacé, traité
+        // manuellement) est un refus ATTENDU retourné comme résultat — jamais une exception (pas de 500, pas de
+        // faux audit). Une vraie erreur de persistance (CommitAsync) reste, elle, une exception qui remonte.
+        if (!DocumentStateMachine.IsAllowed(document.State, DocumentState.Blocked))
+        {
+            return DocumentRecheckPersistOutcome.StateChanged;
+        }
+
+        DocumentEvent documentEvent = document.MarkBlockedByRecheck(reevaluatedReason, operatorIdentity, _timeProvider.GetUtcNow(), operatorName);
+        await unitOfWork.UpsertDocumentAsync(document, cancellationToken);
+        await unitOfWork.AppendEventAsync(documentEvent, cancellationToken);
+        await unitOfWork.CommitAsync(cancellationToken);
+        return DocumentRecheckPersistOutcome.Persisted;
+    }
+
     public Task BeginSendingAsync(Guid documentId, CancellationToken cancellationToken = default) =>
         TransitionAsync(documentId, (document, at) => document.BeginSending(at), cancellationToken);
 

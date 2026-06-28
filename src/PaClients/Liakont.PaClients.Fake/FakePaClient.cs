@@ -136,6 +136,31 @@ public sealed class FakePaClient : IPaClient
     }
 
     /// <inheritdoc />
+    public Task<PaSendResult> SendB2cTransactionAsync(
+        B2cReportingTransaction transaction,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        cancellationToken.ThrowIfCancellationRequested();
+        Record(nameof(SendB2cTransactionAsync), $"{transaction.Category}/{transaction.Role}/{transaction.Date:yyyyMMdd}");
+
+        // Capacité absente → résultat typé, jamais d'exception (PAA01). La marge (TMA1) est gardée par la
+        // capacité DISTINCTE SupportsMarginAmountReporting.
+        if (!Capabilities.SupportsB2cReporting)
+        {
+            return Task.FromResult(NotSupported(PaCapability.B2cReporting));
+        }
+
+        if (transaction.Category == EReportingTransactionCategory.Tma1 && !Capabilities.SupportsMarginAmountReporting)
+        {
+            return Task.FromResult(NotSupported(PaCapability.MarginAmountReporting));
+        }
+
+        var reference = $"FAKE-B2CTX-{transaction.Category}-{transaction.Date:yyyyMMdd}";
+        return Task.FromResult(BuildSendResult(reference));
+    }
+
+    /// <inheritdoc />
     public Task<PaDocumentStatus> GetDocumentStatusAsync(
         string paDocumentId,
         CancellationToken cancellationToken = default)

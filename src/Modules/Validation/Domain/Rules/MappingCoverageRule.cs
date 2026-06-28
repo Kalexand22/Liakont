@@ -61,8 +61,8 @@ public sealed class MappingCoverageRule : IDocumentRule
                     $"Le régime de TVA source « {string.Join(", ", line.SourceRegimeCodes)} » d'une ligne du document " +
                     $"n° {document.Number} n'a pas de correspondance dans la table de mapping TVA du tenant " +
                     "(régime non mappé). Le document reste bloqué (jamais d'envoi à l'aveugle). Action : ajoutez " +
-                    "une règle pour ce régime dans la console (Paramétrage › TVA), puis faites revalider la table " +
-                    "par l'expert-comptable avant tout envoi.";
+                    "une règle pour ce régime dans la console (Paramétrage › TVA), puis revalidez la table avant " +
+                    "tout envoi.";
                 var detail =
                     $"Ligne #{lineIndex + 1} « {line.Description} » : {line.Taxes.Count} ventilation(s) de TVA, catégorie UNCL5305 non résolue.";
                 issues.Add(ValidationIssue.Blocking(MappingCoverageMissingCode, message, detail, fieldRef: "BT-151"));

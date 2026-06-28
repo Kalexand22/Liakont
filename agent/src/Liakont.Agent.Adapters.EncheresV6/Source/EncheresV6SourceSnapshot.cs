@@ -16,7 +16,19 @@ internal sealed class EncheresV6SourceSnapshot
     [JsonProperty("regimes")]
     public List<EncheresV6Regime> Regimes { get; } = new List<EncheresV6Regime>();
 
-    /// <summary>Bordereaux (ventes et avoirs) avec leurs lignes (tables <c>entete_ba</c> + <c>lignes_ba</c>).</summary>
+    /// <summary>Bordereaux ACHETEUR (ventes et avoirs) avec leurs lignes (tables <c>entete_ba</c> + <c>lignes_ba</c>).</summary>
     [JsonProperty("bordereaux")]
     public List<EncheresV6Bordereau> Bordereaux { get; } = new List<EncheresV6Bordereau>();
+
+    /// <summary>Bordereaux VENDEUR (jambe vendeur de la marge) avec leurs lignes (tables <c>entete_bv</c> + <c>lignes_bv</c>).</summary>
+    [JsonProperty("bordereaux_vendeur")]
+    public List<EncheresV6BordereauVendeur> BordereauxVendeur { get; } = new List<EncheresV6BordereauVendeur>();
+
+    /// <summary>Factures clients ORDINAIRES (hors enchères) avec leurs lignes (tables <c>entete_facture_clien</c> + <c>ligne_facture_client</c>).</summary>
+    [JsonProperty("factures_clients")]
+    public List<EncheresV6FactureClient> FacturesClients { get; } = new List<EncheresV6FactureClient>();
+
+    /// <summary>Notes d'honoraires d'inventaire (prestation de services) avec leurs lignes (tables <c>entete_notes_hono</c> + <c>lignes_notes_hono</c>).</summary>
+    [JsonProperty("notes_hono")]
+    public List<EncheresV6NoteHono> NotesHono { get; } = new List<EncheresV6NoteHono>();
 }

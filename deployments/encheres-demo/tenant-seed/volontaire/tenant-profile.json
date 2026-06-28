@@ -1,0 +1,20 @@
+{
+  "fiscal": {
+    "vatOnDebits": null,
+    "operationCategory": "PrestationServices",
+    "reportingFrequency": null
+  },
+  "schedule": {
+    "hours": ["03:00"],
+    "catchUpOnStart": true
+  },
+  "thresholds": {
+    "agentSilentHours": 24,
+    "missedRunHours": 36,
+    "pushQueueMaxItems": 50,
+    "pushQueueMaxAgeHours": 6,
+    "blockedDocumentsDays": 5,
+    "paRejectionsDays": 2,
+    "alertTenantContact": false
+  }
+}

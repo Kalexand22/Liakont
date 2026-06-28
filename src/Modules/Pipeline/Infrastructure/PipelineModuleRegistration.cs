@@ -54,6 +54,11 @@ public static class PipelineModuleRegistration
         // est résolu par la requête HTTP, ITenantContext) — IServiceProvider injecté est celui du scope courant.
         services.AddScoped<Contracts.IDocumentRecheckService, DocumentRecheckService>();
 
+        // BUG-5 — REJEU read-time du contenu d'un document (détail ligne à ligne AVANT transmission) : relit le
+        // pivot source stagé + rejoue le mapping via la même source unique (CheckTvaMapping) pour exposer les
+        // lignes + catégorie/VATEX/taux dès les états Bloqué / Prêt-à-envoyer. Scopé requête (tenant résolu).
+        services.AddScoped<Contracts.IDocumentContentReplayService, DocumentContentReplayService>();
+
         // PIP03a — AGRÉGATION DE PAIEMENT : projection jour×taux (lue par GET /payments + page Encaissements).
         services.AddScoped<IPaymentAggregationStore, PostgresPaymentAggregationStore>();
 
@@ -61,6 +66,23 @@ public static class PipelineModuleRegistration
         // de rectification (build + idempotence + capacité + transmission).
         services.AddScoped<IReportRectificationLedger, PostgresReportRectificationLedger>();
         services.AddScoped<ReportRectificationService>();
+
+        // B4 — E-REPORTING B2C MARGE (flux 10.3) : journal d'émission APPEND-ONLY portant l'anti-doublon côté
+        // produit AU GRAIN DOCUMENT (attempt-once — l'API SuperPDP n'a aucune clé d'idempotence). Distinct de
+        // la projection payment_aggregations (recalculée) : c'est une piste d'audit immuable des transmissions.
+        services.AddScoped<IB2cMarginEmissionStore, PostgresB2cMarginEmissionStore>();
+
+        // B4 (console) — lecture du journal d'émission marge, REGROUPÉE par lot d'émission (emission_batch_id : une
+        // transmission = un POST) avec l'état courant, pour la page console des émissions de marge B2C.
+        // Tenant-scopée (la connexion EST le tenant).
+        services.AddScoped<IB2cMarginEmissionQueries, PostgresB2cMarginEmissionQueries>();
+
+        // L2 — REGISTRE DE LA MARGE À DÉCLARER (aide à la déclaration de TVA, pipeline.margin_registry) : PROJECTION
+        // recalculable (upsert sur document_id, ≠ journal d'émission WORM) écrite au CHECK/re-CHECK quand un document
+        // est résolu au régime de la marge, et lue (agrégée mois×devise×taux) par la page console « TVA / Déclaration ».
+        // Tenant-scopés (la connexion EST le tenant).
+        services.AddScoped<IMarginRegistryStore, PostgresMarginRegistryStore>();
+        services.AddScoped<IMarginRegistryQueries, PostgresMarginRegistryQueries>();
 
         // RDL06 — les 4 déclencheurs de fan-out SYSTÈME du pipeline (SendAll / SyncAll / AggregatePaymentsAll /
         // RectifyReportsAll) sont enregistrés par le HOST via AddJobHandler (AddPipelineSystemJobHandlers,

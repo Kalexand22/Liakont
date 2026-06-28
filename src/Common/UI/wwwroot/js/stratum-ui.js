@@ -63,7 +63,7 @@
     var valid = function (v) { return v === 'compact' || v === 'standard'; };
     var apply = function () {
         var saved = localStorage.getItem('stratum-density');
-        if (!valid(saved)) saved = 'compact';
+        if (!valid(saved)) saved = 'standard';
         document.documentElement.setAttribute('data-density', saved);
     };
     apply();
@@ -75,7 +75,7 @@
             if (mutations[i].attributeName === 'data-density') {
                 var current = document.documentElement.getAttribute('data-density');
                 var saved = localStorage.getItem('stratum-density');
-                if (!valid(saved)) saved = 'compact';
+                if (!valid(saved)) saved = 'standard';
                 if (current !== saved) {
                     _applyingDensity = true;
                     document.documentElement.setAttribute('data-density', saved);
@@ -515,14 +515,14 @@ window.stratumUI = {
     /**
      * Returns the current density mode ('compact' or 'standard').
      * Checks the data-density attribute first, then falls back to localStorage,
-     * then defaults to 'compact' (Civic Blueprint default).
+     * then defaults to 'standard' (Liakont default, aligné sur UserPreferences.DensityStandard — BUG-16).
      * @returns {string} 'compact' or 'standard'
      */
     getDensity() {
         const attr = document.documentElement.getAttribute('data-density');
         if (attr === 'compact' || attr === 'standard') return attr;
         const saved = localStorage.getItem('stratum-density');
-        return (saved === 'compact' || saved === 'standard') ? saved : 'compact';
+        return (saved === 'compact' || saved === 'standard') ? saved : 'standard';
     },
 
     /**

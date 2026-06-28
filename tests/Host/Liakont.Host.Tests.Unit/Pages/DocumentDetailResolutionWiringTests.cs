@@ -14,6 +14,7 @@ using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Microsoft.Extensions.DependencyInjection;
 using Stratum.Common.Abstractions.Security;
+using Stratum.Common.UI.Navigation;
 using Xunit;
 
 /// <summary>
@@ -31,6 +32,9 @@ public sealed class DocumentDetailResolutionWiringTests : BunitContext
     {
         JSInterop.Mode = JSRuntimeMode.Loose;
         Services.AddLogging();
+
+        // BUG-19 : la page rend <RecordNavigator> (navigation préc/suiv) → besoin du contexte de navigation de liste.
+        Services.AddScoped<IListNavigationContext, ListNavigationContext>();
 
         // La page orchestre aussi les actions de la barre permanente (FIX04b) : IDocumentControlActions (verdict
         // garde-fou, re-vérification) ET IDocumentSendActions (envoi) doivent être résolvables pour la construire.

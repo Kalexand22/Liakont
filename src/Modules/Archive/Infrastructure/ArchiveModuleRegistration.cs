@@ -46,6 +46,10 @@ public static class ArchiveModuleRegistration
         services.AddScoped<IArchiveEntryStore, PostgresArchiveEntryStore>();
         services.AddScoped<IArchiveService, ArchiveService>();
 
+        // Traçabilité reporting↔pièces (B2C03) : lien append-only, double sens, tenant-scopé
+        // (documents.reporting_piece_links, V011). Consommé par l'export contrôle fiscal.
+        services.AddScoped<IReportingPieceLinkStore, PostgresReportingPieceLinkStore>();
+
         AddAnchoring(services, configuration);
 
         return services;

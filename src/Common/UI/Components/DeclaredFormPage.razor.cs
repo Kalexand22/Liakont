@@ -87,8 +87,15 @@ public partial class DeclaredFormPage<TEntity> : ComponentBase, IDisposable
     [Parameter]
     public Func<Task>? UpdateEntity { get; set; }
 
+    /// <summary>
+    /// Maps a save error. Returns <c>null</c> when the form routed the error to a specific field
+    /// (no global banner needed); otherwise returns the message to surface as a VISIBLE global error
+    /// (possibly reworded by the form). The socle owns the global banner: a form must not set its own
+    /// bound GlobalError field for a save error, because that field would not re-render down into the
+    /// child component and the failure would stay silent.
+    /// </summary>
     [Parameter]
-    public Action<string>? MapDomainError { get; set; }
+    public Func<string, string?>? MapDomainError { get; set; }
 
     [Parameter]
     public Func<EntityChangedEvent, Task>? OnEntityChanged { get; set; }
@@ -332,13 +339,16 @@ public partial class DeclaredFormPage<TEntity> : ComponentBase, IDisposable
         }
         catch (Exception ex)
         {
-            if (MapDomainError is not null)
+            // Le mappage par champ (MapDomainError) écrit des champs du composant PARENT : ceux-ci ne se
+            // ré-affichent que parce que le RenderFragment Content du parent est ré-évalué au rendu de l'enfant.
+            // En revanche un échec NON mappé à un champ (ex. InvalidOperationException « Aucune société
+            // sélectionnée. ») DOIT passer par SetGlobalError (que le socle possède), sinon la bannière d'erreur
+            // (liée au paramètre GlobalError de l'enfant) reste vide et l'échec d'enregistrement est SILENCIEUX
+            // (BUG-4 volet A). MapDomainError retourne null s'il a mappé un champ, sinon le message à afficher.
+            var globalMessage = MapDomainError is not null ? MapDomainError(ex.Message) : ex.Message;
+            if (globalMessage is not null)
             {
-                MapDomainError(ex.Message);
-            }
-            else
-            {
-                await SetGlobalError(ex.Message);
+                await SetGlobalError(globalMessage);
             }
 
             return null;

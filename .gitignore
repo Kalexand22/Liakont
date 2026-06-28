@@ -11,6 +11,9 @@ packages/
 ## Packaging agent (OPS05) — sortie de tools/package-agent.ps1, jamais versionnée
 artifacts/
 
+## Installeurs agent buildés (.zip, sortie de packaging) — artefacts locaux de recette, jamais versionnés
+agent-installers-*/
+
 ## IDE
 .vs/
 .idea/

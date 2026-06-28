@@ -5,7 +5,6 @@ using Liakont.Modules.TenantSettings.Contracts.Commands;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Liakont.Modules.TenantSettings.Domain.Entities;
-using Liakont.Modules.TenantSettings.Domain.ValueObjects;
 using Liakont.Modules.TenantSettings.Infrastructure.Seed;
 using Liakont.Modules.TvaMapping.Contracts.Commands;
 using MediatR;
@@ -15,8 +14,10 @@ using Stratum.Common.Infrastructure.DataIsolation;
 
 /// <summary>
 /// Importe (idempotent) le seed d'un dossier <c>deployments/&lt;client&gt;/</c> dans le tenant courant
-/// (F12-A §8). Le paramétrage TenantSettings (profil, fiscal, planification, seuils, comptes PA) est écrit
-/// en UNE transaction. La table de mapping TVA (item FIX01b) est importée APRÈS ce commit, dans une
+/// (F12-A §8). Le PARAMÉTRAGE TenantSettings (fiscal, planification, seuils, comptes PA) est écrit en UNE
+/// transaction. L'IDENTITÉ LÉGALE (SIREN, raison sociale, adresse, contact) n'est JAMAIS importée du seed
+/// (BUG-14) : elle est saisie manuellement à la création du tenant et ne doit pas être écrasée par une
+/// baseline de démo. La table de mapping TVA (item FIX01b) est importée APRÈS ce commit, dans une
 /// transaction distincte (module TvaMapping) — donc PAS d'atomicité globale : si l'import de mapping
 /// échoue (seed illisible/code rejeté), le paramétrage TenantSettings est déjà committé ; les deux côtés
 /// étant idempotents, un ré-run récupère l'état complet. N'écrit JAMAIS une clé API (placeholders vides).
@@ -53,7 +54,6 @@ public sealed class ImportTenantSeedHandler : IRequestHandler<ImportTenantSeedCo
         var (profileSeed, paAccountSeeds) = await TenantSeedReader.ReadAsync(request.SeedDirectoryPath, cancellationToken);
 
         var warnings = new List<string>();
-        var profileImported = false;
         var fiscalImported = false;
         var scheduleImported = false;
         var thresholdsImported = false;
@@ -62,9 +62,8 @@ public sealed class ImportTenantSeedHandler : IRequestHandler<ImportTenantSeedCo
 
         if (profileSeed is not null)
         {
-            await ImportProfileAsync(uow, companyId, profileSeed, cancellationToken);
-            profileImported = true;
-
+            // BUG-14 : l'identité légale n'est JAMAIS importée du seed (saisie manuelle, jamais écrasée).
+            // Le fichier tenant-profile.json ne porte plus que du paramétrage (fiscal/planif/seuils).
             if (profileSeed.Fiscal is not null)
             {
                 await ImportFiscalAsync(uow, companyId, profileSeed.Fiscal, cancellationToken);
@@ -109,12 +108,11 @@ public sealed class ImportTenantSeedHandler : IRequestHandler<ImportTenantSeedCo
             "imported",
             $"Import de seed depuis « {request.SeedDirectoryPath} ».",
             companyId,
-            new { profileImported, fiscalImported, scheduleImported, thresholdsImported, paImported, tvaMappingImported },
+            new { fiscalImported, scheduleImported, thresholdsImported, paImported, tvaMappingImported },
             cancellationToken);
 
         return new ImportTenantSeedResult
         {
-            ProfileImported = profileImported,
             FiscalImported = fiscalImported,
             PaAccountsImported = paImported,
             ScheduleImported = scheduleImported,
@@ -122,44 +120,6 @@ public sealed class ImportTenantSeedHandler : IRequestHandler<ImportTenantSeedCo
             TvaMappingImported = tvaMappingImported,
             Warnings = warnings,
         };
-    }
-
-    private static async Task ImportProfileAsync(
-        ITenantSettingsUnitOfWork uow,
-        Guid companyId,
-        TenantProfileSeed seed,
-        CancellationToken ct)
-    {
-        if (seed.Address is null
-            || string.IsNullOrWhiteSpace(seed.Siren)
-            || string.IsNullOrWhiteSpace(seed.RaisonSociale))
-        {
-            throw new ConflictException(
-                $"Seed « {TenantSeedReader.ProfileFileName} » incomplet : siren, raisonSociale et address sont requis.");
-        }
-
-        var address = TenantAddress.Create(
-            seed.Address.Street ?? string.Empty,
-            seed.Address.PostalCode ?? string.Empty,
-            seed.Address.City ?? string.Empty,
-            seed.Address.Country ?? string.Empty);
-
-        var existing = await uow.GetTenantProfileByCompanyAsync(companyId, ct);
-        if (existing is null)
-        {
-            var profile = TenantProfile.Create(companyId, seed.Siren, seed.RaisonSociale, address, seed.ContactEmailAlerte);
-            await uow.InsertTenantProfileAsync(profile, ct);
-            return;
-        }
-
-        if (!string.Equals(existing.Siren, seed.Siren.Trim(), StringComparison.Ordinal))
-        {
-            throw new ConflictException(
-                "INV-TENANTSETTINGS-001 : le SIREN du seed diffère du SIREN du tenant existant (clé fonctionnelle immuable).");
-        }
-
-        existing.UpdateDetails(seed.RaisonSociale, address, seed.ContactEmailAlerte);
-        await uow.UpdateTenantProfileAsync(existing, ct);
     }
 
     private static async Task ImportFiscalAsync(

@@ -32,23 +32,37 @@
 
         @if (ShowPart)
         {
-            @* Vertical « vente aux enchères » actif : la « Composante » (Adjudication / Frais / Hors
-               Enchères) est proposée. Hors vertical, RIEN n'est rendu (décision E2 : aucune mention —
-               ni champ, ni valeur, ni note) ; la part Autre reste fixée implicitement (OnParametersSet). *@
+            @* Vertical « vente aux enchères » actif : la « Composante » (Frais / Adjudication et factures)
+               est proposée — « Adjudication » (part morte) n'est plus offerte à la création (BUG-12). Hors
+               vertical, RIEN n'est rendu (décision E2 : aucune mention) ; la part Autre reste fixée
+               implicitement (OnParametersSet). *@
             <FormField Label="@TvaComposanteVocabulary.FieldLabel" FieldId="tva-rule-part" Required="true"
-                       HelpText="@(IsCreate ? null : "La composante fait partie de la clé : non modifiable (supprimez puis recréez pour la changer).")">
-                <select id="tva-rule-part"
-                        class="form-select"
-                        value="@Model.Part"
-                        @onchange="OnPartChange"
-                        disabled="@(!IsCreate || Busy)"
-                        data-testid="tva-rule-part">
-                    <option value="">— Choisir —</option>
-                    @foreach (var part in Options.Parts)
-                    {
-                        <option value="@part.Code">@part.Label</option>
-                    }
-                </select>
+                       HelpText="@PartHelpText">
+                @if (IsCreate)
+                {
+                    <select id="tva-rule-part"
+                            class="form-select"
+                            value="@Model.Part"
+                            @onchange="OnPartChange"
+                            disabled="@Busy"
+                            data-testid="tva-rule-part">
+                        <option value="">— Choisir —</option>
+                        @foreach (var part in Options.Parts)
+                        {
+                            <option value="@part.Code">@part.Label</option>
+                        }
+                    </select>
+                }
+                else
+                {
+                    @* Modification : la composante fait partie de la CLÉ (figée). Rendue en texte lisible
+                       (via le vocabulaire), jamais en <select> dont la value (ex. « Adjudication » héritée
+                       du seed/import) n'aurait pas d'<option> correspondante — le navigateur afficherait
+                       alors « — Choisir — » au lieu de la vraie composante (BUG-12). *@
+                    <div id="tva-rule-part" class="form-control-plaintext" data-testid="tva-rule-part" data-part="@Model.Part">
+                        @TvaComposanteVocabulary.ValueLabel(Model.Part)
+                    </div>
+                }
             </FormField>
         }
 
@@ -221,13 +235,23 @@
 
     /// <summary>
     /// Titre en MODIFICATION : « Modifier la règle — régime X », suffixé de la composante (vertical
-    /// enchères actif uniquement, valeur Autre → « Hors Enchères » via <see cref="TvaComposanteVocabulary"/>).
+    /// enchères actif uniquement, valeur Autre → « Adjudication et factures » via <see cref="TvaComposanteVocabulary"/>).
     /// Hors vertical, la composante n'est jamais mentionnée (décision E2).
     /// </summary>
     private string EditTitle =>
         ShowPart && !string.IsNullOrWhiteSpace(Model.Part)
             ? $"Modifier la règle — régime {Model.SourceRegimeCode} ({TvaComposanteVocabulary.ValueLabel(Model.Part)})"
             : $"Modifier la règle — régime {Model.SourceRegimeCode}";
+
+    /// <summary>
+    /// Aide du champ « Composante » (BUG-12) : en création, explique à quoi sert chaque composante (Frais =
+    /// taux des honoraires ; « Adjudication et factures » = taux des lignes de la pièce, la seule consultée par
+    /// le contrôle) ; en modification, rappelle qu'elle est figée (elle fait partie de la clé de la règle).
+    /// </summary>
+    private string PartHelpText =>
+        IsCreate
+            ? "Frais = taux des honoraires acheteur/vendeur ; « Adjudication et factures » = taux des lignes de la pièce (adjudication, facture client, note) — c'est la composante consultée par le contrôle."
+            : "La composante fait partie de la clé : non modifiable (supprimez puis recréez pour la changer).";
 
     private bool IsFixedRate => string.Equals(Model.RateMode, "Fixed", StringComparison.Ordinal);
 

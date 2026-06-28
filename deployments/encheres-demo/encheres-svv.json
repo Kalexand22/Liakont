@@ -1,0 +1,18 @@
+{
+  "_commentaire": "Profil intégrateur « Enchères SVV » (vertical criées / ventes volontaires). Adaptateur VERROUILLÉ sur EncheresV6 — aucun autre choix possible au wizard. apiKey + ODBC saisis au wizard, JAMAIS de secret dans ce profil (F13 §5.5, CLAUDE.md n°7). dossier / schema / extractFromUtc éditables, pré-remplis pour la démo SQL Server (EncheresV6_Demo, schéma enc).",
+  "profil": "encheres-svv",
+  "branding": {
+    "nom": "Enchères SVV (Isatech)"
+  },
+  "champs": {
+    "adapter": { "etat": "verrouillé", "valeur": "EncheresV6" },
+    "platformUrl": { "etat": "affiché", "valeur": "http://localhost:8090" },
+    "apiKey": { "etat": "affiché" },
+    "odbcConnection": { "etat": "affiché" },
+    "schema": { "etat": "affiché", "valeur": "enc" },
+    "dossier": { "etat": "affiché", "valeur": "2" },
+    "extractFromUtc": { "etat": "affiché", "valeur": "2022-01-01" },
+    "schedule": { "etat": "affiché", "valeur": "03:00,13:00" },
+    "instanceName": { "etat": "affiché", "valeur": "volontaire" }
+  }
+}

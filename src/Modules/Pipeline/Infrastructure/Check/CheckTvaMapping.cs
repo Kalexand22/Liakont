@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Liakont.Agent.Contracts.Pivot;
+using Liakont.Modules.Pipeline.Domain.B2cReporting;
 using Liakont.Modules.Pipeline.Domain.Ventilation;
 using Liakont.Modules.TvaMapping.Contracts.Services;
 
@@ -52,12 +53,7 @@ internal static class CheckTvaMapping
 
             if (line.SourceRegimeCodes.Count != 1 || line.Taxes.Count != 1)
             {
-                shapeBlockReasons.Add(
-                    $"{LinePrefix(i, line)} porte {line.SourceRegimeCodes.Count} code(s) régime et " +
-                    $"{line.Taxes.Count} ventilation(s) TVA : l'association régime → ventilation n'est pas " +
-                    "déterminée par une règle sourcée (scission EN 16931 BG-30 / ADR-0004 D3-1 non couverte par " +
-                    "le contrôle V1) — document bloqué (aucune association devinée). Action opérateur : vérifiez " +
-                    "la donnée source de cette ligne ; ce cas sera couvert par une évolution ultérieure du pipeline.");
+                shapeBlockReasons.Add(ShapeBlockReason(i, line));
                 continue;
             }
 
@@ -123,7 +119,30 @@ internal static class CheckTvaMapping
             enrichedLines[lineIndex] = EnrichLine(pivot.Lines[lineIndex], mapping.Lines[i]);
         }
 
-        var enriched = Rebuild(pivot, enrichedLines);
+        var enriched = Rebuild(pivot, enrichedLines, pivot.IsB2cReportingDeclaration);
+
+        // Marqueur de DÉCLARATION e-reporting B2C (flux 10.3) DÉRIVÉ ICI, au read-time : le pivot est désormais
+        // enrichi par le mapping VALIDÉ (catégorie + VATEX par ligne), seul moment où le régime est lisible SANS
+        // heuristique (F03 §3 : jamais déduit du code source). Posé sur l'enrichi (jamais porté par l'agent ni
+        // persisté — pattern émetteur/TVA) : SEND (ReadStagedPivotAsync) et les jobs agrégés (B4) obtiennent le
+        // pivot marqué via CETTE évaluation, et B2cAggregatedDeclaration.Matches l'aiguille hors voie document.
+        // QUATRE cas symétriques (même flux 10.3, même canal acheteur particulier) : MARGE (B2cMarginMarking,
+        // TMA1, TotalTax == 0), PRIX TOTAL TAXABLE enchères (B2cTaxableMarking, TLB1, TotalTax > 0 + frais, F03 §2.7),
+        // EXPORT HORS UE détaxé (B2cExportMarking, TLB1/TNT1 unitaire, TotalTax == 0 + catégorie G/K + frais, F03 §2.8)
+        // et DOCUMENT ORDINAIRE taxable SANS frais (B2cPlainTaxableMarking, TLB1/TPS1 selon OperationCategory, F03 §2.9 —
+        // facture client / note d'honoraires). Les TROIS premiers EXIGENT des frais (signature enchères) ; le 4e les
+        // EXCLUT (partition nette). Marge et export partagent TotalTax == 0 : ils se distinguent par la catégorie de
+        // ligne (E vs G), d'où un marquage dédié pour chacun. Critère sourcé : voir chaque marquage. Idempotent
+        // (re-CHECK redérive le même résultat). Fail-closed : un document non reconnu n'est jamais marqué.
+        if (!enriched.IsB2cReportingDeclaration
+            && (B2cMarginMarking.IsMarginDeclaration(enriched)
+                || B2cTaxableMarking.IsTaxableB2cDeclaration(enriched)
+                || B2cExportMarking.IsExportDeclaration(enriched)
+                || B2cPlainTaxableMarking.IsPlainTaxableB2cDeclaration(enriched)))
+        {
+            enriched = Rebuild(pivot, enrichedLines, isB2cReportingDeclaration: true);
+        }
+
         var ventilation = BuildVentilation(enrichedLines, plan, mapping);
         return CheckEvaluation.Ready(enriched, mapping.MappingVersion, ventilation);
     }
@@ -161,10 +180,13 @@ internal static class CheckTvaMapping
     }
 
     /// <summary>
-    /// Pose la catégorie UNCL5305 et le VATEX issus du mapping sur l'UNIQUE ventilation de la ligne. Les
-    /// montants et le taux source ne sont JAMAIS recalculés (le pivot ne calcule rien — F01-F02 §3.7 règle 2 ;
-    /// la résolution d'un taux ComputedFromSource est un geste d'envoi aval, PIP01c). Seule la classification
-    /// (catégorie/VATEX), produit du mapping plateforme, est ajoutée.
+    /// Pose la catégorie UNCL5305, le VATEX et le TAUX issus du mapping sur l'UNIQUE ventilation de la ligne. Les
+    /// MONTANTS source ne sont JAMAIS recalculés (le pivot ne calcule rien — F01-F02 §3.7 règle 2). Le TAUX porté
+    /// par l'agent PRIME ; à défaut (l'agent ne porte pas toujours le taux, R3), on applique le taux FIXE déclaré
+    /// par la table validée — il est CONNU au CHECK, et une catégorie comme <c>S</c> exige un taux strictement
+    /// positif (sinon le document est bloqué en aval). Un taux <c>ComputedFromSource</c> reste <c>null</c> ici
+    /// (<see cref="TvaLineMappingResult.Rate"/> nul) : sa résolution est différée à l'envoi (PIP01c). Aucune
+    /// valeur n'est inventée (CLAUDE.md n°2) : le taux fixe vient de la table validée, pas d'une déduction.
     /// </summary>
     private static PivotLineDto EnrichLine(PivotLineDto line, TvaLineMappingResult result)
     {
@@ -173,10 +195,14 @@ internal static class CheckTvaMapping
 
         var enrichedTax = new PivotLineTaxDto(
             taxAmount: originalTax.TaxAmount,
-            rate: originalTax.Rate,
+            rate: originalTax.Rate ?? result.Rate,
             categoryCode: category,
             vatexCode: result.Vatex);
 
+        // Métadonnées de ligne PRÉSERVÉES à l'enrichissement (l'enrichissement ne repose QUE la ventilation TVA) :
+        // le rôle (adjudication vs honoraire acheteur) et la TVA de frais source sont REQUIS en aval — B4 lit la ligne
+        // au rôle BuyerFee, et la base HT export lit SourceTaxAmount (un futur dé-pliage taxable aussi — déféré, F03
+        // §2.3 amendement, BUG-17 volet b). Sans cette recopie, ils seraient perdus ici (silencieux).
         return new PivotLineDto(
             description: line.Description,
             netAmount: line.NetAmount,
@@ -185,11 +211,17 @@ internal static class CheckTvaMapping
             sourceRegimeCodes: line.SourceRegimeCodes,
             taxes: new[] { enrichedTax },
             sourceLineRef: line.SourceLineRef,
-            sourceData: line.SourceData);
+            sourceData: line.SourceData,
+            role: line.Role,
+            sourceTaxAmount: line.SourceTaxAmount);
     }
 
-    private static PivotDocumentDto Rebuild(PivotDocumentDto pivot, IReadOnlyList<PivotLineDto> lines)
+    private static PivotDocumentDto Rebuild(PivotDocumentDto pivot, IReadOnlyList<PivotLineDto> lines, bool isB2cReportingDeclaration)
     {
+        // Ce rebuild ne touche QUE les lignes (catégorie/VATEX du mapping) : TOUS les autres champs sont reportés
+        // tels quels, y compris les ADDITIFS (ADR-0007). Oublier un champ additif l'AMPUTE après le mapping —
+        // c'est ce qui faisait perdre les mentions de facturation (BT-20 + notes FR, BUG-26) injectées par
+        // l'enricher AVANT ce rejeu (le SEND sérialise CE pivot, pas le pré-mapping). invoicePeriod idem.
         return new PivotDocumentDto(
             sourceDocumentKind: pivot.SourceDocumentKind,
             number: pivot.Number,
@@ -209,7 +241,44 @@ internal static class CheckTvaMapping
             isSelfBilled: pivot.IsSelfBilled,
             prepaidAmount: pivot.PrepaidAmount,
             sourceData: pivot.SourceData,
-            paymentDueDate: pivot.PaymentDueDate);
+            paymentDueDate: pivot.PaymentDueDate,
+            isB2cReportingDeclaration: isB2cReportingDeclaration,
+            sellerFees: pivot.SellerFees,
+            buyerFees: pivot.BuyerFees,
+            invoicePeriod: pivot.InvoicePeriod,
+            paymentTerms: pivot.PaymentTerms,
+            notes: pivot.Notes,
+            deliveryDate: pivot.DeliveryDate);
+    }
+
+    /// <summary>
+    /// Motif de blocage d'une ligne hors forme V1 (pas exactement 1 code régime ET 1 ventilation), rédigé
+    /// d'après le FAIT lu sur la ligne (jamais une hypothèse). Deux causes distinctes, message vrai pour chacune :
+    /// <list type="bullet">
+    ///   <item>AUCUN code régime TVA en source (donnée source incomplète) — le régime n'est jamais deviné
+    ///   (CLAUDE.md n°2) ; l'action corrective est de compléter la donnée source.</item>
+    ///   <item>PLUSIEURS codes régime et/ou ventilations sur une même ligne — l'association d'un code régime à
+    ///   une ventilation TVA particulière n'est pas tranchée par une règle sourcée (scission EN 16931 BG-30 /
+    ///   ADR-0004 D3-1) ; le document est bloqué (aucune association devinée).</item>
+    /// </list>
+    /// Aucune promesse d'« évolution ultérieure » (aveu de non-couverture affiché à l'opérateur, à bannir).
+    /// </summary>
+    private static string ShapeBlockReason(int index, PivotLineDto line)
+    {
+        if (line.SourceRegimeCodes.Count == 0)
+        {
+            return
+                $"{LinePrefix(index, line)} ne porte aucun code régime TVA en source : le régime de TVA est absent " +
+                "de la donnée source de cette ligne — document bloqué (aucun régime n'est deviné). Action " +
+                "opérateur : corrigez la donnée source pour que cette ligne porte son code régime TVA.";
+        }
+
+        return
+            $"{LinePrefix(index, line)} porte {line.SourceRegimeCodes.Count} code(s) régime et " +
+            $"{line.Taxes.Count} ventilation(s) TVA : l'association régime → ventilation n'est pas déterminée par " +
+            "une règle sourcée (scission EN 16931 BG-30 / ADR-0004 D3-1) — document bloqué (aucune association " +
+            "devinée). Action opérateur : corrigez la donnée source pour que cette ligne porte un seul code " +
+            "régime et une seule ventilation de TVA.";
     }
 
     private static string LinePrefix(int index, PivotLineDto line) =>

@@ -8,6 +8,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.Mandats.Contracts;
+using Liakont.Modules.Pipeline.Domain.B2cReporting;
+using Liakont.Modules.Pipeline.Infrastructure.B2cReporting;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Liakont.Modules.Transmission.Contracts;
@@ -40,16 +42,15 @@ internal static class DocumentCheckEvaluator
 
     /// <summary>Motif de blocage de la garde-fou production (item PIP01b §3). NE JAMAIS affaiblir (CLAUDE.md n°3, P1).</summary>
     private const string ProductionGuardReason =
-        "Table de mapping TVA non validée — validation par l'expert-comptable requise. Un compte Plateforme " +
-        "Agréée actif est en environnement « Production » : aucun document n'est transmis tant que la table TVA " +
-        "n'est pas validée (table d'exemple ou modifiée non revalidée). Action opérateur : faites valider la " +
-        "table de mapping TVA (Paramétrage › TVA) par l'expert-comptable.";
+        "Table de mapping TVA non validée. Un compte Plateforme Agréée actif est en environnement « Production » : " +
+        "aucun document n'est transmis tant que la table TVA n'est pas validée (table d'exemple ou modifiée non " +
+        "revalidée). Action opérateur : validez la table de mapping TVA (Paramétrage › TVA).";
 
     /// <summary>Motif de blocage quand aucune table de mapping n'existe pour le tenant.</summary>
     private const string TableAbsentReason =
         "Aucune table de mapping TVA n'est définie pour ce tenant : document bloqué (aucune catégorie n'est " +
-        "devinée). Action opérateur : créez la table dans la console (Paramétrage › TVA), puis faites-la valider " +
-        "par l'expert-comptable avant tout envoi.";
+        "devinée). Action opérateur : créez puis validez la table dans la console (Paramétrage › TVA) avant tout " +
+        "envoi.";
 
     /// <summary>
     /// Motif de blocage quand la nature d'opération du tenant n'est pas paramétrée (ADR-0031 amendé : la nature
@@ -118,7 +119,14 @@ internal static class DocumentCheckEvaluator
                 services, companyId, documentNumber, TableAbsentReason, pivot, buyerConfirmedB2C, cancellationToken);
         }
 
-        if (!mapping.IsValidated && await IsProductionContextAsync(tenantSettings, companyId, cancellationToken))
+        // Comptes PA ACTIFS du tenant, lus une fois : pilotent le garde-fou production (table non validée) ET le
+        // gating de la dérogation aux SIREN de TEST sandbox (BUG-23). La dérogation exige une PREUVE POSITIVE de
+        // contexte hors production (cf. AllowsSandboxTestIdentifiers) — jamais la simple absence de compte (CLAUDE.md n°3).
+        var paAccounts = await tenantSettings.GetPaAccounts(companyId, cancellationToken);
+        var isProductionPaContext = HasActiveProductionAccount(paAccounts);
+        var allowSandboxTestIdentifiers = AllowsSandboxTestIdentifiers(paAccounts);
+
+        if (!mapping.IsValidated && isProductionPaContext)
         {
             // GARDE-FOU PRODUCTION (item PIP01b §3) — table non validée + compte PA production = tout reste Blocked.
             // SÉQUENTIELLE (FIX06, décision D5) : on n'agrège PAS d'autres motifs ici — en production avec table non
@@ -137,9 +145,21 @@ internal static class DocumentCheckEvaluator
                 services, companyId, documentNumber, evaluation.BlockReason!, pivot, buyerConfirmedB2C, cancellationToken);
         }
 
+        // GARDE FAIL-CLOSED « marge non classée » (CLAUDE.md n°3) : un document à la FORME d'une marge B2C
+        // (honoraires + aucune TVA distincte) que le mapping validé NE reconnaît PAS marge (exonéré non-marge,
+        // ou acheteur professionnel sous régime exonéré) ne doit JAMAIS filer par la voie document — ses
+        // honoraires (hors lignes) y seraient PERDUS, marge sous-déclarée sans message opérateur. On BLOQUE,
+        // symétrique au pré-filtre du job agrégé B4. Une vraie marge B2C est marquée (déférée vers B4) ; un
+        // document taxable (TVA distincte) garde sa voie nominale. Le marqueur est dérivé dans CheckTvaMapping.
+        if (B2cMarginMarking.LooksLikeUnclassifiedMargin(evaluation.EnrichedDocument!))
+        {
+            return CheckDecision.Blocked(
+                WithDocumentNumber(documentNumber, BuildUnclassifiedMarginReason(evaluation.EnrichedDocument!)));
+        }
+
         var validation = services.GetRequiredService<IValidationService>();
         var validationResult = await validation.ValidateAsync(
-            new DocumentValidationContext(evaluation.EnrichedDocument!, companyId, buyerConfirmedB2C), cancellationToken);
+            new DocumentValidationContext(evaluation.EnrichedDocument!, companyId, buyerConfirmedB2C, allowSandboxTestIdentifiers), cancellationToken);
 
         if (validationResult.HasBlockingIssue)
         {
@@ -161,7 +181,7 @@ internal static class DocumentCheckEvaluator
             // (jamais dégradée en facture standard 380, « bloquer plutôt qu'émettre faux » — CLAUDE.md n°3).
             // Piloté par la CAPACITÉ déclarée du plug-in, jamais un if (pa is …). Le filet d'envoi (SendTenantJob)
             // garantit en dernier ressort qu'aucun 389 ne part vers une PA incapable, même sur un changement de PA.
-            var incapablePaName = await ResolveSelfBillingIncapablePaAsync(services, tenantSettings, companyId, cancellationToken);
+            var incapablePaName = await ResolveCapabilityIncapablePaAsync(services, tenantSettings, companyId, static c => c.SupportsSelfBilling, cancellationToken);
             if (incapablePaName is not null)
             {
                 return CheckDecision.Blocked(WithDocumentNumber(documentNumber, SelfBilledCapabilityReason(incapablePaName)));
@@ -176,6 +196,43 @@ internal static class DocumentCheckEvaluator
             }
         }
 
+        // GARDE DE TRANSMISSION (document-driven — décision Karl 2026-06-22 « jamais une capacité d'une PA
+        // n'impacte le FLUX » : le flux CLASSE, les capacités ne font que GATER la transmission au bord). Un
+        // document à DESTINATAIRE IDENTIFIÉ — acheteur avec SIREN, B2B ou B2G (entité adressable, F07-F08 §A.4) —
+        // n'est émissible que si la PA active a un CANAL : routage PDP B2B (SupportsB2bInvoicing) OU transport du
+        // Factur-X produit par la plateforme (SupportsFacturXTransmission — ex. Generique, Chorus Pro B2G). Sinon
+        // il serait dégradé en e-reporting B2C anonyme par une PA B2C-only (ex. B2Brouter) → bloquer plutôt
+        // qu'émettre faux (CLAUDE.md n°3). Piloté par les CAPACITÉS déclarées, jamais un if (pa is …) (CLAUDE.md
+        // n°8). Le self-billed (389) a SA propre garde ci-dessus. Filet d'envoi : SendTenantJob couvre en dernier
+        // ressort un changement de PA après ReadyToSend (même patron que le 389).
+        if (!pivot.IsSelfBilled && !string.IsNullOrWhiteSpace(pivot.Customer?.Siren))
+        {
+            var incapablePaName = await ResolveCapabilityIncapablePaAsync(
+                services, tenantSettings, companyId, static c => c.SupportsB2bInvoicing || c.SupportsFacturXTransmission, cancellationToken);
+            if (incapablePaName is not null)
+            {
+                return CheckDecision.Blocked(WithDocumentNumber(documentNumber, B2bInvoicingCapabilityReason(incapablePaName)));
+            }
+        }
+
+        // MENTIONS DE FACTURATION (BUG-26, F16 §3.5 / F12-A §3.4) — une facture à destinataire identifié (B2B/B2G,
+        // acheteur avec SIREN) émise par un assujetti FRANÇAIS doit porter les mentions légales FR obligatoires
+        // (BR-FR-05 : pénalités de retard PMD, indemnité de recouvrement PMT, escompte AAB) et, pour un montant dû
+        // positif, des termes de paiement (BT-20) ou une échéance (BT-9, BR-CO-25) — sinon le converter CTC-FR
+        // REJETTE. On BLOQUE plutôt qu'envoyer voué au rejet (CLAUDE.md n°3). Le contenu est un paramètre tenant
+        // injecté à l'enrichissement (read-time) : absent ⇒ blocage, jamais inventé. Même périmètre que la garde de
+        // transmission ci-dessus (acheteur identifié, non self-billed), restreint à un émetteur FR (mention L441).
+        if (!pivot.IsSelfBilled
+            && !string.IsNullOrWhiteSpace(pivot.Customer?.Siren)
+            && IsFrenchSeller(pivot))
+        {
+            var missingMentions = MissingBillingMentionsReason(pivot);
+            if (missingMentions is not null)
+            {
+                return CheckDecision.Blocked(WithDocumentNumber(documentNumber, missingMentions));
+            }
+        }
+
         // Nature d'opération remplie par la plateforme à l'ingestion (ADR-0031 amendé). Si le paramétrage fiscal
         // du tenant ne la porte pas, l'émetteur enrichi la laisse nulle → on bloque (jamais devinée, CLAUDE.md n°2).
         if (pivot.OperationCategory is null)
@@ -183,7 +240,133 @@ internal static class DocumentCheckEvaluator
             return CheckDecision.Blocked(WithDocumentNumber(documentNumber, OperationCategoryMissingReason));
         }
 
-        return CheckDecision.Ready(evaluation.MappingVersion, evaluation.Ventilation!, pivot.OperationCategory.Value);
+        // L2 — REGISTRE DE LA MARGE À DÉCLARER : si le document est au régime de la marge (buyer-indépendant) et que
+        // la marge se résout (cœurs purs partagés, fail-closed), on calcule l'entrée HT/TVA sur marge à déclarer
+        // (LECTURE SEULE — un second MapAsync Frais, aucune écriture : le contrat « detection only » de l'évaluateur
+        // est préservé). L'appelant l'écrit (upsert) à côté du snapshot de ventilation. Non-marge / non résolu → null.
+        var marginRegistryEntry = await TryResolveMarginRegistryEntryAsync(
+            mappingService, companyId, documentId, evaluation.EnrichedDocument!, cancellationToken);
+
+        return CheckDecision.Ready(evaluation.MappingVersion, evaluation.Ventilation!, pivot.OperationCategory.Value, marginRegistryEntry);
+    }
+
+    /// <summary>
+    /// Calcule l'entrée du registre de la marge à déclarer (L2) pour un document PRÊT, ou <c>null</c> s'il n'est
+    /// pas au régime de la marge ou si la marge n'est pas résolvable (fail-closed). RÉUTILISE les cœurs purs
+    /// partagés — <see cref="B2cMarginMarking.IsMarginRegime"/> (buyer-indépendant : B2C ET B2B),
+    /// <see cref="B2cMarginDocumentResolver"/> (assemblage acheteur + vendeur + taux),
+    /// <see cref="B2cTransactionAggregationCalculator.ToHt"/> (TTC→HT) — donc l'aide à la déclaration porte
+    /// EXACTEMENT le calcul de l'e-reporting B2C, jamais une logique parallèle qui dériverait (P1). LECTURE SEULE :
+    /// aucun montant inventé (CLAUDE.md n°2), aucune écriture (l'évaluateur reste « detection only »).
+    /// </summary>
+    private static async Task<MarginRegistryEntry?> TryResolveMarginRegistryEntryAsync(
+        ITvaMappingService tvaMapping,
+        Guid companyId,
+        Guid documentId,
+        PivotDocumentDto enriched,
+        CancellationToken cancellationToken)
+    {
+        if (!B2cMarginMarking.IsMarginRegime(enriched))
+        {
+            return null;
+        }
+
+        var resolution = await B2cMarginDocumentResolver.ResolveAsync(tvaMapping, companyId, enriched, cancellationToken);
+        if (!resolution.IsResolved)
+        {
+            return null;
+        }
+
+        var (baseHt, vat) = B2cTransactionAggregationCalculator.ToHt(resolution.MarginTtc, resolution.RatePercent);
+        return new MarginRegistryEntry
+        {
+            DocumentId = documentId,
+            IssueDate = DateOnly.FromDateTime(enriched.IssueDate),
+            CurrencyCode = enriched.CurrencyCode,
+            VatRate = resolution.RatePercent,
+            MarginBaseHt = baseHt,
+            MarginVat = vat,
+        };
+    }
+
+    /// <summary>
+    /// Motif de blocage d'un document à la FORME d'une marge B2C (honoraires + aucune TVA distincte) que la
+    /// table validée NE classe PAS au régime de la marge (CLAUDE.md n°2/3, F03 §6 décision #1). Transmis par la
+    /// voie document, ses honoraires (DONNÉE DE CALCUL, hors lignes) seraient perdus — « bloquer plutôt qu'envoyer
+    /// faux ». Diagnostiquable : le message CITE les FAITS lus sur le document enrichi (code régime source par
+    /// ligne + catégorie/VATEX/taux obtenus du mapping, et le profil RÉEL de l'acheteur), jamais des hypothèses
+    /// génériques — l'opérateur voit l'écart sans ouvrir le code ni la base. Aucun fait n'est deviné (CLAUDE.md n°2).
+    /// </summary>
+    /// <param name="enriched">Le document enrichi par le mapping TVA (lignes portant catégorie/VATEX/taux).</param>
+    private static string BuildUnclassifiedMarginReason(PivotDocumentDto enriched)
+    {
+        var lignes = new List<string>(enriched.Lines.Count);
+        for (var i = 0; i < enriched.Lines.Count; i++)
+        {
+            var line = enriched.Lines[i];
+            var regimes = line.SourceRegimeCodes.Count == 0
+                ? "aucun"
+                : string.Join(", ", line.SourceRegimeCodes);
+            var tax = line.Taxes.Count == 1 ? line.Taxes[0] : null;
+            var categorie = tax?.CategoryCode?.ToString() ?? "non résolue";
+            var vatex = string.IsNullOrWhiteSpace(tax?.VatexCode) ? "aucun" : tax!.VatexCode!;
+            var taux = tax?.Rate is { } rate
+                ? string.Create(CultureInfo.InvariantCulture, $"{rate} %")
+                : "non résolu";
+            var detail = string.Create(
+                CultureInfo.InvariantCulture,
+                $"ligne {i + 1} (« {line.Description} ») : régime source {regimes} → catégorie {categorie}, VATEX {vatex}, taux {taux}");
+            lignes.Add(detail);
+        }
+
+        var mappingObtenu = string.Join(" ; ", lignes);
+        var acheteur = DescribeBuyer(enriched.Customer);
+        return
+            "ce bordereau d'enchères porte des honoraires (commission acheteur/vendeur) et aucune TVA distincte, " +
+            "mais la table de mapping validée ne le classe PAS au régime de la marge (l'attendraient : catégorie E " +
+            $"+ VATEX-EU-F/I/J par ligne). Mapping obtenu : {mappingObtenu}. Acheteur lu : {acheteur}. Transmis " +
+            "tel quel, les honoraires seraient perdus (marge sous-déclarée). Document bloqué. Action opérateur : " +
+            "si c'est bien une marge B2C, complétez/corrigez la table de mapping TVA (Paramétrage › TVA) pour " +
+            "mapper ce ou ces régimes source vers catégorie E + VATEX-EU-F/I/J ; si l'acheteur est un " +
+            "professionnel, corrigez la donnée source (le document relève alors d'une facture B2B).";
+    }
+
+    /// <summary>
+    /// Décrit FACTUELLEMENT l'acheteur lu sur le document (indices professionnels réellement présents, ou
+    /// « particulier » si aucun) — pour citer le FAIT dans le motif de blocage, jamais une hypothèse. Champs du
+    /// contrat pivot uniquement (frontière P1) : SIREN / SIRET / n° TVA / indice société brut.
+    /// </summary>
+    private static string DescribeBuyer(PivotPartyDto? buyer)
+    {
+        if (buyer is null)
+        {
+            return "aucun acheteur identifié";
+        }
+
+        var indices = new List<string>();
+        if (!string.IsNullOrWhiteSpace(buyer.Siren))
+        {
+            indices.Add($"SIREN {buyer.Siren}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(buyer.Siret))
+        {
+            indices.Add($"SIRET {buyer.Siret}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(buyer.VatNumber))
+        {
+            indices.Add($"n° TVA {buyer.VatNumber}");
+        }
+
+        if (buyer.IsCompanyHint)
+        {
+            indices.Add("indice société");
+        }
+
+        return indices.Count == 0
+            ? "particulier (aucun indice professionnel : ni SIREN, ni SIRET, ni n° TVA, ni indice société)"
+            : $"professionnel ({string.Join(", ", indices)})";
     }
 
     /// <summary>
@@ -227,17 +410,20 @@ internal static class DocumentCheckEvaluator
     }
 
     /// <summary>
-    /// Nom de la PA active qui NE déclare PAS la capacité d'émission 389 (MND07), ou <c>null</c> si la capacité
-    /// est confirmée présente, si aucune PA active n'est résolue, ou si la capacité ne peut être confirmée ici
-    /// (résolution déférée — le filet d'envoi reste fail-closed). Le comportement est piloté par la capacité
-    /// déclarée du plug-in, JAMAIS par un <c>if (pa is …)</c> (CLAUDE.md n°8/16). La résolution est défensive
-    /// (services optionnels) : on bloque UNIQUEMENT sur une incapacité CONFIRMÉE — jamais un faux blocage par
-    /// indisponibilité technique (le <see cref="Send.SendTenantJob"/> garde l'émission en dernier ressort).
+    /// Nom de la PA active qui NE déclare PAS la capacité requise (<paramref name="declaresCapability"/>), ou
+    /// <c>null</c> si la capacité est confirmée présente, si aucune PA active n'est résolue, ou si la capacité ne
+    /// peut être confirmée ici (résolution déférée — le filet d'envoi reste fail-closed). Le comportement est
+    /// piloté par la capacité déclarée du plug-in, JAMAIS par un <c>if (pa is …)</c> (CLAUDE.md n°8/16). La
+    /// résolution est défensive (services optionnels) : on bloque UNIQUEMENT sur une incapacité CONFIRMÉE —
+    /// jamais un faux blocage par indisponibilité technique (le <see cref="Send.SendTenantJob"/> garde
+    /// l'émission en dernier ressort). Partagée par la garde 389 (<c>SupportsSelfBilling</c>) et la garde
+    /// de transmission B2B (<c>SupportsB2bInvoicing</c>) — même logique, seul le prédicat de capacité diffère.
     /// </summary>
-    private static async Task<string?> ResolveSelfBillingIncapablePaAsync(
+    private static async Task<string?> ResolveCapabilityIncapablePaAsync(
         IServiceProvider services,
         ITenantSettingsQueries tenantSettings,
         Guid companyId,
+        Func<PaCapabilities, bool> declaresCapability,
         CancellationToken cancellationToken)
     {
         var accounts = await tenantSettings.GetPaAccounts(companyId, cancellationToken);
@@ -259,7 +445,7 @@ internal static class DocumentCheckEvaluator
         try
         {
             var client = registry.Resolve(new PaAccountDescriptor(active.PluginType, tenantId));
-            return client.Capabilities.SupportsSelfBilling ? null : client.Capabilities.PaName;
+            return declaresCapability(client.Capabilities) ? null : client.Capabilities.PaName;
         }
         catch (Exception)
         {
@@ -282,19 +468,36 @@ internal static class DocumentCheckEvaluator
         "opérateur : activez une Plateforme Agréée prenant en charge l'autofacturation 389 pour ce tenant.";
 
     /// <summary>
+    /// Motif de blocage d'un document à destinataire identifié (acheteur avec SIREN — B2B ou B2G) dont la PA
+    /// active n'offre AUCUN canal de transmission : ni routage PDP B2B (<c>SupportsB2bInvoicing</c>) ni transport
+    /// du Factur-X (<c>SupportsFacturXTransmission</c>). N'invente aucune règle fiscale (CLAUDE.md n°2) : la
+    /// classification vient du DOCUMENT (destinataire adressable, F07-F08 §A.4) et le pilotage par capacités
+    /// déclarées est la règle produit (CLAUDE.md n°8). Action corrective opérateur (n°12).
+    /// </summary>
+    private static string B2bInvoicingCapabilityReason(string paName) =>
+        $"facture à destinataire identifié (acheteur avec SIREN) : la Plateforme Agréée active « {paName} » " +
+        "n'offre aucun canal pour la transmettre — ni facturation électronique B2B (PDP), ni transport du " +
+        "Factur-X. L'émission est suspendue — le document n'est jamais transmis dégradé en e-reporting B2C " +
+        "anonyme (« bloquer plutôt qu'émettre faux »). Action opérateur : activez une Plateforme Agréée qui " +
+        "transmet la facture (facturation B2B PDP ou transport Factur-X) pour ce tenant.";
+
+    /// <summary>
     /// Vrai si le tenant a au moins un compte Plateforme Agréée ACTIF en environnement « Production ». Le
     /// comportement est piloté par l'environnement déclaré du compte, jamais par un plug-in PA concret.
     /// </summary>
-    private static async Task<bool> IsProductionContextAsync(
-        ITenantSettingsQueries tenantSettings,
-        Guid companyId,
-        CancellationToken cancellationToken)
-    {
-        IReadOnlyList<PaAccountDto> accounts = await tenantSettings.GetPaAccounts(companyId, cancellationToken);
-        return accounts.Any(account =>
+    private static bool HasActiveProductionAccount(IReadOnlyList<PaAccountDto> accounts) =>
+        accounts.Any(account =>
             account.IsActive
             && string.Equals(account.Environment, ProductionEnvironmentName, StringComparison.OrdinalIgnoreCase));
-    }
+
+    /// <summary>
+    /// Dérogation aux SIREN de TEST sandbox (BUG-23) accordée UNIQUEMENT sur PREUVE POSITIVE d'un contexte hors
+    /// production : au moins un compte PA ACTIF et AUCUN en production. L'absence totale de compte actif NE déroge
+    /// PAS (fail-closed) — sinon un SIREN de test resterait toléré sur un tenant non configuré, alors qu'il doit
+    /// être rejeté par la clé de Luhn. On ne tolère que là où un sandbox/staging est réellement câblé (CLAUDE.md n°3).
+    /// </summary>
+    private static bool AllowsSandboxTestIdentifiers(IReadOnlyList<PaAccountDto> accounts) =>
+        accounts.Any(account => account.IsActive) && !HasActiveProductionAccount(accounts);
 
     /// <summary>Agrège les messages opérateur des anomalies BLOQUANTES de la validation en un motif unique.</summary>
     private static string AggregateBlockingIssues(ValidationResult validationResult)
@@ -327,15 +530,81 @@ internal static class DocumentCheckEvaluator
     {
         var reasons = new List<string> { WithDocumentNumber(documentNumber, mappingReason) };
 
+        // Même gating sandbox que la voie nominale (BUG-23) : dans l'agrégation des motifs bloquants, une identité
+        // de test sandbox PA ne doit pas ajouter un motif Luhn parasite hors production. Dérogation accordée
+        // seulement sur preuve positive de contexte hors production (cf. AllowsSandboxTestIdentifiers).
+        var tenantSettings = services.GetRequiredService<ITenantSettingsQueries>();
+        var paAccounts = await tenantSettings.GetPaAccounts(companyId, cancellationToken);
+        var allowSandboxTestIdentifiers = AllowsSandboxTestIdentifiers(paAccounts);
+
         var validation = services.GetRequiredService<IValidationService>();
         var validationResult = await validation.ValidateMappingIndependentAsync(
-            new DocumentValidationContext(pivot, companyId, buyerConfirmedB2C), cancellationToken);
+            new DocumentValidationContext(pivot, companyId, buyerConfirmedB2C, allowSandboxTestIdentifiers), cancellationToken);
 
         reasons.AddRange(validationResult.Issues
             .Where(issue => issue.Severity == ValidationSeverity.Blocking)
             .Select(issue => issue.MessageOperateur));
 
         return CheckDecision.Blocked(string.Join(Environment.NewLine, reasons));
+    }
+
+    /// <summary>Vrai si l'émetteur (vendeur) du document est établi en France (mention légale FR L441 applicable).</summary>
+    private static bool IsFrenchSeller(PivotDocumentDto pivot) =>
+        string.Equals(pivot.Supplier?.Address?.CountryCode, "FR", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Motif de blocage (ou <c>null</c>) si une facture B2B/B2G FR ne porte pas les mentions de facturation
+    /// requises (BUG-26 / F16 §3.5) : les 3 mentions légales FR (BR-FR-05 : PMD/PMT/AAB) et, pour un montant dû
+    /// positif, des termes de paiement (BT-20) ou une échéance (BT-9, BR-CO-25). Lit le pivot ENRICHI (la mention
+    /// portée par la source ou injectée depuis le tenant) ; aucun contenu inventé (CLAUDE.md n°2). Cite les
+    /// mentions manquantes et l'action corrective (CLAUDE.md n°12).
+    /// </summary>
+    private static string? MissingBillingMentionsReason(PivotDocumentDto pivot)
+    {
+        var notes = pivot.Notes;
+
+        bool HasNote(string subjectCode) =>
+            notes is not null && notes.Any(note =>
+                string.Equals(note.SubjectCode, subjectCode, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(note.Content));
+
+        var missing = new List<string>(4);
+        if (!HasNote(PivotEmitterEnricher.LatePenaltySubjectCode))
+        {
+            missing.Add("pénalités de retard");
+        }
+
+        if (!HasNote(PivotEmitterEnricher.RecoveryFeeSubjectCode))
+        {
+            missing.Add("indemnité forfaitaire de recouvrement");
+        }
+
+        if (!HasNote(PivotEmitterEnricher.DiscountSubjectCode))
+        {
+            missing.Add("escompte (ou son absence)");
+        }
+
+        // BR-CO-25 : termes de paiement (BT-20) OU échéance (BT-9) requis dès que le montant dû est positif.
+        // Montant dû = TTC − acompte (montants déjà arrondis par construction du pivot).
+        var dueAmount = pivot.Totals.TotalGross - (pivot.PrepaidAmount ?? 0m);
+        if (dueAmount > 0m
+            && string.IsNullOrWhiteSpace(pivot.PaymentTerms)
+            && !pivot.PaymentDueDate.HasValue)
+        {
+            missing.Add("termes de paiement");
+        }
+
+        if (missing.Count == 0)
+        {
+            return null;
+        }
+
+        return
+            "facture à destinataire identifié (B2B) émise par un assujetti français : mentions de facturation " +
+            $"obligatoires manquantes — {string.Join(", ", missing)}. Le document serait rejeté par la Plateforme " +
+            "Agréée (règles franco-françaises CTC-FR BR-FR-05 / BR-CO-25). Document bloqué (« bloquer plutôt " +
+            "qu'envoyer faux »). Action opérateur : renseignez les mentions de facturation dans la console " +
+            "(Paramétrage › Mentions de facturation).";
     }
 
     /// <summary>Préfixe un motif de blocage rédigé par CHECK avec le numéro de document (CLAUDE.md n°12).</summary>

@@ -34,15 +34,24 @@ public sealed class GetTvaMappingEditOptionsHandler
         };
 
     // Libellés des parts (« Composante » côté console), transcrits de F03 §4.1 / §2.3 — l'enum MappingPart
-    // reste la source des CODES. La valeur Autre s'affiche « Hors Enchères » (vocabulaire opérateur,
-    // décision E2 / lot FIX2) : le code technique Autre est inchangé, seul son libellé d'affichage l'est.
+    // reste la source des CODES. BUG-12 : la part Autre est LA part lue par le CHECK pour toutes les lignes
+    // (adjudication, factures clients, notes) → libellé « Adjudication et factures » (clair y compris hors
+    // enchères, ex. facture client simple). Adjudication garde son libellé pour les règles héritées, mais
+    // n'est plus PROPOSÉE à la création (filtrée ci-dessous : part MORTE, jamais consultée — anti-confusion).
     private static readonly IReadOnlyDictionary<string, string> PartLabels =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
             [nameof(MappingPart.Adjudication)] = "Adjudication (le bien vendu)",
-            [nameof(MappingPart.Frais)] = "Frais (frais acheteur, toujours taxables)",
-            [nameof(MappingPart.Autre)] = "Hors Enchères",
+            [nameof(MappingPart.Frais)] = "Frais (taux des honoraires acheteur/vendeur)",
+            [nameof(MappingPart.Autre)] = "Adjudication et factures (lignes de la pièce)",
         };
+
+    // BUG-12 : la part Adjudication n'est consultée par AUCUN consommateur (CHECK lit Autre, B4 lit Frais —
+    // cf. ConsultedMappingParts) → ne JAMAIS la proposer à la création (une règle posée dessus serait morte).
+    private static readonly IReadOnlyList<string> EditablePartCodes =
+        Enum.GetNames<MappingPart>()
+            .Where(name => name != nameof(MappingPart.Adjudication))
+            .ToList();
 
     // Libellés des modes de taux, transcrits des commentaires de l'enum RateMode / F03 §4.1.
     private static readonly IReadOnlyDictionary<string, string> RateModeLabels =
@@ -59,7 +68,7 @@ public sealed class GetTvaMappingEditOptionsHandler
         var dto = new TvaMappingEditOptionsDto
         {
             Categories = BuildOptions(VatCategoryParser.AllowedCodes, CategoryLabels),
-            Parts = BuildOptions(Enum.GetNames<MappingPart>(), PartLabels),
+            Parts = BuildOptions(EditablePartCodes, PartLabels),
             RateModes = BuildOptions(Enum.GetNames<RateMode>(), RateModeLabels),
             VatexCodes = VatexCatalog.All
                 .Select(entry => new TvaMappingOptionDto(entry.Code, $"{entry.Code} — {entry.Description}"))

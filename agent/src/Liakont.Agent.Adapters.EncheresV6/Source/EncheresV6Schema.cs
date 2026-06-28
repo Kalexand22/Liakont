@@ -1,250 +1,345 @@
 namespace Liakont.Agent.Adapters.EncheresV6.Source;
 
 using System;
+using System.Text.RegularExpressions;
 
 /// <summary>
-/// Connaissance du SCHÉMA EncheresV6 (tables / colonnes) et requêtes SQL en LECTURE SEULE du
-/// <see cref="PervasiveExtractor"/> (F01-F02 §4.3, ADP02). Centralisé en un seul endroit : c'est ici
-/// — et nulle part ailleurs — que vivent les noms de tables/colonnes et le texte des requêtes.
+/// Connaissance du SCHÉMA EncheresV6 (tables / colonnes) et requêtes SQL en LECTURE SEULE de
+/// l'extracteur ODBC (F01-F02 §4.3). Centralisé en un seul endroit : c'est ici — et nulle part
+/// ailleurs — que vivent les noms de tables/colonnes et le texte des requêtes.
 /// <para>
-/// RÉSERVE ASSUMÉE ET TRACÉE (GATE_ADAPTER_ENCHERESV6 / GATE_DEMO_ISATECH) : la base Pervasive réelle
-/// n'est jamais sur la machine d'orchestration. Les noms explicitement donnés par la spec sont
-/// <c>entete_ba.societe</c> et <c>entete_ba.total_bordereau</c> (F01-F02 §4.3) ; les autres colonnes
-/// suivent le modèle de fixtures (qui modélise ce que l'ODBC renverra). « Validé sur fixtures » ≠
-/// « validé sur le schéma réel » : un écart de nommage découvert au test ODBC réel (serveur dédié,
-/// GATE_DEMO_ISATECH) se corrige ICI, en un seul point.
-/// </para>
-/// <para>
-/// Ce n'est PAS une donnée client (CLAUDE.md n°7) : c'est la connaissance du schéma EncheresV6 (un
-/// PRODUIT), pas un SIREN ni une chaîne ODBC (paramétrage de tenant, lot CMP). Aucun montant n'est
+/// INSTANCE (et non statique) car le PRÉFIXE DE SCHÉMA est paramétrable : la base réelle Pervasive
+/// expose des tables NUES (<c>entete_ba</c>), la base de démo SQL Server les expose sous un schéma
+/// (<c>[enc].[entete_ba]</c>). Le préfixe est du PARAMÉTRAGE de tenant (jamais une entrée libre :
+/// validé <c>^[A-Za-z_][A-Za-z0-9_]*$</c>), pas une donnée client (CLAUDE.md n°7). Aucun montant n'est
 /// recalculé ici (R3) ; le mapping vers le pivot reste <see cref="EncheresV6RowMapper"/>.
 /// </para>
+/// <para>
+/// MODÈLE (vérifié sur la donnée + dictionnaire Magic XPA) : le document ACHETEUR (BA) porte la
+/// commission acheteur (lignes <c>type_ligne='1'</c>, <c>montant_frais_ht</c>) ; le document VENDEUR
+/// (BV) porte la commission vendeur (lignes <c>type_ligne='2'</c>, <c>mtt_frais_ht</c>). Le code régime
+/// vit sur <c>ligne_pv</c>, joint depuis la ligne acheteur par l'identifiant GLOBAL de ligne de PV
+/// (<c>lignes_ba.no_ligne_tout_pv</c> = <c>ligne_pv.no_ligne_tout_pv</c>) : <c>ligne_pv.no_ba</c> vaut
+/// très souvent 0 (le lien acheteur n'est pas porté sur la ligne de PV), si bien que l'ancienne jointure
+/// par <c>no_ba</c>+<c>no_ligne_pv</c> ratait et laissait l'adjudication sans code régime. Filtre tenant
+/// par <c>No_dossier</c> (BA <c>No_dossier_comptable</c>, BV <c>dossier_comptable</c>).
+/// </para>
 /// </summary>
-internal static class EncheresV6Schema
+internal sealed class EncheresV6Schema
 {
-    /// <summary>Table d'entête des bordereaux (ventes et avoirs) — <c>entete_ba</c>.</summary>
-    internal const string TableEntete = "entete_ba";
-
-    /// <summary>Table des lignes de bordereau (adjudication, frais, règlements) — <c>lignes_ba</c>.</summary>
-    internal const string TableLignes = "lignes_ba";
-
-    /// <summary>Table des régimes de TVA source — <c>Regime_tva</c>.</summary>
+    // ── Tables ──────────────────────────────────────────────────────
+    internal const string TableEnteteBa = "entete_ba";
+    internal const string TableLignesBa = "lignes_ba";
+    internal const string TableEnteteBv = "entete_bv";
+    internal const string TableLignesBv = "lignes_bv";
+    internal const string TableLignePv = "ligne_pv";
     internal const string TableRegimes = "Regime_tva";
+    internal const string TableEnteteFactureClient = "entete_facture_clien";
+    internal const string TableLigneFactureClient = "ligne_facture_client";
+    internal const string TableEnteteNotesHono = "entete_notes_hono";
+    internal const string TableLignesNotesHono = "lignes_notes_hono";
 
-    /// <summary>Colonne <c>no_ba</c> (identifiant interne du bordereau, clé de jointure et référence source).</summary>
+    // ── Colonnes communes / BA ──────────────────────────────────────
     internal const string ColNoBa = "no_ba";
-
-    /// <summary>Colonne <c>numero_piece</c> (numéro de pièce affiché, EN 16931 BT-1).</summary>
-    internal const string ColNumeroPiece = "numero_piece";
-
-    /// <summary>Colonne <c>bordereau_ou_avoir</c> (« B » vente, « A » avoir — transporté brut).</summary>
     internal const string ColBordereauOuAvoir = "bordereau_ou_avoir";
-
-    /// <summary>Colonne <c>date_vente</c> (date d'émission, EN 16931 BT-2 ; axe de période).</summary>
     internal const string ColDateVente = "date_vente";
-
-    /// <summary>Colonne <c>no_ba_lettrage</c> (pour un avoir : no_ba du bordereau d'origine).</summary>
     internal const string ColNoBaLettrage = "no_ba_lettrage";
-
-    /// <summary>Colonne <c>acheteur_nom</c> (nom du destinataire).</summary>
-    internal const string ColAcheteurNom = "acheteur_nom";
-
-    /// <summary>Colonne <c>societe</c> de l'entête (non vide ⇒ <c>IsCompanyHint</c> brut — spec §4.3).</summary>
+    internal const string ColNoDossierBa = "No_dossier_comptable";
+    internal const string ColNom = "nom";
+    internal const string ColPrenom = "prenom";
     internal const string ColSociete = "societe";
-
-    /// <summary>Colonne <c>acheteur_siren</c> (SIREN acheteur si présent — rare en B2C).</summary>
     internal const string ColAcheteurSiren = "acheteur_siren";
-
-    /// <summary>Colonne <c>acheteur_ville</c>.</summary>
-    internal const string ColAcheteurVille = "acheteur_ville";
-
-    /// <summary>Colonne <c>acheteur_code_postal</c>.</summary>
-    internal const string ColAcheteurCodePostal = "acheteur_code_postal";
-
-    /// <summary>Colonne <c>acheteur_pays</c> (ISO 3166-1 alpha-2).</summary>
-    internal const string ColAcheteurPays = "acheteur_pays";
-
-    /// <summary>Colonne <c>total_ht</c> d'entête.</summary>
-    internal const string ColTotalHt = "total_ht";
-
-    /// <summary>Colonne <c>total_tva</c> d'entête.</summary>
-    internal const string ColTotalTva = "total_tva";
-
-    /// <summary>Colonne <c>total_bordereau</c> d'entête (total TTC stocké — spec §4.3).</summary>
+    internal const string ColTvaCee = "tva_cee";
+    internal const string ColAdresse = "adresse";
+    internal const string ColCodePostal = "code_postal";
+    internal const string ColVille = "ville";
+    internal const string ColCodePays = "code_pays";
+    internal const string ColCodeExport = "code_export";
+    internal const string ColModeLivraison = "mode_livraison";
     internal const string ColTotalBordereau = "total_bordereau";
 
-    /// <summary>Colonne <c>type_ligne</c> (« 4 » adjudication, « 2 » frais, « 3 » règlement).</summary>
+    // ── Lignes BA ───────────────────────────────────────────────────
     internal const string ColTypeLigne = "type_ligne";
-
-    /// <summary>Colonne <c>designation</c> (libellé de la ligne).</summary>
-    internal const string ColDesignation = "designation";
-
-    /// <summary>Colonne <c>montant_ht</c> de la ligne (flottant source).</summary>
-    internal const string ColMontantHt = "montant_ht";
-
-    /// <summary>Colonne <c>montant_tva</c> de la ligne (flottant source).</summary>
-    internal const string ColMontantTva = "montant_tva";
-
-    /// <summary>Colonne <c>taux_tva</c> de la ligne (%, nullable).</summary>
-    internal const string ColTauxTva = "taux_tva";
-
-    /// <summary>Colonne <c>quantite</c> de la ligne (nullable).</summary>
-    internal const string ColQuantite = "quantite";
-
-    /// <summary>Colonne <c>prix_unitaire</c> de la ligne (flottant source, nullable).</summary>
-    internal const string ColPrixUnitaire = "prix_unitaire";
-
-    /// <summary>Colonne <c>code_regime</c> (code régime TVA brut, R3) — portée par <c>lignes_ba</c> ET clé de <c>Regime_tva</c>.</summary>
-    internal const string ColCodeRegime = "code_regime";
-
-    /// <summary>Colonne <c>libelle</c> de la table <c>Regime_tva</c> (libellé du régime tel que stocké en source).</summary>
-    internal const string ColLibelleRegime = "libelle";
-
-    /// <summary>Alias de l'agrégat <c>COUNT</c> des occurrences d'un régime dans <c>lignes_ba</c> (requête <see cref="SelectTaxRegimesSql"/>).</summary>
-    internal const string ColRegimeOccurrences = "occurrences";
-
-    /// <summary>Colonne <c>no_ligne</c> (référence de la ligne dans la source).</summary>
-    internal const string ColNoLigne = "no_ligne";
-
-    /// <summary>
-    /// Colonne <c>montant_ligne</c> (lignes type 3 — montant ENCAISSÉ, nommée explicitement par F09 §5.1 :
-    /// « <c>lignes_ba.type_ligne='3'</c> → <c>montant_ligne</c>, <c>date_reglement</c>… »). DISTINCTE de
-    /// <see cref="ColMontantHt"/> (montant des lignes de DOCUMENT type 4/2, F01-F02 §4.3) : lire <c>montant_ht</c>
-    /// pour un règlement sous-déclarerait l'encaissement si le schéma réel place le montant dans
-    /// <c>montant_ligne</c>. RÉSERVE : validé sur fixtures uniquement, réconcilié au schéma Pervasive réel par
-    /// GATE_DEMO_ISATECH (cf. en-tête de cette classe).
-    /// </summary>
+    internal const string ColCodeLigne = "code_ligne";
+    internal const string ColNoLignePv = "no_ligne_pv";
+    internal const string ColNoLigneToutPv = "no_ligne_tout_pv";
+    internal const string ColLibelleLigne = "libelle_ligne";
+    internal const string ColMontantAdjHt = "montant_adj_ht";
+    internal const string ColMttTvaInclusAdj = "mtt_tva_inclus_adj";
+    internal const string ColMttTvaEnPlusAdj = "mtt_tva_en_plus_adj";
+    internal const string ColMontantFraisHt = "montant_frais_ht";
+    internal const string ColMontantTvaFrais = "montant_tva_frais";
     internal const string ColMontantLigne = "montant_ligne";
-
-    /// <summary>Colonne <c>date_reglement</c> (lignes type 3 — date d'encaissement, F09 ; axe de période des paiements).</summary>
+    internal const string ColCodeDevise = "code_devise";
     internal const string ColDateReglement = "date_reglement";
-
-    /// <summary>Colonne <c>mode_reglement</c> (lignes type 3 — CB, chèque, espèces, virement ; informatif F09).</summary>
-    internal const string ColModeReglement = "mode_reglement";
-
-    /// <summary>Colonne <c>no_remise</c> (lignes type 3 — référence source de l'encaissement, F09).</summary>
     internal const string ColNoRemise = "no_remise";
 
-    /// <summary>Alias <c>origin_no_ba</c> : <c>no_ba</c> du bordereau d'origine d'un avoir (auto-jointure via <c>no_ba_lettrage</c>, ADP03).</summary>
+    // ── BV ──────────────────────────────────────────────────────────
+    internal const string ColNoBv = "no_bv";
+    internal const string ColNoBvLettrage = "no_bv_lettrage";
+    internal const string ColNoDossierBv = "dossier_comptable";
+    internal const string ColCodeRegimeTva = "code_regime_tva";
+    internal const string ColMttFraisHt = "mtt_frais_ht";
+    internal const string ColMttTvaFrais = "mtt_tva_frais";
+
+    // ── ligne_pv ────────────────────────────────────────────────────
+    internal const string ColPvNoLigneToutPv = "no_ligne_tout_pv";
+
+    // ── Factures clients (entête entete_facture_clien) ──────────────
+    internal const string ColNoFact = "no_fact";
+    internal const string ColFactureOuAvoir = "facture_ou_avoir";
+    internal const string ColDateFact = "date_fact";
+    internal const string ColDossierCpt = "dossier_cpt";
+    internal const string ColNoFactureLettrage = "no_facture_lettrage";
+    internal const string ColFcAdresse1 = "adresse1";
+    internal const string ColFcCp = "cp";
+    internal const string ColFcMontantHt = "montant_ht";
+    internal const string ColFcMontantTva = "montant_tva";
+    internal const string ColFcMontantTtc = "montant_ttc";
+
+    // ── Lignes facture client (ligne_facture_client) ────────────────
+    internal const string ColNoLigne = "no_ligne";
+    internal const string ColCodeArticle = "code_article";
+    internal const string ColDesignation = "designation";
+    internal const string ColQte = "qte";
+    internal const string ColPrixUnitaireHt = "prix_unitaire_ht";
+    internal const string ColFcCodeTva = "code_tva";
+    internal const string ColTauxTva = "taux_tva";
+
+    // ── Alias d'origine d'un avoir facture ──────────────────────────
+    internal const string ColOriginNoFact = "origin_no_fact";
+    internal const string ColOriginDateFact = "origin_date_fact";
+
+    // ── Notes d'honoraires (entête entete_notes_hono) ───────────────
+    internal const string ColNoNoteHono = "no_note_hono";
+    internal const string ColDateFacture = "date_facture";
+    internal const string ColNoDossierNh = "No_dossier";
+    internal const string ColNoNoteLettrage = "no_note_lettrage";
+    internal const string ColNhAdresse = "adresse";
+    internal const string ColNhMontantTtc = "montant_ttc";
+
+    // ── Lignes note d'honoraires (lignes_notes_hono) ────────────────
+    internal const string ColLibelle = "libelle";
+    internal const string ColNhMontantHt = "montant_ht";
+    internal const string ColNhMontantTva = "montant_tva";
+
+    // ── Alias d'origine d'un avoir note ─────────────────────────────
+    internal const string ColOriginNoNote = "origin_no_note";
+    internal const string ColOriginDateFacture = "origin_date_facture";
+
+    // ── Régimes ─────────────────────────────────────────────────────
+    internal const string ColRegimeLibelle = "libelle_descriptif";
+    internal const string ColRegimeOccurrences = "occurrences";
+
+    /// <summary>Alias du libellé de régime dans <see cref="SelectTaxRegimesSql"/> (consommé par l'extracteur).</summary>
+    internal const string ColLibelleAlias = "libelle";
+
+    // ── Alias de jointure ──────────────────────────────────────────
+    internal const string ColCodeRegime = "code_regime";
     internal const string ColOriginNoBa = "origin_no_ba";
-
-    /// <summary>Alias <c>origin_numero_piece</c> : numéro de pièce de la facture d'origine d'un avoir (lien EN 16931 BT-25, ADP03).</summary>
-    internal const string ColOriginNumeroPiece = "origin_numero_piece";
-
-    /// <summary>Alias <c>origin_date_vente</c> : date d'émission de la facture d'origine d'un avoir (ADP03).</summary>
     internal const string ColOriginDateVente = "origin_date_vente";
+    internal const string ColOriginNoBv = "origin_no_bv";
 
-    /// <summary>Type de pièce source « bordereau de vente » (filtre des documents extraits).</summary>
+    // ── Types de pièce ──────────────────────────────────────────────
     internal const string PieceVente = "B";
-
-    /// <summary>Type de pièce source « avoir » (« copie en positif » lettrée à son origine — F07-F08 §B.2, ADP03).</summary>
     internal const string PieceAvoir = "A";
 
+    // ── Types de ligne (ASYMÉTRIE acheteur/vendeur, sourcé dico Magic + donnée) ──
+    internal const string LigneLotBa = "1";        // lignes_ba : lot (adjudication + commission acheteur)
+    internal const string LigneDebooursBa = "2";   // lignes_ba : débours/annexes acheteur (hors marge)
+    internal const string LigneReglementBa = "3";  // lignes_ba : règlement
+    internal const string LigneRecapBa = "4";      // lignes_ba : RÉCAP (ignoré)
+    internal const string LigneLotBv = "1";        // lignes_bv : lot (adjudication)
+    internal const string LigneCommissionBv = "2"; // lignes_bv : commission vendeur (marge)
+    internal const string LigneDeboursBv = "3";    // lignes_bv : débours (hors marge)
+    internal const string LignePaiementBv = "4";   // lignes_bv : paiement
+    internal const string LigneFactureeFc = "1";   // ligne_facture_client : ligne facturée (article/prestation)
+    internal const string LigneReglementFc = "2";  // ligne_facture_client : règlement (exclu)
+    internal const string LigneHonoraireNh = "1";  // lignes_notes_hono : honoraires d'inventaire
+    internal const string LigneFraisNh = "2";      // lignes_notes_hono : frais (déplacement, droits fixes…)
+    internal const string LigneReglementNh = "3";  // lignes_notes_hono : règlement (exclu)
+
+    private static readonly Regex SchemaPattern = new Regex("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
+
+    private readonly string _enteteBa;
+    private readonly string _lignesBa;
+    private readonly string _enteteBv;
+    private readonly string _lignesBv;
+    private readonly string _lignePv;
+    private readonly string _regimes;
+    private readonly string _enteteFactureClient;
+    private readonly string _ligneFactureClient;
+    private readonly string _enteteNotesHono;
+    private readonly string _lignesNotesHono;
+
+    /// <summary>Crée la connaissance du schéma pour un préfixe donné (vide = tables nues Pervasive ; ex. « enc » pour la démo SQL Server).</summary>
+    /// <param name="schema">Préfixe de schéma (paramétrage). <c>null</c>/vide = aucun préfixe. Validé contre l'injection.</param>
+    /// <exception cref="ArgumentException">Si <paramref name="schema"/> n'est pas un identifiant SQL simple.</exception>
+    public EncheresV6Schema(string? schema)
+    {
+        string prefix;
+        if (string.IsNullOrWhiteSpace(schema))
+        {
+            prefix = string.Empty;
+        }
+        else if (!SchemaPattern.IsMatch(schema!.Trim()))
+        {
+            throw new ArgumentException(
+                "Le schéma EncheresV6 (adapterConfig.EncheresV6.schema) doit être un identifiant SQL simple "
+                + "(lettres, chiffres, « _ », sans espace ni point).",
+                nameof(schema));
+        }
+        else
+        {
+            prefix = schema!.Trim() + ".";
+        }
+
+        _enteteBa = prefix + TableEnteteBa;
+        _lignesBa = prefix + TableLignesBa;
+        _enteteBv = prefix + TableEnteteBv;
+        _lignesBv = prefix + TableLignesBv;
+        _lignePv = prefix + TableLignePv;
+        _regimes = prefix + TableRegimes;
+        _enteteFactureClient = prefix + TableEnteteFactureClient;
+        _ligneFactureClient = prefix + TableLigneFactureClient;
+        _enteteNotesHono = prefix + TableEnteteNotesHono;
+        _lignesNotesHono = prefix + TableLignesNotesHono;
+    }
+
+    /// <summary>Tables dont la présence est contrôlée par <c>CheckHealth</c>.</summary>
+    public string[] ExpectedTables => new[]
+    {
+        _enteteBa, _lignesBa, _enteteBv, _lignesBv, _lignePv, _regimes,
+        _enteteFactureClient, _ligneFactureClient, _enteteNotesHono, _lignesNotesHono,
+    };
+
     /// <summary>
-    /// Requête d'extraction des DOCUMENTS (ventes ET avoirs) d'une période — F01-F02 §4.3, F07-F08 §B.5 :
-    /// <c>entete_ba WHERE bordereau_ou_avoir IN ('B','A') AND date_vente ∈ [from, to[</c>, jointe en LEFT JOIN à ses
-    /// lignes de document (<c>type_ligne IN ('4','2')</c> dans la clause ON), triée par <c>no_ba</c> puis <c>no_ligne</c>
-    /// pour permettre un regroupement par bordereau EN STREAMING (R8 — un seul lecteur, mémoire O(1 doc)).
-    /// <para>
-    /// Le LEFT JOIN (filtre de type dans le ON) garantit qu'une vente sans ligne 4/2 N'EST PAS omise silencieusement : elle ressort en ligne d'entête seule (colonnes ligne NULL) et le document est émis sans ligne (jamais de perte d'une vente — « bloquer plutôt qu'envoyer faux »). Les règlements (<c>type_ligne='3'</c>) restent EXCLUS ici : ils sont extraits par <see cref="SelectPaymentsSql"/> (F09). Le code régime brut est porté par <c>lignes_ba.code_regime</c> (R3 — aucune
-    /// jointure <c>Regime_tva</c> nécessaire pour le document ; le libellé du régime est exposé par
-    /// <c>ListSourceTaxRegimes</c>, ADP04). Période sur <c>date_vente</c> conformément à la requête
-    /// documentée : un document antidaté saisi tardivement reste extractible via la fenêtre de
-    /// recouvrement de l'ordonnanceur agent + l'idempotence anti-re-push (contrat IExtractor « DISPONIBLE
-    /// DEPUIS ») — EncheresV6 n'expose aucun horodatage d'insertion monotone (ne pas inventer de colonne).
-    /// </para>
-    /// <para>
-    /// AVOIRS (ADP03, F07-F08 §B.2/§B.5) : un avoir (<c>'A'</c>) référence sa facture d'origine via
-    /// <c>no_ba_lettrage</c>. La SECONDE auto-jointure LEFT JOIN (<c>o.no_ba = e.no_ba_lettrage</c>, restreinte aux
-    /// avoirs par <c>e.bordereau_ou_avoir='A'</c> dans le ON) rapporte l'entête d'origine SANS requête supplémentaire
-    /// ni second lecteur (lecture seule, O(1 doc) préservé) : un même lecteur, jamais de MARS. Les colonnes
-    /// <c>origin_no_ba/origin_numero_piece/origin_date_vente</c> sont NULL pour une vente et pour un avoir dont le
-    /// lettrage ne résout pas (avoir alors BLOQUÉ par le mapper, jamais deviné — ADR-0004 D3-3, F07-F08 §B.4).
-    /// Le sens « crédit » est porté par le TYPE de pièce, jamais par le signe : les montants restent positifs (F07-F08 §B.2).
-    /// </para>
-    /// Bornes positionnelles ODBC (<c>?</c>) : <c>date_vente &gt;= from</c> (incluse), <c>&lt; to</c> (exclue).
+    /// Requête des DOCUMENTS ACHETEUR (BA : ventes + avoirs) d'une période, lignes de LOT (type 1) jointes
+    /// + régime du lot (<c>ligne_pv</c>) + entête d'origine d'un avoir (auto-jointure). Bornes
+    /// positionnelles ODBC : <c>dossier</c>, <c>from</c> (incluse), <c>to</c> (exclue). Streaming par <c>no_ba</c>.
     /// </summary>
-    internal const string SelectDocumentsSql =
-        "SELECT e." + ColNoBa + ", e." + ColNumeroPiece + ", e." + ColBordereauOuAvoir + ", e." + ColDateVente
-        + ", e." + ColNoBaLettrage + ", e." + ColAcheteurNom + ", e." + ColSociete + ", e." + ColAcheteurSiren
-        + ", e." + ColAcheteurVille + ", e." + ColAcheteurCodePostal + ", e." + ColAcheteurPays
-        + ", e." + ColTotalHt + ", e." + ColTotalTva + ", e." + ColTotalBordereau
-        + ", o." + ColNoBa + " AS " + ColOriginNoBa + ", o." + ColNumeroPiece + " AS " + ColOriginNumeroPiece
-        + ", o." + ColDateVente + " AS " + ColOriginDateVente
-        + ", l." + ColTypeLigne + ", l." + ColDesignation + ", l." + ColMontantHt + ", l." + ColMontantTva
-        + ", l." + ColTauxTva + ", l." + ColQuantite + ", l." + ColPrixUnitaire + ", l." + ColCodeRegime
-        + ", l." + ColNoLigne
-        + " FROM " + TableEntete + " e"
-        + " LEFT JOIN " + TableLignes + " l ON l." + ColNoBa + " = e." + ColNoBa
-        + " AND l." + ColTypeLigne + " IN ('" + EncheresV6RowMapper.LigneAdjudication + "', '" + EncheresV6RowMapper.LigneFrais + "')"
-        + " LEFT JOIN " + TableEntete + " o ON e." + ColBordereauOuAvoir + " = '" + PieceAvoir + "'"
-        + " AND o." + ColNoBa + " = e." + ColNoBaLettrage
-        + " WHERE e." + ColBordereauOuAvoir + " IN ('" + PieceVente + "', '" + PieceAvoir + "')"
+    public string SelectBaDocumentsSql =>
+        "SELECT e." + ColNoBa + ", e." + ColBordereauOuAvoir + ", e." + ColDateVente + ", e." + ColNoBaLettrage
+        + ", e." + ColNom + ", e." + ColPrenom + ", e." + ColSociete + ", e." + ColAcheteurSiren + ", e." + ColTvaCee
+        + ", e." + ColAdresse + ", e." + ColCodePostal + ", e." + ColVille + ", e." + ColCodePays
+        + ", e." + ColCodeExport + ", e." + ColModeLivraison
+        + ", e." + ColTotalBordereau
+        + ", o." + ColNoBa + " AS " + ColOriginNoBa + ", o." + ColDateVente + " AS " + ColOriginDateVente
+        + ", l." + ColTypeLigne + ", l." + ColCodeLigne + ", l." + ColNoLignePv + ", l." + ColNoLigneToutPv + ", l." + ColLibelleLigne
+        + ", l." + ColMontantAdjHt + ", l." + ColMttTvaInclusAdj + ", l." + ColMttTvaEnPlusAdj
+        + ", l." + ColMontantFraisHt + ", l." + ColMontantTvaFrais + ", l." + ColCodeDevise
+        + ", lp." + ColCodeRegimeTva + " AS " + ColCodeRegime
+        + " FROM " + _enteteBa + " e"
+        + " LEFT JOIN " + _lignesBa + " l ON l." + ColNoBa + " = e." + ColNoBa + " AND l." + ColTypeLigne + " = '" + LigneLotBa + "'"
+        + " LEFT JOIN " + _lignePv + " lp ON lp." + ColPvNoLigneToutPv + " = l." + ColNoLigneToutPv
+        + " LEFT JOIN " + _enteteBa + " o ON e." + ColBordereauOuAvoir + " = '" + PieceAvoir + "' AND o." + ColNoBa + " = e." + ColNoBaLettrage
+        + " WHERE e." + ColNoDossierBa + " = ? AND e." + ColBordereauOuAvoir + " IN ('" + PieceVente + "', '" + PieceAvoir + "')"
         + " AND e." + ColDateVente + " >= ? AND e." + ColDateVente + " < ?"
-        + " ORDER BY e." + ColNoBa + ", l." + ColNoLigne;
+        + " ORDER BY e." + ColNoBa + ", l." + ColNoLignePv;
 
     /// <summary>
-    /// Requête d'extraction des ENCAISSEMENTS d'une période — F09 (e-reporting de paiement), ADP03 :
-    /// <c>lignes_ba WHERE type_ligne='3' AND date_reglement ∈ [from, to[</c>, jointe (INNER JOIN) à son
-    /// bordereau (<c>entete_ba</c>) pour rapporter le numéro de pièce d'origine (rattachement par lettrage), triée
-    /// par <c>no_ba</c> puis <c>no_ligne</c> (ordre stable).
-    /// <para>
-    /// Le montant encaissé est lu dans <see cref="ColMontantLigne"/> (<c>montant_ligne</c>) — colonne nommée
-    /// explicitement par F09 §5.1 pour les lignes type 3, distincte du <c>montant_ht</c> des lignes de document.
-    /// Période sur <c>date_reglement</c> (la date d'encaissement, pas la date de vente). L'INNER JOIN exige qu'un
-    /// règlement soit rattaché à un bordereau : un encaissement orphelin n'est pas transmis (jamais inventé).
-    /// L'AGRÉGATION jour × taux est faite par la PLATEFORME (PIP03) ; l'adaptateur transmet les paiements BRUTS (F09).
-    /// </para>
-    /// Bornes positionnelles ODBC (<c>?</c>) : <c>date_reglement &gt;= from</c> (incluse), <c>&lt; to</c> (exclue).
+    /// Requête des DOCUMENTS VENDEUR (BV : ventes + avoirs) d'une période, lignes de LOT (type 1) + commission
+    /// (type 2) jointes — LECTURE DIRECTE par <c>no_bv</c> (PAS de jointure <c>ligne_pv</c> : éviter le
+    /// produit cartésien qui doublerait la commission). Débours (type 3) et paiements (type 4) EXCLUS.
+    /// Bornes ODBC : <c>dossier</c>, <c>from</c>, <c>to</c>. Streaming par <c>no_bv</c>.
     /// </summary>
-    internal const string SelectPaymentsSql =
-        "SELECT e." + ColNoBa + ", e." + ColNumeroPiece
-        + ", l." + ColNoLigne + ", l." + ColMontantLigne + ", l." + ColDateReglement
-        + ", l." + ColModeReglement + ", l." + ColNoRemise
-        + " FROM " + TableLignes + " l"
-        + " INNER JOIN " + TableEntete + " e ON e." + ColNoBa + " = l." + ColNoBa
-        + " WHERE l." + ColTypeLigne + " = '" + EncheresV6RowMapper.LigneReglement + "'"
+    public string SelectBvDocumentsSql =>
+        "SELECT e." + ColNoBv + ", e." + ColBordereauOuAvoir + ", e." + ColDateVente + ", e." + ColNoBvLettrage
+        + ", e." + ColNom + ", e." + ColPrenom + ", e." + ColCodePostal + ", e." + ColVille + ", e." + ColCodePays
+        + ", e." + ColCodeRegimeTva + ", e." + ColTotalBordereau
+        + ", o." + ColNoBv + " AS " + ColOriginNoBv + ", o." + ColDateVente + " AS " + ColOriginDateVente
+        + ", l." + ColTypeLigne + ", l." + ColCodeLigne + ", l." + ColNoLignePv + ", l." + ColLibelleLigne
+        + ", l." + ColMontantAdjHt + ", l." + ColMttFraisHt + ", l." + ColMttTvaFrais + ", l." + ColCodeDevise
+        + " FROM " + _enteteBv + " e"
+        + " LEFT JOIN " + _lignesBv + " l ON l." + ColNoBv + " = e." + ColNoBv
+        + " AND l." + ColTypeLigne + " IN ('" + LigneLotBv + "', '" + LigneCommissionBv + "')"
+        + " LEFT JOIN " + _enteteBv + " o ON e." + ColBordereauOuAvoir + " = '" + PieceAvoir + "' AND o." + ColNoBv + " = e." + ColNoBvLettrage
+        + " WHERE e." + ColNoDossierBv + " = ? AND e." + ColBordereauOuAvoir + " IN ('" + PieceVente + "', '" + PieceAvoir + "')"
+        + " AND e." + ColDateVente + " >= ? AND e." + ColDateVente + " < ?"
+        + " ORDER BY e." + ColNoBv + ", l." + ColTypeLigne + ", l." + ColNoLignePv;
+
+    /// <summary>
+    /// Requête des ENCAISSEMENTS (lignes BA type 3) d'une période — F09. Bornes ODBC : <c>dossier</c>,
+    /// <c>from</c>, <c>to</c> (sur <c>date_reglement</c>). Montant dans <c>montant_ligne</c>.
+    /// </summary>
+    public string SelectPaymentsSql =>
+        "SELECT e." + ColNoBa + ", l." + ColNoLignePv + ", l." + ColCodeLigne + ", l." + ColLibelleLigne
+        + ", l." + ColMontantLigne + ", l." + ColDateReglement + ", l." + ColNoRemise
+        + " FROM " + _lignesBa + " l"
+        + " INNER JOIN " + _enteteBa + " e ON e." + ColNoBa + " = l." + ColNoBa
+        + " WHERE e." + ColNoDossierBa + " = ? AND l." + ColTypeLigne + " = '" + LigneReglementBa + "'"
         + " AND l." + ColDateReglement + " >= ? AND l." + ColDateReglement + " < ?"
-        + " ORDER BY e." + ColNoBa + ", l." + ColNoLigne;
+        + " ORDER BY e." + ColNoBa + ", l." + ColNoLignePv;
 
     /// <summary>
-    /// Requête de listage des RÉGIMES de TVA source (ADP04, F03/TVA03) : tous les régimes déclarés dans
-    /// <c>Regime_tva</c> (code BRUT + libellé), avec le nombre d'occurrences de chaque code dans
-    /// <c>lignes_ba</c>. Le <c>LEFT JOIN</c> garantit qu'un régime déclaré mais jamais utilisé ressort
-    /// avec <c>occurrences = 0</c> (jamais omis) ; <c>COUNT(l.code_regime)</c> (et non <c>COUNT(*)</c>)
-    /// compte 0 pour la ligne d'entête seule produite par le <c>LEFT JOIN</c> sans correspondance.
-    /// <para>
-    /// LECTURE SEULE STRICTE (<c>SELECT</c> + <c>GROUP BY</c>, aucune écriture). L'adaptateur n'interprète
-    /// jamais le régime (R3, CLAUDE.md n°2) : il transporte le code et le libellé bruts ; le mapping F03
-    /// et la détection de couverture (TVA03) sont plateforme. Tri par <c>code_regime</c> pour un résultat
-    /// DÉTERMINISTE. Même intention que le mode fixtures (<see cref="EncheresV6FixtureExtractor.ListSourceTaxRegimes"/>) :
-    /// liste pilotée par <c>Regime_tva</c> (dont <c>code_regime</c> est la clé — une ligne par code), occurrences comptées sur <c>lignes_ba</c> ; une entrée à code vide est ignorée des deux côtés. PERFORMANCE / RÉSERVE GATE_DEMO_ISATECH : ce <c>GROUP BY</c> balaie <c>lignes_ba</c> ; sur une base réelle volumineuse, un index sur <c>lignes_ba.code_regime</c> est attendu. Le coût réel n'est pas mesurable sur fixtures.
-    /// </para>
+    /// Requête des FACTURES CLIENTS (ventes + avoirs) d'une période, lignes FACTURÉES (type 1) jointes
+    /// + entête d'origine d'un avoir (auto-jointure par <c>no_facture_lettrage</c>). PAS de jointure
+    /// <c>ligne_pv</c> : le régime vit PAR LIGNE (<c>ligne_facture_client.code_tva</c>). Bornes positionnelles
+    /// ODBC : <c>dossier</c> (<c>dossier_cpt</c>), <c>from</c> (incluse), <c>to</c> (exclue, sur <c>date_fact</c>).
+    /// Streaming par <c>no_fact</c>.
     /// </summary>
-    internal const string SelectTaxRegimesSql =
-        "SELECT r." + ColCodeRegime + ", r." + ColLibelleRegime + ", COUNT(l." + ColCodeRegime + ") AS " + ColRegimeOccurrences
-        + " FROM " + TableRegimes + " r"
-        + " LEFT JOIN " + TableLignes + " l ON l." + ColCodeRegime + " = r." + ColCodeRegime
-        + " GROUP BY r." + ColCodeRegime + ", r." + ColLibelleRegime
-        + " ORDER BY r." + ColCodeRegime;
+    public string SelectFactureClientDocumentsSql =>
+        "SELECT e." + ColNoFact + ", e." + ColFactureOuAvoir + ", e." + ColDateFact + ", e." + ColNoFactureLettrage
+        + ", e." + ColNom + ", e." + ColPrenom + ", e." + ColFcAdresse1 + ", e." + ColFcCp + ", e." + ColVille + ", e." + ColCodePays
+        + ", e." + ColFcMontantHt + ", e." + ColFcMontantTva + ", e." + ColFcMontantTtc + ", e." + ColCodeDevise
+        + ", o." + ColNoFact + " AS " + ColOriginNoFact + ", o." + ColDateFact + " AS " + ColOriginDateFact
+        + ", l." + ColTypeLigne + ", l." + ColNoLigne + ", l." + ColCodeArticle + ", l." + ColDesignation
+        + ", l." + ColQte + ", l." + ColPrixUnitaireHt + ", l." + ColFcCodeTva + ", l." + ColTauxTva
+        + " FROM " + _enteteFactureClient + " e"
+        + " LEFT JOIN " + _ligneFactureClient + " l ON l." + ColNoFact + " = e." + ColNoFact + " AND l." + ColTypeLigne + " = '" + LigneFactureeFc + "'"
+        + " LEFT JOIN " + _enteteFactureClient + " o ON e." + ColFactureOuAvoir + " = '" + PieceAvoir + "' AND o." + ColNoFact + " = e." + ColNoFactureLettrage
+        + " WHERE e." + ColDossierCpt + " = ? AND e." + ColFactureOuAvoir + " IN ('" + PieceVente + "', '" + PieceAvoir + "')"
+        + " AND e." + ColDateFact + " >= ? AND e." + ColDateFact + " < ?"
+        + " ORDER BY e." + ColNoFact + ", l." + ColNoLigne;
 
-    /// <summary>Tables dont la présence est contrôlée par <c>CheckHealth</c> (accès + comptage rapide).</summary>
-    internal static readonly string[] ExpectedTables = { TableEntete, TableLignes, TableRegimes };
+    /// <summary>
+    /// Requête des NOTES D'HONORAIRES d'inventaire (notes + avoirs) d'une période, lignes FACTURÉES (honoraires
+    /// type 1 + frais type 2) jointes + entête d'origine d'un avoir (auto-jointure par <c>no_note_lettrage</c>).
+    /// Les règlements (type 3) sont EXCLUS. PAS de jointure régime : la note ne porte pas de <c>code_tva</c> (le
+    /// taux est recouvré par le mapper). <c>type_ligne</c> est un <c>smallint</c> → littéraux NUMÉRIQUES dans le
+    /// IN. Bornes positionnelles ODBC : <c>dossier</c> (<c>No_dossier</c>), <c>from</c>, <c>to</c> (sur
+    /// <c>date_facture</c>). Streaming par <c>no_note_hono</c>.
+    /// </summary>
+    public string SelectNoteHonoDocumentsSql =>
+        "SELECT e." + ColNoNoteHono + ", e." + ColFactureOuAvoir + ", e." + ColDateFacture + ", e." + ColNoNoteLettrage
+        + ", e." + ColNom + ", e." + ColPrenom + ", e." + ColNhAdresse + ", e." + ColCodePostal + ", e." + ColVille + ", e." + ColCodePays
+        + ", e." + ColNhMontantTtc + ", e." + ColCodeDevise
+        + ", o." + ColNoNoteHono + " AS " + ColOriginNoNote + ", o." + ColDateFacture + " AS " + ColOriginDateFacture
+        + ", l." + ColTypeLigne + ", l." + ColCodeLigne + ", l." + ColLibelle + ", l." + ColNhMontantHt + ", l." + ColNhMontantTva
+        + " FROM " + _enteteNotesHono + " e"
+        + " LEFT JOIN " + _lignesNotesHono + " l ON l." + ColNoNoteHono + " = e." + ColNoNoteHono + " AND l." + ColTypeLigne + " IN (" + LigneHonoraireNh + ", " + LigneFraisNh + ")"
+
+        // L'origine d'avoir est SCOPÉE au dossier (tenant) : no_note_hono RENUMÉROTE par dossier (≠ no_ba/no_fact
+        // globaux), un avoir résoudrait sinon l'origine d'un AUTRE dossier (ou dupliquerait ses lignes). CLAUDE.md n°9.
+        + " LEFT JOIN " + _enteteNotesHono + " o ON e." + ColFactureOuAvoir + " = '" + PieceAvoir + "' AND o." + ColNoNoteHono + " = e." + ColNoNoteLettrage + " AND o." + ColNoDossierNh + " = e." + ColNoDossierNh
+        + " WHERE e." + ColNoDossierNh + " = ? AND e." + ColFactureOuAvoir + " IN ('" + PieceVente + "', '" + PieceAvoir + "')"
+        + " AND e." + ColDateFacture + " >= ? AND e." + ColDateFacture + " < ?"
+        + " ORDER BY e." + ColNoNoteHono + ", l." + ColTypeLigne;
+
+    /// <summary>
+    /// Requête des RÉGIMES de TVA source (catalogue global, code BRUT + libellé) + occurrences observées
+    /// sur <c>ligne_pv</c>. Aucune borne (catalogue partagé par les études). LECTURE SEULE.
+    /// </summary>
+    public string SelectTaxRegimesSql =>
+        "SELECT r." + ColCodeRegimeTva + " AS " + ColCodeRegime + ", r." + ColRegimeLibelle + " AS " + ColLibelleAlias
+        + ", COUNT(lp." + ColCodeRegimeTva + ") AS " + ColRegimeOccurrences
+        + " FROM " + _regimes + " r"
+        + " LEFT JOIN " + _lignePv + " lp ON lp." + ColCodeRegimeTva + " = r." + ColCodeRegimeTva
+        + " GROUP BY r." + ColCodeRegimeTva + ", r." + ColRegimeLibelle
+        + " ORDER BY r." + ColCodeRegimeTva;
 
     /// <summary>Requête de comptage rapide (présence + accessibilité) d'une table — LECTURE SEULE.</summary>
-    /// <param name="table">Nom de la table (issu de <see cref="ExpectedTables"/>, jamais une entrée utilisateur).</param>
+    /// <param name="table">Nom de table QUALIFIÉ (issu de <see cref="ExpectedTables"/>, jamais une entrée utilisateur).</param>
     /// <returns>Le <c>SELECT COUNT(*)</c> correspondant.</returns>
-    internal static string CountSql(string table) => "SELECT COUNT(*) FROM " + table;
+    public static string CountSql(string table) => "SELECT COUNT(*) FROM " + table;
 
     /// <summary>
-    /// Garde de LECTURE SEULE STRICTE (CLAUDE.md n°5, F01-F02 R1) appliquée à TOUTE requête avant
-    /// exécution : rejette toute commande qui n'est pas un <c>SELECT</c>. Défense en profondeur — toutes
-    /// les requêtes de cet adaptateur sont des constantes <c>SELECT</c>, la garde empêche qu'une
-    /// modification future n'introduise une écriture sans être détectée (le test-espion la double).
+    /// Garde de LECTURE SEULE STRICTE (CLAUDE.md n°5, F01-F02 R1) : rejette toute commande qui n'est pas un
+    /// <c>SELECT</c>. Défense en profondeur — toutes les requêtes sont des constantes SELECT.
     /// </summary>
     /// <param name="sql">La requête à exécuter.</param>
     /// <exception cref="InvalidOperationException">Si <paramref name="sql"/> n'est pas un SELECT.</exception>
-    internal static void EnsureSelectOnly(string sql)
+    public static void EnsureSelectOnly(string sql)
     {
         if (string.IsNullOrWhiteSpace(sql)
             || !sql.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase))

@@ -46,6 +46,15 @@
                     <dd data-testid="parametrage-profil-contact">@(string.IsNullOrWhiteSpace(profile.ContactEmailAlerte) ? "non renseigné" : profile.ContactEmailAlerte)</dd>
                 </div>
             </dl>
+            @* Édition post-création du profil légal (BUG-15) : raison sociale / adresse / contact modifiables ;
+               le SIREN reste immuable (lecture seule sur l'écran d'édition). Évite de supprimer/recréer le
+               tenant pour corriger une faute de frappe. *@
+            <StratumButton Text="Modifier le profil légal"
+                           Variant="ButtonVariant.Secondary"
+                           Outline
+                           Size="ButtonSize.Small"
+                           Href="@ProfilPageUrl"
+                           TestId="parametrage-profil-link" />
         }
         else
         {
@@ -337,8 +346,12 @@
     /// <summary>Route de la page de paramétrage des alertes &amp; supervision (FIX210).</summary>
     private const string AlertesPageUrl = "/parametrage/alertes";
 
-    /// <summary>Route de l'écran d'édition des paramètres fiscaux du tenant (FIX301).</summary>
+    /// <summary>Route de l'écran d'édition des paramètres fiscaux du tenant (FIX301). Les mentions de
+    /// facturation (BUG-26) vivent désormais dans cette même page.</summary>
     private const string FiscalPageUrl = "/parametrage/fiscal";
+
+    /// <summary>Route de l'écran d'édition du profil légal du tenant (BUG-15 ; SIREN en lecture seule).</summary>
+    private const string ProfilPageUrl = "/parametrage/profil";
 
     /// <summary>Route de l'écran de gestion des agents (parc + clés API, WEB09).</summary>
     private const string AgentsPageUrl = "/agents";

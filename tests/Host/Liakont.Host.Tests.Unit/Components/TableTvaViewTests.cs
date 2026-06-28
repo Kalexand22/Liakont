@@ -489,7 +489,9 @@ public sealed class TableTvaViewTests : BunitContext
         cut.FindAll("[data-testid='table-tva-consistency']").Should().ContainSingle();
         cut.FindAll("[data-testid='table-tva-consistency-entry']").Should().ContainSingle();
         cut.Find("[data-testid='table-tva-consistency-entry']").TextContent.Should().Contain("ADJ");
-        cut.Find("[data-testid='table-tva-consistency-entry']").TextContent.Should().Contain("part non consultée par le pipeline");
+
+        // Message vrai et actionnable (BUG-3) : on n'incite plus à supprimer ; on oriente vers « Adjudication et factures » (BUG-12).
+        cut.Find("[data-testid='table-tva-consistency-entry']").TextContent.Should().Contain("utilisez la composante « Adjudication et factures »");
     }
 
     [Fact]
@@ -522,15 +524,15 @@ public sealed class TableTvaViewTests : BunitContext
 
     // ── Composante (décision E2 / lot FIX2) ─────────────────────────────
     [Fact]
-    public void Composante_column_is_shown_with_hors_encheres_value_when_vertical_on()
+    public void Composante_column_is_shown_with_adjudication_factures_value_when_vertical_on()
     {
         var cut = Render<TableTvaView>(p => p
             .Add(v => v.Model, ModelWith(SingleRuleTable("Autre"), tenantResolved: true, auctionVerticalEnabled: true))
             .Add(v => v.CanEdit, false));
 
-        // Colonne « Composante » (clé technique « Part ») présente ; valeur Autre rendue « Hors Enchères ».
+        // Colonne « Composante » (clé technique « Part ») présente ; valeur Autre rendue « Adjudication et factures » (BUG-12).
         cut.WaitForAssertion(() =>
-            cut.Find("[data-testid='grid-cell-Part']").TextContent.Trim().Should().Be("Hors Enchères"));
+            cut.Find("[data-testid='grid-cell-Part']").TextContent.Trim().Should().Be("Adjudication et factures"));
     }
 
     [Fact]
@@ -555,7 +557,8 @@ public sealed class TableTvaViewTests : BunitContext
         var entry = cut.Find("[data-testid='table-tva-consistency-entry']").TextContent;
         entry.Should().Contain("ADJ");
         entry.Should().Contain("(Adjudication)");
-        entry.Should().Contain("Composante non consultée par le pipeline");
+        entry.Should().Contain("Composante « Adjudication » non consultée");
+        entry.Should().Contain("utilisez la composante « Adjudication et factures »");
     }
 
     [Fact]
@@ -633,12 +636,12 @@ public sealed class TableTvaViewTests : BunitContext
     [Fact]
     public void Changelog_diff_shows_composante_only_when_vertical_on()
     {
-        // Vertical ON : la composante modifiée apparaît, valeur Autre → « Hors Enchères ».
+        // Vertical ON : la composante modifiée apparaît, valeur Autre → « Adjudication et factures » (BUG-12).
         var on = Render<TableTvaView>(p => p
             .Add(v => v.Model, ModelWith(NotValidatedTable(), PartOnlyUpdateChangeLog(), tenantResolved: true, auctionVerticalEnabled: true))
             .Add(v => v.CanValidate, false));
         on.Markup.Should().Contain("Composante");
-        on.Markup.Should().Contain("Adjudication → Hors Enchères");
+        on.Markup.Should().Contain("Adjudication → Adjudication et factures");
 
         // Vertical OFF : la composante n'est jamais mentionnée — la seule modif portant sur la part
         // ne produit donc AUCUNE ligne de diff (E2).

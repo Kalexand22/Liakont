@@ -291,6 +291,9 @@ src/Modules/Notification/Web/Pages/AdminNotificationRouting.razor
 src/Modules/Notification/Web/Pages/AdminCatalogServices.razor
 src/Modules/Notification/Web/Pages/AdminWebhookSubscriptions.razor
 src/Modules/Notification/Web/Pages/AdminIntegrations.razor
+<!-- §4.39 — BUG-4 volet A : echec de save DeclaredFormPage rendu visible (MapDomainError -> Func<string,string?>) -->
+src/Common/UI/Components/DeclaredFormPage.razor.cs
+src/Modules/Notification/Web/Pages/AdminWebhookForm.razor
 <!-- §4.36 — lecture timestamptz via DbTimestamp (casts directs (DateTimeOffset)row.x corriges) -->
 src/Modules/Job/Infrastructure/PostgresJobUnitOfWork.cs
 src/Modules/Job/Infrastructure/Queries/PostgresScheduleQueries.cs
@@ -308,6 +311,7 @@ src/Modules/Identity/Infrastructure/Queries/PostgresDelegationQueries.cs
 src/Modules/Identity/Infrastructure/Queries/PostgresIdentityQueries.cs
 src/Modules/Identity/Infrastructure/Queries/PostgresAgentQueries.cs
 src/Modules/Identity/Infrastructure/Queries/PostgresTeamQueries.cs
+src/Common/UI/wwwroot/js/stratum-ui.js
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -901,7 +905,8 @@ horodatages d'ÉVÉNEMENT vers `<LiakontDate>` (composant socle, §4.31).
 restent en UTC EXPLICITE (le cron est interprété en UTC — afficher une prévision en heure locale induirait en
 erreur, car le job fire à l'heure UTC ; cohérence + honnêteté du fuseau) :
 - `AdminJobSchedules.razor` : LastRunAt (ÉVÉNEMENT) → `<LiakontDate>` ; NextRunAt (PRÉVISION cron) → UTC explicite.
-  DÉJÀ au bloc `SOCLE-CONSIGNED-DRIFT` (items Job antérieurs).
+  DÉJÀ au bloc `SOCLE-CONSIGNED-DRIFT` (items Job antérieurs). **⚠️ NextRunAt SUPERSÉDÉ par §4.41 (BUG-25)** :
+  passé au fuseau navigateur (`<LiakontDate>`) pour rester cohérent avec LastRunAt en recette.
 - `AdminJobScheduleForm.razor` : Créé/Modifié le (ÉVÉNEMENTS) → `<LiakontDate>` ; aperçu cron (PRÉVISION) → UTC
   explicite (cohérent avec le titre « (UTC) » et avec NextRunAt). DÉJÀ au bloc.
 - `AdminJobExecutions.razor` : CreatedAt/StartedAt/CompletedAt (exécutions = ÉVÉNEMENTS) → `<LiakontDate>` (helper
@@ -1067,6 +1072,151 @@ migration socle modifiée. La dérive de ces trois fichiers est absorbée par le
 ci-dessus — **le baseline n'est PAS régénéré** (il reste la référence stable ; régénérer est optionnel, §4.12).
 **Vérification** : `verify-fast` (2 solutions, dont `socle-provenance-check` exit 0) + `run-tests` (unit
 garde/runner + intégration `HasPendingJobOfTypeAsync` et seam DI réel sur 2 bases).
+
+### 4.39 BUG-4 volet A — échec d'enregistrement de `DeclaredFormPage` rendu VISIBLE
+Recette EncheresV6 : sur un formulaire bâti sur `DeclaredFormPage` (socle), un échec de save **non
+mappé à un champ** (ex. `AdminJobScheduleForm.CreateAsync` qui lève `InvalidOperationException`
+« Aucune société sélectionnée. » pour un opérateur sans société courante) restait **SILENCIEUX** : le
+bouton « Enregistrer » semblait inerte, aucune bannière d'erreur. Cause : `MapDomainError` (le `MapError`
+du formulaire) écrivait le champ `_globalError` du composant **parent**, mais la bannière est rendue
+depuis le **paramètre** `GlobalError` de l'enfant ; comme le clic est géré par l'enfant, le parent ne se
+re-rendait pas et la valeur fraîche ne redescendait jamais dans le paramètre → bannière vide. (Les erreurs
+PAR CHAMP, elles, s'affichaient car lues en direct dans le `RenderFragment Content` du parent ré-évalué au
+rendu de l'enfant — seul le cas global était avalé.)
+
+Correctif (modification additive d'un fichier `Stratum.*` épinglé, marqué `// BUG-4 volet A` dans le code) :
+- `src/Common/UI/Components/DeclaredFormPage.razor.cs` (**AJOUTÉ** au bloc CONSIGNED-DRIFT) : le paramètre
+  `MapDomainError` passe de `Action<string>` à `Func<string, string?>`. Il retourne `null` quand le
+  formulaire a routé l'erreur vers un champ (rien à afficher globalement), sinon le **message à afficher**
+  (éventuellement reformulé). Dans le `catch` de `PerformSaveAsync`, ce message non-null passe par
+  `SetGlobalError` — qui invoque l'`EventCallback` `GlobalErrorChanged` (re-rend le parent), garantissant la
+  visibilité. Le chemin succès et le mappage par champ sont INCHANGÉS.
+
+Les 9 formulaires consommateurs adaptent leur `MapError`/`HandleDomainError` (retour `string?` : `null` si
+mappé à un champ, le message sinon — au lieu d'écrire `_globalError` directement, désormais possédé par le
+socle). Huit étaient déjà consignés (§4.20, §4.31–4.35) ; `AdminWebhookForm.razor` (qui reformule un code
+d'erreur en libellé FR) est **AJOUTÉ** au bloc CONSIGNED-DRIFT. Le champ `_globalError` reste la cible du
+`@bind-GlobalError` (renseignée par le socle via le callback). Le baseline n'est PAS régénéré (la dérive est
+absorbée par le bloc `SOCLE-CONSIGNED-DRIFT`). **Vérification** : build solution (0 warning), test bUnit
+ciblé `AdminJobScheduleFormTests.Save_Failure_Without_Current_Company_Shows_A_Visible_Error` (échec VISIBLE,
+contrôle négatif confirmé) + suites `Liakont.Host.Tests.Unit` (1071) et `Stratum.Common.UI.Tests.Unit` (802)
+vertes.
+
+### 4.40 BUG-4 volet B — jobs SYSTÈME planifiables/consultables par un opérateur PLATEFORME (société porteuse)
+Recette EncheresV6 : un opérateur PLATEFORME (super-admin cross-tenant, sans `company_id` dans son jeton —
+`ActorContext.Current.CompanyId == null`) ne pouvait planifier AUCUN job (`AdminJobScheduleForm.CreateAsync`
+levait « Aucune société sélectionnée. ») ni VOIR les planifications (`AdminJobSchedules` renvoyait une liste
+vide). Or un job SYSTÈME (fan-out tous tenants : supervision, ancrage, e-reporting B2C…) n'appartient à AUCUN
+tenant. Constat clé (vérifié sur pièce) : `schedule.CompanyId` n'a **aucun effet de portée** à l'exécution
+d'un fan-out — le runner SOL06 (`TenantJobRunner`) itère tous les tenants via `ITenantQueries`, indépendamment
+de cette valeur ; ce n'est qu'une clé d'unicité `(name, company)` et de dé-duplication d'enqueue
+`(type, company)` (ADR-0006). Pas de FK sur `job.schedules.company_id` (migration `V003`), donc une société
+porteuse sentinel s'insère sans contrainte référentielle.
+
+Correctif — une abstraction de **société porteuse système** (`ISystemScheduleHost`) : un job système est porté
+par UNE société porteuse plateforme (sentinel, pas un tenant réel), planifiable et consultable sans société
+courante ; un job tenant-scopé garde le comportement actuel (société courante requise, échec VISIBLE — §4.39).
+La MÊME porteuse sert au formulaire, à la liste cross-tenant ET à l'amorçage de dev, pour qu'une planification
+système soit UNIQUE (sinon un opérateur recréerait des doublons invisibles → double fan-out).
+
+- **Fichiers `Stratum.*` AJOUTÉS** (marqués `// Liakont addition (BUG-4b)` en première ligne → exclus du
+  périmètre épinglé §4.12, comme SOL06/FIX211 ; **PAS** dans le bloc CONSIGNED-DRIFT) :
+  - `src/Modules/Job/Contracts/Services/ISystemScheduleHost.cs` : l'abstraction (résout la société porteuse
+    d'un type de job système ; `null` = tenant-scopé).
+  - `src/Modules/Job/Infrastructure/Services/NullSystemScheduleHost.cs` : défaut no-op (socle auto-suffisant —
+    aucun job « système », comportement du socle nu préservé).
+- **Fichiers `Stratum.*` MODIFIÉS** (additifs ; déjà présents au bloc CONSIGNED-DRIFT depuis FIX211 §4.20 — le
+  baseline n'est PAS régénéré, la dérive est absorbée) :
+  - `src/Modules/Job/Infrastructure/JobModuleRegistration.cs` : `TryAddSingleton<ISystemScheduleHost,
+    NullSystemScheduleHost>()` (défaut écrasable par le Host).
+  - `src/Modules/Job/Web/Pages/AdminJobScheduleForm.razor` (`CreateAsync`) : `companyId =
+    SystemScheduleHost.ResolveHostCompanyId(_jobType) ?? CurrentCompany ?? throw`.
+  - `src/Modules/Job/Web/Pages/AdminJobSchedules.razor` (`LoadSchedulesAsync`) : `companyId = CurrentCompany
+    ?? SystemScheduleHost.CrossTenantHostCompanyId` (liste de la porteuse pour un admin cross-tenant).
+
+Côté Liakont (hors socle, non consigné par le baseline) : `LiakontSystemScheduleHost` (impl backée par la
+source unique `SystemJobDefinitions.All` + sentinel `5c8ed001-…-b000-…0001`), enregistrée dans `AppBootstrap`
+APRÈS `AddJobModule` (gagne la résolution sur le défaut socle) ; `DevJobScheduleSeeder` amorce désormais sur
+cette MÊME porteuse (au lieu de `DevTenantSeed:CompanyId`). **Vérification** : verify-fast (Debug + Release),
+run-tests, tests bUnit `AdminJobScheduleFormTests`/`AdminJobSchedulesTests` (planif + liste d'un opérateur
+plateforme) + `LiakontSystemScheduleHostTests` (résolution + cohérence du sentinel).
+
+### 4.41 BUG-25 — `AdminJobSchedules` : « Prochaine exécution » au fuseau du navigateur (cohérence avec « Dernière »)
+
+Recette EncheresV6 (Karl, 27/06) : la colonne **« Prochaine exécution »** (`NextRunAt`) s'affichait en **UTC
+explicite** (suffixe « UTC ») tandis que **« Dernière exécution »** (`LastRunAt`) passait au fuseau du
+**navigateur** (`<LiakontDate>`, RB6 §4.32). Résultat trompeur : pour un job qui vient de tourner, la prochaine
+(UTC) *paraissait antérieure* à la dernière (locale) — alors qu'en UTC elle est bien postérieure. Pur mélange de
+fuseaux à l'affichage (l'ordonnancement `*/n` est correct).
+
+**Changement** — `src/Modules/Job/Web/Pages/AdminJobSchedules.razor` : le `ColumnTemplate` de `NextRunAt` passe
+de la mise en forme UTC inline (`UtcDateTime.ToString(... 'UTC')`) à `<LiakontDate Value="item.NextRunAt" />` —
+**même composant, même fuseau (navigateur)** que `LastRunAt`. **SUPERSÈDE** la règle « PRÉVISION serveur → UTC
+explicite » posée en §4.32 pour CETTE colonne : la cohérence visuelle entre les deux colonnes (et la non-confusion
+de l'opérateur) prime sur le distinguo prévision/événement. `LiakontDate` conserve le repli UTC EXPLICITE tant que
+le fuseau navigateur n'est pas résolu (pré-rendu) — aucune heure locale fausse. Fichier DÉJÀ au bloc
+`SOCLE-CONSIGNED-DRIFT` (items Job antérieurs) ; aucun nouveau pin.
+
+**Vérification** : bUnit `AdminJobSchedulesTests.Next_And_Last_Run_Render_In_The_Same_Browser_Timezone` (fuseau
+Europe/Paris résolu → 08:15 UTC = 10:15, 07:50 UTC = 09:50, aucun suffixe « UTC ») ; le test existant
+`Job_Type_Column_…` garde l'assertion de repli UTC (fuseau non résolu en bUnit). La conversion elle-même reste
+couverte par `LiakontDateTests`/`LiakontDateDisplayTests`.
+
+### 4.42 BUG-19 — navigation précédent/suivant en vue détail (transverse) via le gabarit de liste
+
+Recette EncheresV6 (Karl, 26/06) : depuis une vue DÉTAIL, aucun moyen de passer au document SUIVANT sans revenir
+à la grille (très pénible pour parcourir les bloqués un par un). Besoin TRANSVERSE (documents, émissions, agents…),
+parcourant la liste **filtrée/triée telle qu'affichée**. C'est un comportement du gabarit Stratum `DeclaredListPage`.
+
+**Conception — blast radius minimal** : l'ORDRE AFFICHÉ vit dans `DeclaredListPage._filteredItems` (privé). On le
+capture au clic d'une ligne sous forme d'URLs de détail, dans une mémoire de circuit ; la vue détail résout ses
+voisins par l'URL courante. Aucune entité codée en dur — l'identité est l'URL de détail (vraie transversalité).
+
+- **Additions Liakont** (NON vendored, hors baseline — fichiers neufs, marqués « Liakont addition ») :
+  `src/Common/UI/Navigation/IListNavigationContext.cs` + `ListNavigationNeighbors.cs` + `ListNavigationContext.cs`
+  (mémoire de circuit `Scoped`, résolution des voisins, normalisation d'URL casse/slash/query) ;
+  `src/Common/UI/Components/RecordNavigator.razor` (composant socle préc/suiv, masqué hors contexte de liste).
+- **Modifs VENDORED (consignées ici)** :
+  - `src/Common/UI/Components/DeclaredListPage.razor.cs` : `[Inject] IListNavigationContext?` + helper
+    `CaptureListNavigationContext()` (mappe `_filteredItems` → URLs de détail) appelé dans `HandleRowActivated`
+    ET `HandleMultiViewRowActivated` AVANT la navigation. Sans effet si `DetailUrl` nul ou service absent
+    (rétro-compatible : aucune liste existante n'est impactée).
+  - `src/Common/UI/CommonUIServiceExtensions.cs` (DÉJÀ au bloc `SOCLE-CONSIGNED-DRIFT`, RB6 §4.31) :
+    enregistrement `AddScoped<IListNavigationContext, ListNavigationContext>()` (un état par circuit).
+- **Câblage Liakont (hors socle)** : `<RecordNavigator />` dans `DocumentDetail.razor` et `B2cMarginEmissionDetail.razor`
+  (les deux entités exigées par la transversalité ; tout autre détail atteint depuis un `DeclaredListPage` peut
+  l'ajouter d'une ligne).
+
+**Vérification** : `ListNavigationContextTests` (bornes, hors-liste, normalisation, remplacement transverse) +
+`RecordNavigatorTests` bUnit (rendu préc/suiv + position, bornes désactivées, « Suivant » navigue, masqué hors
+contexte). Build Release 0/0 ; garde `socle-provenance-check` verte (drift consigné).
+
+### 4.43 BUG-16 — densité par défaut « standard » (alignée sur le défaut du modèle métier)
+
+Recette EncheresV6 (Karl, 26/06) : un NOUVEL utilisateur (sans préférence enregistrée) atterrissait en densité
+**« compact »** alors que le modèle métier Liakont a pour défaut **« standard »** (`UserPreferences.Density =
+DensityStandard`, déjà couvert par `UserPreferencesTests`). Cause : le socle applique son défaut « Civic Blueprint
+= compact » dans le prélude JS (avant la connexion du circuit), qui prime sur le défaut du modèle (appliqué après).
+Le `localStorage` étant vide pour un nouvel utilisateur, le repli `compact` s'affichait sans moyen de le corriger
+avant le rendu.
+
+**Changement VENDORED (consigné ici)** — `src/Common/UI/wwwroot/js/stratum-ui.js` : le repli de densité passe de
+`'compact'` à `'standard'` aux trois points de défaut (IIFE `apply()`, `MutationObserver` de l'enhanced navigation,
+et `getDensity()`), pour aligner le socle sur le défaut du modèle Liakont. Sans ce changement, le `MutationObserver`
+du socle réimposerait `compact` à chaque navigation, annulant le correctif côté hôte. Aucun nouveau pin (drift
+consigné). Le prélude inline `App.razor` (Liakont Host, **non** vendored) est aligné en parallèle (même défaut
+`standard`) pour le tout premier rendu (avant l'évaluation des tokens CSS).
+
+**Vérification** : `UserPreferencesTests.Default_…StandardDensity` (le modèle attend déjà `standard`) ; le socle JS
+ne porte aucune logique C# testable en bUnit (constante de repli côté navigateur) ; garde `socle-provenance-check`
+verte (drift consigné). Recette manuelle Karl : un nouvel utilisateur voit « standard ».
+
+**Garde de non-régression — explicitement MANUELLE (no silent cap).** Le défaut pré-paint vit dans une constante JS
+évaluée AVANT la connexion du circuit Blazor : il n'est testable ni en bUnit (pas de DOM/JS) ni en intégration
+in-process, et le Host ne porte aucun projet Playwright/E2E navigateur en V1. Un retour silencieux des quatre points
+de défaut à `compact` ne serait donc PAS rattrapé par un test automatisé — seulement par la recette manuelle
+ci-dessus. Dette assumée et tracée : si un projet E2E navigateur Host est introduit, y ajouter le cas « nouvel
+utilisateur sans préférence → `document.documentElement[data-density] === 'standard'` » pour fermer ce trou.
 
 ## 5. ADR du socle hérités
 

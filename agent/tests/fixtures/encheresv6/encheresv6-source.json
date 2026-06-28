@@ -49,6 +49,16 @@
           "date_reglement": "2026-01-15",
           "mode_reglement": "CB",
           "no_remise": "REM-0500"
+        },
+        {
+          "type_ligne": "5",
+          "designation": "Frais vendeur (commission vendeur) — BV fictif",
+          "montant_ht": 12.00,
+          "montant_tva": 2.40,
+          "taux_tva": 20.0,
+          "quantite": 1,
+          "code_regime": "5",
+          "no_ligne": "ligne#bv"
         }
       ]
     },
@@ -86,6 +96,16 @@
           "quantite": 1,
           "code_regime": "5",
           "no_ligne": "ligne#2"
+        },
+        {
+          "type_ligne": "5",
+          "designation": "Frais vendeur (commission vendeur) — BV fictif",
+          "montant_ht": 80.00,
+          "montant_tva": 16.00,
+          "taux_tva": 20.0,
+          "quantite": 1,
+          "code_regime": "5",
+          "no_ligne": "ligne#bv"
         }
       ]
     },
@@ -124,6 +144,16 @@
           "quantite": 1,
           "code_regime": "5",
           "no_ligne": "ligne#2"
+        },
+        {
+          "type_ligne": "5",
+          "designation": "Frais vendeur (commission vendeur) — BV fictif",
+          "montant_ht": 250.00,
+          "montant_tva": 50.00,
+          "taux_tva": 20.0,
+          "quantite": 1,
+          "code_regime": "5",
+          "no_ligne": "ligne#bv"
         }
       ]
     }

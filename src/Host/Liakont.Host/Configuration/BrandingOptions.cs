@@ -63,6 +63,15 @@ public sealed class BrandingOptions
     public bool PoweredByLiakont { get; init; } = true;
 
     /// <summary>
+    /// Affiche le NOM COMMERCIAL en TEXTE à côté du logo dans la coquille de navigation. Défaut vrai (cas
+    /// nominal : le logo est un emblème/symbole, le texte porte le nom). À mettre à FAUX quand le logo est un
+    /// WORDMARK (il contient déjà le nom écrit) → évite le doublon « [logo wordmark] + nom ». N'affecte QUE le
+    /// texte d'à-côté de la nav : le nom reste le repli quand AUCUN logo n'est défini, et reste le texte
+    /// alternatif (accessibilité) de l'image du logo.
+    /// </summary>
+    public bool ShowCommercialName { get; init; } = true;
+
+    /// <summary>
     /// Nom commercial EFFECTIF : repli sur la marque produit par défaut (« Liakont ») quand
     /// <see cref="CommercialName"/> est vide ou blanc — un opérateur qui VIDE la clé en appsettings lie une
     /// chaîne vide PAR-DESSUS le défaut C#. Source UNIQUE du repli pour tous les consommateurs UI et email,

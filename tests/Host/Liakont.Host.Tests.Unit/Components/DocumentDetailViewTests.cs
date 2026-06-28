@@ -49,6 +49,71 @@ public sealed class DocumentDetailViewTests : BunitContext
     }
 
     [Fact]
+    public void Should_Show_The_Effective_Supplier_Siren_From_The_Transmitted_Content()
+    {
+        // BUG-28 : l'identité émetteur n'est PAS persistée sur l'entité (injectée au SEND depuis le profil tenant,
+        // ADR-0031) → SupplierSiren entité NULL. L'en-tête lit le SIREN émetteur EFFECTIVEMENT transmis (porté par
+        // le contenu) → jamais « non renseigné » à tort sur un document transmis. Affichage seul.
+        var content = Content([Line("Vente", netAmount: 1000m, category: "S — Taux normal", taxAmount: 200m)], supplierSiren: "000000002");
+        var model = BuildModel(doc: Doc("9000004", "Issued", siren: null), content: content);
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        cut.Find("[data-testid='document-detail-supplier-siren']").TextContent.Should().Contain("000000002")
+            .And.NotContain("non renseigné");
+    }
+
+    [Fact]
+    public void Should_Fall_Back_To_The_Entity_Supplier_Siren_When_The_Content_Has_None()
+    {
+        // Repli : un document sans contenu transmis (Bloqué) affiche le SIREN de l'entité s'il existe.
+        var model = BuildModel(doc: Doc("2026-002", "Blocked", siren: "123456782"));
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        cut.Find("[data-testid='document-detail-supplier-siren']").TextContent.Should().Contain("123456782");
+    }
+
+    [Fact]
+    public void Should_Show_Supplier_Siren_Not_Set_Only_When_Neither_Content_Nor_Entity_Resolves_It()
+    {
+        // « non renseigné » UNIQUEMENT si l'émetteur n'est réellement pas résolu (ni contenu ni entité) — jamais une
+        // valeur inventée (CLAUDE.md n°2).
+        var model = BuildModel(doc: Doc("2026-003", "Blocked", siren: null));
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        cut.Find("[data-testid='document-detail-supplier-siren']").TextContent.Should().Contain("non renseigné");
+    }
+
+    [Theory]
+    [InlineData("encheresv6:ba:9000004", "Bordereau acheteur")]
+    [InlineData("encheresv6:bv:9000005", "Bordereau vendeur")]
+    [InlineData("encheresv6:fc:100348", "Facture client")]
+    [InlineData("encheresv6:nh:200", "Note d'honoraires")]
+    public void Should_Show_The_Document_Family_Derived_From_The_Source_Reference(string sourceReference, string expectedLabel)
+    {
+        // BUG-20 : la famille de pièce (BA/BV/FC/NH) est dérivée du préfixe de la référence source — distinction que
+        // la colonne « Type » (facture/avoir) ne porte pas.
+        var model = BuildModel(doc: Doc("9000004", "Issued", sourceReference: sourceReference));
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        cut.Find("[data-testid='document-detail-family']").TextContent.Should().Contain(expectedLabel);
+    }
+
+    [Fact]
+    public void Should_Not_Show_A_Document_Family_When_The_Source_Reference_Has_No_Known_Prefix()
+    {
+        // Référence d'un autre format / adaptateur → aucune famille affichée (jamais devinée).
+        var model = BuildModel(doc: Doc("2026-001", "Issued", sourceReference: "legacy/2026-001"));
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        cut.FindAll("[data-testid='document-detail-family']").Should().BeEmpty();
+    }
+
+    [Fact]
     public void Should_Render_Line_Detail_Table_On_Content_Tab_With_Mapping_Result()
     {
         // FIX205 : les lignes du document transmis sont VISIBLES à l'écran (jamais du JSON) — libellé, montant HT,
@@ -81,9 +146,103 @@ public sealed class DocumentDetailViewTests : BunitContext
     }
 
     [Fact]
-    public void Should_Show_Lines_Note_When_Document_Not_Yet_Transmitted()
+    public void Should_Show_Explicit_Margin_Regime_Mention_Instead_Of_Generic_Exemption()
     {
-        // Document non transmis (contenu vide : aucun pivot mappé exposé) : pas de tableau, une note honnête — jamais de ligne inventée.
+        // Lisibilité (recette enchères) : sous le régime de la marge, la ligne (catégorie E + VATEX-EU-J) a une TVA
+        // à 0 — mais ce N'EST PAS une exonération classique. La cellule Catégorie affiche la mention EXPLICITE
+        // « Régime de la marge – … » au lieu du sec « E — Exonéré (motif VATEX requis) » qui prête à confusion.
+        // L'explication 297 E + le détail HT/TVA vivent dans le récap de marge (pas de note redondante sous le tableau).
+        var lines = new[]
+        {
+            Line("Adjudication lot 2", netAmount: 100m, category: "E — Exonéré (motif VATEX requis)", sourceRegime: "6", vatex: "VATEX-EU-J", taxAmount: 0m, rate: 0m, marginMention: "Régime de la marge – objets de collection et d'antiquité"),
+            Line("Honoraires acheteur lot 2", netAmount: 10m, category: "E — Exonéré (motif VATEX requis)", sourceRegime: "6", vatex: "VATEX-EU-J", taxAmount: 0m, rate: 0m, marginMention: "Régime de la marge – objets de collection et d'antiquité"),
+        };
+        var model = BuildModel(doc: Doc("9000004", "Issued"), content: Content(lines, totals: Check()));
+
+        // Pas de récap fourni (panne / fail-closed) → la note 297 E de REPLI préserve l'explication.
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        // La cellule Catégorie (index 4) porte la mention marge explicite — pas l'« Exonéré (motif VATEX requis) ».
+        var firstLineCells = cut.FindAll("[data-testid='document-detail-line']")[0].QuerySelectorAll("td");
+        firstLineCells[4].TextContent.Trim().Should().Be("Régime de la marge – objets de collection et d'antiquité");
+
+        var table = cut.Find("[data-testid='document-detail-lines']").TextContent;
+        table.Should().NotContain("Exonéré (motif VATEX requis)", "la mention marge remplace le libellé trompeur sur une ligne marge");
+
+        // Récap absent → note 297 E de repli présente (l'explication n'est jamais perdue sur un document marge).
+        cut.Find("[data-testid='document-detail-margin-note']").TextContent.Should()
+            .Contain("297 E").And.Contain("récupérable").And.Contain("déclaration de TVA");
+    }
+
+    [Fact]
+    public void Should_Not_Duplicate_The_297E_Note_When_The_Margin_Recap_Is_Shown()
+    {
+        // Récap chiffré présent → PAS de note 297 E de repli (le récap porte déjà l'explication) : aucun doublon.
+        var lines = new[]
+        {
+            Line("Adjudication lot 2", netAmount: 100m, category: "E — Exonéré (motif VATEX requis)", sourceRegime: "6", vatex: "VATEX-EU-J", taxAmount: 0m, rate: 0m, marginMention: "Régime de la marge – objets de collection et d'antiquité"),
+        };
+        var recap = new MarginRecapView { BuyerFeesTtc = 10m, SellerFeesTtc = 0m, MarginTtc = 10m, BaseHt = 8.33m, Tva = 1.67m, RatePercent = 20m };
+        var model = BuildModel(doc: Doc("9000004", "Issued"), content: Content(lines, totals: Check()), marginRecap: recap);
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        cut.FindAll("[data-testid='document-detail-margin-note']").Should().BeEmpty("le récap porte l'explication 297 E — pas de note redondante");
+        cut.FindAll("[data-testid='document-detail-margin-recap']").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Should_Keep_The_Nominal_Category_Label_For_A_Non_Margin_Line()
+    {
+        // Hors marge : les libellés de catégorie nominaux restent inchangés, et aucune note 297 E.
+        var lines = new[]
+        {
+            Line("Vente principale", netAmount: 900m, category: "S — Taux normal", sourceRegime: "FR-STD", taxAmount: 180m, rate: 20m),
+        };
+        var model = BuildModel(doc: Doc("2026-030", "Issued"), content: Content(lines));
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        var cells = cut.FindAll("[data-testid='document-detail-line']")[0].QuerySelectorAll("td");
+        cells[4].TextContent.Trim().Should().Be("S — Taux normal", "une ligne taxable garde son libellé de catégorie nominal");
+        cut.FindAll("[data-testid='document-detail-margin-note']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Should_Render_Lines_With_Source_Regime_For_A_Blocked_Document_Even_Without_Mapping()
+    {
+        // BUG-5 : un document BLOQUÉ (mapping non abouti) montre tout de même ses lignes — projetées au read-time
+        // depuis le pivot SOURCE relu — avec le RÉGIME SOURCE lu mais une catégorie/un VATEX VIDES (« — »).
+        // C'est le diagnostic FACTUEL du blocage (on voit ce qui a été lu et que la classification n'a pas abouti),
+        // jamais une catégorie inventée. Légitime pour un Bloqué (≠ Prêt-à-envoyer où le mapping a réussi).
+        var lines = new[]
+        {
+            Line("Adjudication lot 12", netAmount: 500m, category: "—", sourceRegime: "6", vatex: "—", taxAmount: null, rate: null),
+        };
+        var model = BuildModel(doc: Doc("2026-014", "Blocked"), content: Content(lines, totals: Check()));
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        // Les lignes sont visibles dès l'état Bloqué — pas la note d'absence.
+        cut.FindAll("[data-testid='document-detail-lines']").Should().ContainSingle();
+        cut.FindAll("[data-testid='document-detail-line']").Should().ContainSingle();
+        cut.FindAll("[data-testid='document-detail-lines-empty']").Should().BeEmpty();
+
+        var table = cut.Find("[data-testid='document-detail-lines']").TextContent;
+        table.Should().Contain("Adjudication lot 12").And.Contain("500,00")
+            .And.Contain("6", "le régime source lu est restitué pour diagnostiquer le blocage");
+
+        // Aucune catégorie/VATEX inventés : la cellule reste « — » (le mapping n'a pas abouti).
+        var cells = cut.FindAll("[data-testid='document-detail-line'] td");
+        cells[4].TextContent.Trim().Should().Be("—", "catégorie TVA vide tant que le mapping n'a pas abouti");
+        cells[5].TextContent.Trim().Should().Be("—", "VATEX vide tant que le mapping n'a pas abouti");
+    }
+
+    [Fact]
+    public void Should_Show_Lines_Note_When_No_Lines_Are_Available()
+    {
+        // Aucune ligne RÉELLEMENT disponible (contenu source indisponible ET aucun pivot transmis) : pas de
+        // tableau, une note honnête — jamais de ligne inventée. (Le cas nominal, lui, montre les lignes au read-time.)
         var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(doc: Doc("2026-011", "Blocked"))));
 
         cut.FindAll("[data-testid='document-detail-lines-empty']").Should().ContainSingle();
@@ -126,6 +285,113 @@ public sealed class DocumentDetailViewTests : BunitContext
     }
 
     [Fact]
+    public void Should_Render_The_Margin_Recap_When_The_Document_Is_Under_The_Margin_Regime()
+    {
+        // Aide à la déclaration de TVA (recette enchères) : pour un document marge, un récap rend visibles la marge
+        // (commission acheteur + vendeur) ramenée HT et la TVA sur marge à déclarer — chiffres ABSENTS de la facture
+        // (297 E). Le récap est fourni au modèle (calcul Pipeline) ; la vue le REND, sans le recalculer.
+        var recap = new MarginRecapView
+        {
+            BuyerFeesTtc = 10m,
+            SellerFeesTtc = 5m,
+            MarginTtc = 15m,
+            BaseHt = 12.50m,
+            Tva = 2.50m,
+            RatePercent = 20m,
+        };
+        var model = BuildModel(doc: Doc("9000004", "Issued"), marginRecap: recap);
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        var card = cut.Find("[data-testid='document-detail-margin-recap']").TextContent;
+        card.Should().Contain("297 E").And.Contain("récupérable").And.Contain("déclaration de TVA");
+        cut.Find("[data-testid='document-detail-margin-buyer']").TextContent.Should().Contain("10,00");
+        cut.Find("[data-testid='document-detail-margin-seller']").TextContent.Should().Contain("5,00");
+        cut.Find("[data-testid='document-detail-margin-ttc']").TextContent.Should().Contain("15,00");
+        cut.Find("[data-testid='document-detail-margin-base-ht']").TextContent.Should().Contain("12,50");
+        cut.Find("[data-testid='document-detail-margin-vat']").TextContent.Should().Contain("2,50");
+        card.Should().Contain("20 %", "le taux de la TVA sur marge est affiché");
+    }
+
+    [Fact]
+    public void Should_Not_Render_The_Margin_Recap_Outside_The_Margin_Regime()
+    {
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(doc: Doc("2026-031", "Issued"))));
+
+        cut.FindAll("[data-testid='document-detail-margin-recap']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Should_Render_Billing_Mentions_With_French_Labels_On_The_Content_Tab()
+    {
+        // BUG-26 (F12-A §3.4) : les mentions de facturation EFFECTIVES du document sont restituées dans une carte
+        // dédiée — termes de paiement (BT-20) + les 3 mentions légales FR mappées en libellé français depuis leur
+        // code sujet (PMD → « Pénalités de retard », PMT → « Indemnité forfaitaire de recouvrement », AAB →
+        // « Escompte / absence d'escompte »). Restitution LISIBLE, jamais de JSON (F10 §1) ni de code brut.
+        var notes = new[]
+        {
+            Note("Pénalités de retard au taux légal.", "PMD"),
+            Note("Indemnité forfaitaire de recouvrement de 40 €.", "PMT"),
+            Note("Pas d'escompte pour paiement anticipé.", "AAB"),
+        };
+        var content = Content(
+            [Line("Vente", netAmount: 1000m, category: "S — Taux normal", taxAmount: 162.80m)],
+            paymentTerms: "Paiement à 30 jours fin de mois.",
+            notes: notes);
+        var model = BuildModel(doc: Doc("2026-020", "Issued"), content: content);
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        var card = cut.Find("[data-testid='document-detail-mentions']").TextContent;
+        cut.Find("[data-testid='document-detail-payment-terms']").TextContent.Should().Contain("Paiement à 30 jours fin de mois.");
+
+        cut.FindAll("[data-testid='document-detail-mention']").Should().HaveCount(3);
+        card.Should().Contain("Pénalités de retard").And.Contain("Pénalités de retard au taux légal.")
+            .And.Contain("Indemnité forfaitaire de recouvrement").And.Contain("Indemnité forfaitaire de recouvrement de 40 €.")
+            .And.Contain("Escompte / absence d'escompte").And.Contain("Pas d'escompte pour paiement anticipé.");
+
+        // Le code sujet brut (PMD/PMT/AAB) n'apparaît pas en clair : seul le libellé français est affiché.
+        card.Should().NotContain("PMD").And.NotContain("PMT").And.NotContain("AAB");
+
+        // Aucune note d'absence quand des mentions sont portées.
+        cut.FindAll("[data-testid='document-detail-mentions-empty']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Should_Show_Mentions_Hint_When_No_Billing_Mention_Is_Carried()
+    {
+        // BUG-26 : un document sans mention (ni termes de paiement ni note) affiche un hint honnête, jamais une
+        // mention inventée (CLAUDE.md n°2). Le défaut tenant non paramétré reste vide → hint.
+        var content = Content([Line("Vente", netAmount: 1000m, category: "S — Taux normal", taxAmount: 162.80m)]);
+        var model = BuildModel(doc: Doc("2026-021", "Issued"), content: content);
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        cut.FindAll("[data-testid='document-detail-mentions-empty']").Should().ContainSingle();
+        cut.Find("[data-testid='document-detail-mentions-empty']").TextContent.Should()
+            .Contain("Aucune mention de facturation paramétrée");
+        cut.FindAll("[data-testid='document-detail-mention']").Should().BeEmpty();
+        cut.FindAll("[data-testid='document-detail-payment-terms']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Should_Render_Payment_Terms_Even_When_No_Legal_Notes_Are_Carried()
+    {
+        // Mentions partielles : seuls les termes de paiement sont portés (les 3 notes légales absentes). La carte
+        // s'affiche (termes présents), sans note légale — jamais de note inventée.
+        var content = Content(
+            [Line("Vente", netAmount: 1000m, category: "S — Taux normal", taxAmount: 162.80m)],
+            paymentTerms: "Paiement comptant à réception.");
+        var model = BuildModel(doc: Doc("2026-022", "Issued"), content: content);
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        cut.Find("[data-testid='document-detail-payment-terms']").TextContent.Should().Contain("Paiement comptant à réception.");
+        cut.FindAll("[data-testid='document-detail-mention']").Should().BeEmpty();
+        cut.FindAll("[data-testid='document-detail-mentions-empty']").Should().BeEmpty();
+    }
+
+    [Fact]
     public void Should_Highlight_Blocking_Reason_On_Content_And_Controls_When_Blocked()
     {
         var model = BuildModel(doc: Doc("2026-002", "Blocked"), blockingReason: "Le SIREN de l'émetteur est invalide.");
@@ -139,6 +405,47 @@ public sealed class DocumentDetailViewTests : BunitContext
         SelectTab(cut, "Contrôles");
         cut.Find("[data-testid='document-detail-controls-blocked']").TextContent.Should().Contain("Le SIREN de l'émetteur est invalide.");
         cut.FindAll("[data-testid='document-detail-controls-ok']").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Should_Show_E_Reported_Badge_And_Link_Instead_Of_The_State_When_B2c_Reported()
+    {
+        // BUG-24 : un document e-reporté (déclaré via la transmission AGRÉGÉE) n'affiche plus l'état brut « À envoyer »
+        // dans l'en-tête — il porte un badge « E-reporté » + un lien vers sa déclaration (read-time, lien doc ↔ lot).
+        var batchId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        var model = BuildModel(doc: Doc("9000004", "ReadyToSend"), reportedBatchId: batchId);
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        cut.Find("[data-testid='document-detail-state']").TextContent.Should().Contain("E-reporté");
+        var link = cut.Find("[data-testid='document-detail-ereported-link']");
+        link.GetAttribute("href").Should().Be($"/emissions-marge-b2c/{batchId}");
+    }
+
+    [Fact]
+    public void Should_Not_Show_The_E_Reported_Link_When_The_Document_Is_Not_B2c_Reported()
+    {
+        // Document non e-reporté : pas de lien, l'état brut s'affiche normalement (aucune réflexion e-reporting).
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(doc: Doc("9000004", "ReadyToSend"))));
+
+        cut.FindAll("[data-testid='document-detail-ereported-link']").Should().BeEmpty();
+        cut.FindAll("[data-testid='document-detail-state']").Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void Should_Reflect_E_Reported_On_The_Controls_Tab_Instead_Of_Controls_Ok()
+    {
+        // BUG-24 : l'onglet Contrôles d'un document e-reporté n'affiche plus « Aucun contrôle en échec » (trompeur) —
+        // il indique explicitement que le document a été e-reporté et n'est pas à envoyer par la voie document.
+        var batchId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+        var model = BuildModel(doc: Doc("9000004", "ReadyToSend"), reportedBatchId: batchId);
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        SelectTab(cut, "Contrôles");
+        cut.FindAll("[data-testid='document-detail-controls-ereported']").Should().ContainSingle();
+        cut.FindAll("[data-testid='document-detail-controls-ok']").Should().BeEmpty("un document e-reporté n'est pas « aucun contrôle en échec »");
+        cut.Find("[data-testid='document-detail-controls-state']").TextContent.Should().Contain("E-reporté");
     }
 
     [Fact]
@@ -178,6 +485,43 @@ public sealed class DocumentDetailViewTests : BunitContext
         SelectTab(cut, "Contrôles");
         cut.FindAll("[data-testid='document-detail-controls-rejected']").Should().ContainSingle();
         cut.Find("[data-testid='document-detail-controls-rejected']").TextContent.Should().Contain("Historique");
+    }
+
+    [Fact]
+    public void Should_Show_The_Pa_Rejection_Motif_In_History_From_The_Snapshot()
+    {
+        // BUG-27 : le motif de rejet PA (codes + messages, snapshot SendPaSnapshot) est restitué LISIBLEMENT dans
+        // l'Historique — l'opérateur n'a plus à lire la base. Jamais de JSON brut (F10 §1).
+        var snapshot = """{"state":"Rejected","errors":[{"Code":"BR-CO-25","Message":"Montant dû positif sans date d'échéance ni conditions de paiement."}],"rawResponse":"{}"}""";
+        var events = new List<DocumentEventDto>
+        {
+            Event("DocumentRejectedByPa", new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero), detail: "Transition Sending → RejectedByPa", paResponseSnapshot: snapshot),
+        };
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(doc: Doc("9000003", "RejectedByPa"), events: events)));
+
+        SelectTab(cut, "Historique");
+        var motif = cut.Find("[data-testid='document-detail-event-pa-response']").TextContent;
+        motif.Should().Contain("BR-CO-25").And.Contain("Montant dû positif");
+        motif.Should().NotContain("{").And.NotContain("rawResponse", "aucun JSON brut affiché (F10 §1)");
+    }
+
+    [Fact]
+    public void Should_Show_The_Pa_Rejection_Motif_Inline_On_The_Controls_Tab()
+    {
+        // BUG-27 : le motif PA est aussi affiché DIRECTEMENT sous « Refusé par la PA » (onglet Contrôles), depuis
+        // l'événement le plus récent qui porte un snapshot — plus besoin de fouiller l'Historique.
+        var snapshot = """{"http_status_code":400,"message":"cannot add transaction at date 2024-01-03"}""";
+        var events = new List<DocumentEventDto>
+        {
+            Event("DocumentRejectedByPa", new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero), paResponseSnapshot: snapshot),
+        };
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(doc: Doc("9000003", "RejectedByPa"), events: events)));
+
+        SelectTab(cut, "Contrôles");
+        cut.Find("[data-testid='document-detail-controls-rejected-motif']").TextContent
+            .Should().Contain("cannot add transaction at date");
     }
 
     [Fact]
@@ -323,7 +667,9 @@ public sealed class DocumentDetailViewTests : BunitContext
         string? blockingReason = null,
         ArchiveReferenceDto? archive = null,
         bool isArchived = false,
-        DocumentContentView? content = null) => new()
+        DocumentContentView? content = null,
+        MarginRecapView? marginRecap = null,
+        Guid? reportedBatchId = null) => new()
     {
         Document = doc ?? Doc("2026-000", "Issued"),
         Events = events ?? [],
@@ -331,16 +677,30 @@ public sealed class DocumentDetailViewTests : BunitContext
         Archive = archive,
         IsArchived = isArchived,
         Content = content ?? DocumentContentView.Empty,
+        MarginRecap = marginRecap,
+        B2cReportedBatchId = reportedBatchId,
     };
 
     private static DocumentContentView Content(
         IReadOnlyList<DocumentLineView> lines,
         IReadOnlyList<DocumentChargeView>? charges = null,
-        DocumentTotalsCheck? totals = null) => new()
+        DocumentTotalsCheck? totals = null,
+        string? paymentTerms = null,
+        IReadOnlyList<DocumentNoteView>? notes = null,
+        string? supplierSiren = null) => new()
     {
         Lines = lines,
         Charges = charges ?? [],
         Totals = totals ?? Check(),
+        PaymentTerms = paymentTerms,
+        Notes = notes ?? [],
+        SupplierSiren = supplierSiren,
+    };
+
+    private static DocumentNoteView Note(string content, string? subjectCode) => new()
+    {
+        Content = content,
+        SubjectCode = subjectCode,
     };
 
     private static DocumentLineView Line(
@@ -351,7 +711,8 @@ public sealed class DocumentDetailViewTests : BunitContext
         string sourceRegime = "FR-STD",
         string vatex = "—",
         decimal? taxAmount = null,
-        decimal? rate = 20m) => new()
+        decimal? rate = 20m,
+        string? marginMention = null) => new()
     {
         Label = label,
         Quantity = quantity,
@@ -361,6 +722,7 @@ public sealed class DocumentDetailViewTests : BunitContext
         Vatex = vatex,
         TaxAmount = taxAmount,
         Rate = rate,
+        MarginMention = marginMention,
     };
 
     private static DocumentChargeView Charge(string label, bool isCharge, decimal amount) => new()
@@ -388,10 +750,11 @@ public sealed class DocumentDetailViewTests : BunitContext
         string customer = "DUPONT J.",
         string? siren = "123456782",
         Guid? id = null,
-        bool companyHint = false) => new()
+        bool companyHint = false,
+        string? sourceReference = null) => new()
     {
         Id = id ?? Guid.NewGuid(),
-        SourceReference = $"src/{number}",
+        SourceReference = sourceReference ?? $"src/{number}",
         DocumentNumber = number,
         DocumentType = "invoice",
         IssueDate = new DateOnly(2026, 6, 1),
@@ -407,7 +770,7 @@ public sealed class DocumentDetailViewTests : BunitContext
         LastUpdateUtc = new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero),
     };
 
-    private static DocumentEventDto Event(string type, DateTimeOffset when, string? detail = null, string? op = null, string? opName = null) => new()
+    private static DocumentEventDto Event(string type, DateTimeOffset when, string? detail = null, string? op = null, string? opName = null, string? paResponseSnapshot = null) => new()
     {
         Id = Guid.NewGuid(),
         DocumentId = Guid.Empty,
@@ -416,5 +779,6 @@ public sealed class DocumentDetailViewTests : BunitContext
         Detail = detail,
         OperatorIdentity = op,
         OperatorName = opName,
+        PaResponseSnapshot = paResponseSnapshot,
     };
 }

@@ -13,6 +13,12 @@ public interface ITenantSettingsQueries
 
     Task<FiscalSettingsDto?> GetFiscalSettings(Guid companyId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Lit les mentions de facturation du tenant (F12-A §3.4, BUG-26) : termes de paiement (BT-20) +
+    /// mentions légales FR (BR-FR-05). <c>null</c> tant qu'aucune mention n'est définie.
+    /// </summary>
+    Task<BillingMentionsDto?> GetBillingMentions(Guid companyId, CancellationToken ct = default);
+
     Task<IReadOnlyList<PaAccountDto>> GetPaAccounts(Guid companyId, CancellationToken ct = default);
 
     Task<ExtractionScheduleDto?> GetExtractionSchedule(Guid companyId, CancellationToken ct = default);

@@ -77,6 +77,24 @@ public sealed class PartyRoleConsistencyRuleTests
     }
 
     [Fact]
+    public async Task Self_billed_with_sandbox_test_invoicer_siren_is_gated_by_environment()
+    {
+        // BUG-23 : l'émetteur matériel (mandataire 389) avec un SIREN de test sandbox PA (000000002, Luhn invalide)
+        // est BLOQUANT en production (contexte par défaut, strict) et IDENTIFIÉ hors production (contexte PA Sandbox)
+        // — même gating que l'acheteur, jamais affaiblissement silencieux (CLAUDE.md n°3).
+        var doc = Document(
+            isSelfBilled: true,
+            invoicer: new PivotPartyDto("Étude Mandataire Sandbox", siren: "000000002"));
+
+        var blockedInProduction = await new PartyRoleConsistencyRule().ValidateAsync(Context(doc));
+        blockedInProduction.Should().ContainSingle(issue => issue.Code == PartyRoleConsistencyRule.SelfBilledInvoicerUnidentified)
+            .Which.Severity.Should().Be(ValidationSeverity.Blocking);
+
+        var identifiedInSandbox = await new PartyRoleConsistencyRule().ValidateAsync(Context(doc, allowSandboxTestIdentifiers: true));
+        identifiedInSandbox.Should().BeEmpty("hors production, le SIREN de test sandbox PA identifie l'émetteur matériel (recette).");
+    }
+
+    [Fact]
     public async Task Invoicer_without_self_billed_is_blocking()
     {
         // Acceptance RD404 : « Invoicer sans IsSelfBilled ».
@@ -133,8 +151,8 @@ public sealed class PartyRoleConsistencyRuleTests
         await act.Should().ThrowAsync<ArgumentNullException>();
     }
 
-    private static DocumentValidationContext Context(PivotDocumentDto document)
-        => new(document, Guid.NewGuid());
+    private static DocumentValidationContext Context(PivotDocumentDto document, bool allowSandboxTestIdentifiers = false)
+        => new(document, Guid.NewGuid(), allowSandboxTestIdentifiers: allowSandboxTestIdentifiers);
 
     private static PivotDocumentDto Document(
         bool isSelfBilled = false,

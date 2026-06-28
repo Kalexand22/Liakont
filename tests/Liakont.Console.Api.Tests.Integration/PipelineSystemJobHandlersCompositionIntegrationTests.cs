@@ -52,6 +52,33 @@ public sealed class PipelineSystemJobHandlersCompositionIntegrationTests
     }
 
     /// <summary>
+    /// BUG-4b — verrouille le contrat formulaire↔porteuse sur le graphe RÉEL. Chaque job SYSTÈME
+    /// (<see cref="SystemJobDefinitions"/>, ce que matche le résolveur de porteuse) DOIT être présent au
+    /// catalogue (la clé que le <c>&lt;select&gt;</c> du formulaire émet) ET résoudre vers la société
+    /// porteuse via l'<see cref="ISystemScheduleHost"/> de PRODUCTION (l'override Liakont a gagné la
+    /// résolution). Si le schéma de clé du catalogue divergeait du <c>FullName</c> qu'utilise
+    /// <c>SystemJobDefinitions</c>, ce test passerait au rouge — sinon, un job système se re-routerait
+    /// silencieusement vers le périmètre tenant (faux-vert, BUG-4b régressé).
+    /// </summary>
+    [Fact]
+    public void Real_Host_Schedules_And_Routes_Every_System_Job_To_The_Host_Company()
+    {
+        var catalog = _factory.Services.GetRequiredService<IJobTypeCatalog>();
+        var host = _factory.Services.GetRequiredService<ISystemScheduleHost>();
+
+        SystemJobDefinitions.All.Should().NotBeEmpty();
+
+        foreach (var def in SystemJobDefinitions.All)
+        {
+            catalog.Find(def.JobType).Should()
+                .NotBeNull($"« {def.Label} » doit être planifiable (clé du catalogue = clé matchée par la porteuse)");
+
+            host.ResolveHostCompanyId(def.JobType).Should()
+                .Be(LiakontSystemScheduleHost.HostCompanyId, $"« {def.Label} » est un job système → société porteuse");
+        }
+    }
+
+    /// <summary>
     /// Liste des payloads de fan-out récurrents DÉRIVÉE de l'extension elle-même (drift-proof) : un fan-out
     /// ajouté à <c>AddPipelineSystemJobHandlers</c> est automatiquement couvert, sans liste maintenue à la main.
     /// </summary>

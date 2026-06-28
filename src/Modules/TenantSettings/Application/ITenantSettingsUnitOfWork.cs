@@ -24,6 +24,13 @@ public interface ITenantSettingsUnitOfWork : IAsyncDisposable
 
     Task UpdateFiscalSettingsAsync(FiscalSettings settings, CancellationToken ct = default);
 
+    // ── Mentions de facturation (F12-A §3.4, BUG-26) ──
+    Task<BillingMentions?> GetBillingMentionsByCompanyAsync(Guid companyId, CancellationToken ct = default);
+
+    Task InsertBillingMentionsAsync(BillingMentions mentions, CancellationToken ct = default);
+
+    Task UpdateBillingMentionsAsync(BillingMentions mentions, CancellationToken ct = default);
+
     // ── Comptes PA ──
     Task<PaAccount?> GetPaAccountByIdAsync(Guid id, Guid companyId, CancellationToken ct = default);
 

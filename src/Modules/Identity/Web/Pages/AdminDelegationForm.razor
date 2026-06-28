@@ -311,7 +311,9 @@
         throw new NotSupportedException("Delegations cannot be edited, only revoked.");
     }
 
-    private void MapError(string message)
+    // Retourne null si l'erreur est mappée à un champ ; sinon le message à afficher en bannière globale
+    // (le socle possède l'affichage global — BUG-4 volet A).
+    private string? MapError(string message)
     {
         var lower = message.ToLowerInvariant();
         if (lower.Contains("delegator") || lower.Contains("délégant"))
@@ -328,8 +330,10 @@
         }
         else
         {
-            _globalError = message;
+            return message;
         }
+
+        return null;
     }
 
     private void HandleDelegatorChange(ChangeEventArgs e)

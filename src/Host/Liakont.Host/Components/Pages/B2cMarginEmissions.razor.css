@@ -1,0 +1,30 @@
+/* Page Émissions e-reporting B2C (marge, B4) — mise en page du filtre de période.
+   Layout uniquement : couleurs/contrôles viennent du design-system (DeclaredListPage, tokens.css). */
+
+.bme-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+.bme-filters__group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.bme-filters__label {
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+
+.bme-filters__input {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--color-border, #d1d5db);
+    border-radius: var(--radius-sm, 0.25rem);
+    background: var(--color-surface, #fff);
+    color: inherit;
+    font: inherit;
+}

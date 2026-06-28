@@ -91,6 +91,32 @@ public sealed class PaCapabilitiesTests
     }
 
     [Fact]
+    public void RequireMarginAmountReporting_GateOpen_WhenCapabilityDeclared()
+    {
+        // Gate OUVERT (B2C09a) : une PA déclarant la capacité ne produit aucun écart (null) — l'aval marge
+        // (B2C09b) peut transmettre. Piloté par la capacité déclarée, jamais par un if (pa is …).
+        var capabilities = new PaCapabilities { PaName = "FakePa", SupportsMarginAmountReporting = true };
+
+        capabilities.RequireMarginAmountReporting().Should().BeNull("la capacité est déclarée : le gate est ouvert");
+    }
+
+    [Fact]
+    public void RequireMarginAmountReporting_GateClosed_ReturnsTypedResult_NoException()
+    {
+        // Gate FERMÉ (B2C09a) : capacité absente → résultat TYPÉ journalisable, jamais une exception
+        // ni un blocage du produit (PAA01 ; CLAUDE.md n°3/8). La FORME du payload reste gelée (B2C09b).
+        var capabilities = new PaCapabilities { PaName = "B2Brouter", SupportsMarginAmountReporting = false };
+
+        var gap = capabilities.RequireMarginAmountReporting();
+
+        gap.Should().NotBeNull("la capacité n'est pas déclarée : le gate est fermé");
+        gap!.Capability.Should().Be(PaCapability.MarginAmountReporting);
+        gap.PaName.Should().Be("B2Brouter");
+        gap.OperatorMessage.Should().Contain("B2Brouter");
+        gap.OperatorMessage.Should().Contain("montant de la marge");
+    }
+
+    [Fact]
     public void CapabilityNotSupportedResult_OperatorMessage_IsFrench_AndJournalisable()
     {
         var gap = PaCapabilityNotSupportedResult.Create("B2Brouter", PaCapability.DocumentRetrieval);
@@ -103,4 +129,67 @@ public sealed class PaCapabilitiesTests
         gap.OperatorMessage.Should().Contain("ne prend pas encore en charge");
         gap.OperatorMessage.Should().Contain("facture générée");
     }
+
+    [Fact]
+    public async Task SendB2cTransaction_WithoutB2cReporting_ReturnsTypedGap_NoException()
+    {
+        // Implémentation PAR DÉFAUT de IPaClient : une PA sans la capacité B2C dégrade en résultat typé.
+        IPaClient client = new StubPaClient(new PaCapabilities { PaName = "FakePa", SupportsB2cReporting = false });
+
+        var result = await client.SendB2cTransactionAsync(MarginTransaction());
+
+        result.State.Should().Be(PaSendState.CapabilityNotSupported);
+        result.CapabilityNotSupported!.Capability.Should().Be(PaCapability.B2cReporting);
+    }
+
+    [Fact]
+    public async Task SendB2cTransaction_Margin_GatedOnDedicatedMarginCapability_NotOnB2cReporting()
+    {
+        // Régression review (P1) : le montant de marge (TMA1) se garde sur SupportsMarginAmountReporting,
+        // JAMAIS sur le seul SupportsB2cReporting — sinon on transmettrait une forme de marge non confirmée.
+        IPaClient client = new StubPaClient(new PaCapabilities
+        {
+            PaName = "SuperPdp",
+            SupportsB2cReporting = true,
+            SupportsMarginAmountReporting = false,
+        });
+
+        var result = await client.SendB2cTransactionAsync(MarginTransaction());
+
+        result.State.Should().Be(PaSendState.CapabilityNotSupported);
+        result.CapabilityNotSupported!.Capability.Should().Be(
+            PaCapability.MarginAmountReporting,
+            "la marge se garde sur la capacité DÉDIÉE, pas sur la capacité B2C générique");
+    }
+
+    [Fact]
+    public async Task SendB2cTransaction_NonMargin_DeclaredButNotOverridden_ReturnsTypedGap_NeverThrows()
+    {
+        // Régression review (P1) : un plug-in qui déclare SupportsB2cReporting=true mais NE surcharge PAS le
+        // verbe (ex. B2Brouter) ne doit JAMAIS lever sur une transaction NON-marge — résultat TYPÉ (PAA01).
+        IPaClient client = new StubPaClient(new PaCapabilities
+        {
+            PaName = "B2Brouter",
+            SupportsB2cReporting = true,
+            SupportsMarginAmountReporting = false,
+        });
+
+        var nonMargin = MarginTransaction() with { Category = EReportingTransactionCategory.Tlb1 };
+
+        var result = await client.SendB2cTransactionAsync(nonMargin);
+
+        result.State.Should().Be(PaSendState.CapabilityNotSupported, "résultat typé, jamais une exception");
+        result.CapabilityNotSupported!.Capability.Should().Be(PaCapability.B2cReporting);
+    }
+
+    private static B2cReportingTransaction MarginTransaction() => new()
+    {
+        Category = EReportingTransactionCategory.Tma1,
+        Role = EReportingDeclarantRole.Seller,
+        CurrencyCode = "EUR",
+        Date = new DateOnly(2026, 6, 22),
+        TaxExclusiveAmount = 100.00m,
+        TaxTotal = 20.00m,
+        Subtotals = [new B2cReportingTransactionSubtotal { TaxPercent = 20.0m, TaxableAmount = 100.00m, TaxTotal = 20.00m }],
+    };
 }

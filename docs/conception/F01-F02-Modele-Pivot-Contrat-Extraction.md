@@ -190,8 +190,19 @@ public interface IExtractor
 | `Customer.IsCompanyHint` | `entete_ba.societe` non vide |
 | `SourceTotalGross` | `entete_ba.total_bordereau` |
 | Montants | arrondi 2 déc. (flottants Pervasive sales) ; original conservé dans `SourceData` |
+| Frais vendeur (BV) | **[Schéma NON documenté — dépendance EXTERNE ISATECH, B2C-06]** Voir §4.3.1 : le bordereau vendeur (commission vendeur) n'a **aucune** colonne/table connue dans le schéma actuel (`type_ligne IN ('4','2','3')` = adjudication / frais acheteur / règlement) ; le `no_lot` présumé comme clé de rattachement **n'existe pas** (la seule clé du modèle est `no_ba`, au grain bordereau). Schéma réel à **confirmer auprès d'ISATECH** ; aucune requête figée sans confirmation |
 
 ✅ **Le contrat passe le test du cas réel** — chaque méthode a une implémentation directe et naturelle.
+
+#### 4.3.1 Frais vendeur (« bordereau vendeur », BV) — schéma source à confirmer (B2C-06)
+
+Le calcul du **montant de la marge** e-reporting B2C (F03 §2.4 : `marge = frais acheteur + frais vendeur`, ancré CGI 297 A I-2° + BOI-TVA-SECT-90-50 §270) exige la **commission vendeur** (frais à la charge du commettant). Or cette donnée **n'est pas localisée** dans le schéma EncheresV6 documenté ci-dessus. B2C-06 lève cette inconnue **avant toute extraction** (B2C-07) ; il ne **devine aucun schéma** (CLAUDE.md n°2/n°7).
+
+**Inconnue de schéma (à spécifier).** Pour lire les frais vendeur il faut : (1) la **table/vue** qui les porte, (2) les **colonnes** montant et code régime, (3) la **clé de rattachement** au lot/bordereau. Le `no_lot` qu'on pourrait présumer **n'existe pas** dans le modèle ; la seule clé disponible est `no_ba` (au grain bordereau, pas au grain lot).
+
+**PROD — dépendance EXTERNE ISATECH (non figée).** Le schéma réel (table, colonnes, clé) est une **demande à ISATECH**, à **re-confirmer à la recette** (même logique de dépendance externe que `GATE_DEMO_ISATECH` du segment CMP). Tant qu'il n'est pas confirmé, **aucune requête SQL n'est figée** et l'extraction des frais vendeur (B2C-07) reste à écrire d'après la structure confirmée. Deux structures restent ouvertes pour le réel : (a) un **nouveau `type_ligne` du MÊME bordereau** (rattachement par `no_ba` existant, sans jointure), ou (b) un **document/table distinct** à joindre par une clé identifiée à la confirmation.
+
+**DÉMO — modélisation FICTIVE (chemin retenu : option (a)).** Pour exercer le flux complet hors site sans inventer le schéma client, la fixture `fixtures/encheresv6/encheresv6-source.json` modélise le frais vendeur en **option (a)** : une ligne `type_ligne = "5"` (« Frais vendeur ») **rattachée au même bordereau via le `no_ba` existant** (donnée fictive, CLAUDE.md n°7) — option (a) car elle réutilise la clé connue **sans inventer de jointure**. Cette ligne est **ignorée par l'extraction document courante** (`IsDocumentLine` ne reconnaît que les types 4 et 2) : le frais vendeur **n'est JAMAIS une ligne facturée à l'acheteur** (B2C-08, art. 297 E), c'est une **donnée de calcul** de marge que B2C-07 lira par une requête additive et que B2C-08 portera hash-neutre (`SourceData`). La présence de cette ligne ne modifie donc **pas** l'empreinte canonique des documents existants. Le choix d'option (a) pour la démo **ne fige pas** le schéma PROD : il reste tranché à la confirmation ISATECH (ci-dessus).
 
 ### 4.4 Le `FixtureExtractor` (dev + démo)
 

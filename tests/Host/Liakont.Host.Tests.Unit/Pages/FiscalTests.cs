@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Bunit;
 using FluentAssertions;
+using Liakont.Host.BillingMentions;
 using Liakont.Host.Components.Pages;
 using Liakont.Host.Fiscal;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,6 +26,10 @@ public sealed class FiscalTests : BunitContext
         Services.AddLogging();
         Services.AddLocalization();
         Services.AddCommonUI();
+
+        // La page Fiscal rend aussi la section « Mentions de facturation » (BUG-26, intégrées à la page
+        // fiscale) : un faux service suffit pour faire rendre la vue dans les tests du paramétrage fiscal.
+        Services.AddScoped<IBillingMentionsConsoleService>(_ => new FakeBillingMentionsService());
     }
 
     [Fact]
@@ -61,6 +66,21 @@ public sealed class FiscalTests : BunitContext
 
         cut.WaitForAssertion(() => cut.FindAll("[data-testid='fiscal']").Should().ContainSingle());
         cut.FindAll("[data-testid='fiscal-operation-category']").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Billing_mentions_section_is_rendered_within_the_fiscal_page()
+    {
+        // BUG-26 (ajustement PO) : les mentions de facturation sont intégrées à la page « Paramètres
+        // fiscaux » — la section et son formulaire sont rendus SOUS le formulaire fiscal.
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(hasSettings: true));
+        Services.AddScoped<IFiscalConsoleService>(_ => new FakeFiscalService());
+
+        var cut = Render<Fiscal>();
+
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='fiscal']").Should().ContainSingle());
+        cut.FindAll("[data-testid='mentions']").Should().ContainSingle();
+        cut.FindAll("[data-testid='mentions-save-btn']").Should().ContainSingle();
     }
 
     [Fact]
@@ -164,6 +184,24 @@ public sealed class FiscalTests : BunitContext
             SaveCalls++;
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class FakeBillingMentionsService : IBillingMentionsConsoleService
+    {
+        public Task<BillingMentionsViewModel> GetAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new BillingMentionsViewModel
+            {
+                Form = new BillingMentionsFormModel
+                {
+                    PaymentTerms = string.Empty,
+                    LatePenaltyTerms = string.Empty,
+                    RecoveryFeeTerms = string.Empty,
+                    DiscountTerms = string.Empty,
+                },
+            });
+
+        public Task SaveAsync(BillingMentionsInput input, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 
     private sealed class FakePermissionService : IPermissionService

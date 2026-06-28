@@ -75,10 +75,14 @@ internal static class CiiStructuralValidator
                 .Elements(Ram + "LineTotalAmount").Any(), $"BT-131 (ligne {id} : total ligne)");
         }
 
-        // ApplicableHeaderTradeDelivery est obligatoire dans le xsd:sequence de la transaction (et exigé
-        // par EN 16931 / Mustang COMFORT), même vide.
-        Require(issues, root.Descendants(Ram + "ApplicableHeaderTradeDelivery").Any(),
-            "BG-13 (ApplicableHeaderTradeDelivery)");
+        // ApplicableHeaderTradeDelivery est obligatoire dans le xsd:sequence de la transaction ET ne doit
+        // JAMAIS être vide (PEPPOL-EN16931-R008 interdit un élément vide — BUG-26 / F16 §3.5) : on exige la
+        // date de livraison effective (BT-72) via ActualDeliverySupplyChainEvent/OccurrenceDateTime.
+        var delivery = root.Descendants(Ram + "ApplicableHeaderTradeDelivery").FirstOrDefault();
+        Require(issues, delivery is not null, "BG-13 (ApplicableHeaderTradeDelivery)");
+        var deliveryDate = delivery?.Element(Ram + "ActualDeliverySupplyChainEvent")?
+            .Element(Ram + "OccurrenceDateTime")?.Element(Udt + "DateTimeString");
+        Require(issues, deliveryDate is not null, "BT-72 (ApplicableHeaderTradeDelivery non vide : date de livraison, R008)");
 
         var seller = root.Descendants(Ram + "SellerTradeParty").FirstOrDefault();
         Require(issues, seller?.Element(Ram + "Name") is not null, "BT-27 (SellerTradeParty/Name)");

@@ -126,6 +126,34 @@ public sealed class DocumentReceivedConsumerIntegrationTests : IClassFixture<Pip
             "ReadyToSend", "le contenu re-stagé rend le CHECK déroulable — plus de zombie définitif (FIX07b)");
     }
 
+    [Fact]
+    public async Task Classified_Margin_With_Professional_Buyer_Is_Routed_Not_Blocked_As_Unclassified()
+    {
+        // BUG-17 (volet a buyer-indépendant + volet b honoraire en ligne, F03 §2.10) : un document dont le RÉGIME
+        // est CLASSÉ marge (adjudication E + VATEX-EU-J) avec un acheteur PROFESSIONNEL (SIREN) n'est PLUS happé par
+        // la garde « marge non classée » — le CONTENU fiscal vient du régime (classé), le CANAL de l'acheteur. Le
+        // portage de l'honoraire EN LIGNE (volet b) le rend B2B-représentable : router devient sûr (l'honoraire
+        // n'est plus perdu). Le document est donc ROUTÉ en aval (atteint ReadyToSend), jamais bloqué « marge non
+        // classée ». ANCIEN attendu : Blocked + motif « honoraires » ; NOUVEAU : ReadyToSend (routé en aval).
+        var documentId = Guid.NewGuid();
+        var sourceReference = "no_ba=" + documentId.ToString("N");
+        var buyer = new PivotPartyDto("Galerie Pro SARL", siren: "945678902");
+        var pivot = CheckIntegrationFixtures.BuildB2cMarginDeclaration(sourceReference, "NORMAL", customer: buyer);
+
+        await SeedAndStageAsync(documentId, sourceReference, pivot);
+
+        await ConsumeAsync(documentId, sourceReference, CheckIntegrationFixtures.PayloadHashOf(pivot));
+
+        (await _harness.GetDocumentStateAsync(documentId)).Should().Be(
+            "ReadyToSend",
+            "un régime classé marge avec acheteur professionnel route en aval (buyer-indépendant), jamais bloqué « marge non classée » (BUG-17 volet a/b).");
+
+        var events = await _harness.GetEventsAsync(documentId);
+        events.Should().NotContain(
+            e => e.Detail != null && e.Detail.Contains("marge sous-déclarée", StringComparison.Ordinal),
+            "la garde fail-closed « marge non classée » ne doit PLUS firer sur un régime CLASSÉ (BUG-17 volet a).");
+    }
+
     private async Task SeedAndStageAsync(Guid documentId, string sourceReference, PivotDocumentDto pivot)
     {
         var json = CanonicalJson.Serialize(pivot);

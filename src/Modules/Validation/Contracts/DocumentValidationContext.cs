@@ -19,7 +19,14 @@ public sealed class DocumentValidationContext
     /// légitime de la validation, jamais un affaiblissement silencieux d'une anomalie bloquante (CLAUDE.md n°3).
     /// Par défaut <c>false</c> (le cas nominal : aucun verdict opérateur).
     /// </param>
-    public DocumentValidationContext(PivotDocumentDto document, Guid companyId, bool buyerConfirmedAsIndividual = false)
+    /// <param name="allowSandboxTestIdentifiers">
+    /// Le compte PA actif du tenant n'est PAS en production (Staging/Sandbox) : les règles d'identité tolèrent
+    /// alors les SIREN de TEST sandbox PA (BUG-23, <see cref="Liakont.Modules.Validation.Domain.Identity.SirenValidator"/>)
+    /// pour exercer le pipeline e-invoicing B2B en recette. Calculé par le CHECK depuis l'environnement du compte PA
+    /// (jamais par le document). Par défaut <c>false</c> = STRICT (clé de Luhn exigée, production-safe) : c'est un
+    /// gating, jamais un affaiblissement silencieux d'une validation Blocking (CLAUDE.md n°3).
+    /// </param>
+    public DocumentValidationContext(PivotDocumentDto document, Guid companyId, bool buyerConfirmedAsIndividual = false, bool allowSandboxTestIdentifiers = false)
     {
         Document = document ?? throw new ArgumentNullException(nameof(document));
 
@@ -30,6 +37,7 @@ public sealed class DocumentValidationContext
 
         CompanyId = companyId;
         BuyerConfirmedAsIndividual = buyerConfirmedAsIndividual;
+        AllowSandboxTestIdentifiers = allowSandboxTestIdentifiers;
     }
 
     /// <summary>Le document à valider (modèle pivot EN 16931).</summary>
@@ -45,4 +53,12 @@ public sealed class DocumentValidationContext
     /// prime sur l'heuristique d'indice). La règle reste détection-seule pour tout document non tranché.
     /// </summary>
     public bool BuyerConfirmedAsIndividual { get; }
+
+    /// <summary>
+    /// Le compte PA actif du tenant n'est PAS en production (Staging/Sandbox) → les règles d'identité (SIREN
+    /// acheteur, émetteur matériel) tolèrent les SIREN de TEST sandbox PA (BUG-23). <c>false</c> en production :
+    /// la clé de Luhn reste stricte. Calculé par le CHECK depuis l'environnement du compte PA, jamais par le
+    /// document — c'est un gating d'environnement, pas un affaiblissement de validation (CLAUDE.md n°3).
+    /// </summary>
+    public bool AllowSandboxTestIdentifiers { get; }
 }

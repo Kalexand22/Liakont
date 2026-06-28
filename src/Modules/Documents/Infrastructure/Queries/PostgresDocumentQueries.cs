@@ -81,7 +81,7 @@ public sealed class PostgresDocumentQueries : IDocumentQueries, IDocumentStateCo
         using var conn = await _connectionFactory.OpenAsync(cancellationToken);
 
         const string sql = """
-            SELECT id, document_number, document_type, issue_date, customer_name,
+            SELECT id, source_reference, document_number, document_type, issue_date, customer_name,
                    total_gross, state, last_update_utc
             FROM documents.documents
             WHERE state = @State
@@ -106,7 +106,7 @@ public sealed class PostgresDocumentQueries : IDocumentQueries, IDocumentStateCo
         // attendue petite) pour que le pipeline (PIP01) raccroche avant de retenter — jamais de pagination
         // qui masquerait un document à vérifier.
         var sql = $"""
-            SELECT id, document_number, document_type, issue_date, customer_name,
+            SELECT id, source_reference, document_number, document_type, issue_date, customer_name,
                    total_gross, state, last_update_utc
             FROM documents.documents
             WHERE state = @State
@@ -128,7 +128,7 @@ public sealed class PostgresDocumentQueries : IDocumentQueries, IDocumentStateCo
         // Supervision (SUP01b) : le document le PLUS ANCIEN dans l'état (plus petit last_update_utc), borné à
         // UNE ligne. L'index ix_documents_state (state, last_update_utc DESC) couvre aussi ce tri ascendant.
         const string sql = """
-            SELECT id, document_number, document_type, issue_date, customer_name,
+            SELECT id, source_reference, document_number, document_type, issue_date, customer_name,
                    total_gross, state, last_update_utc
             FROM documents.documents
             WHERE state = @State
@@ -245,7 +245,7 @@ public sealed class PostgresDocumentQueries : IDocumentQueries, IDocumentStateCo
         var whereWithState = withState.Count == 0 ? string.Empty : "WHERE " + string.Join(" AND ", withState);
 
         var listSql = $"""
-            SELECT id, document_number, document_type, issue_date, customer_name,
+            SELECT id, source_reference, document_number, document_type, issue_date, customer_name,
                    total_gross, state, last_update_utc
             FROM documents.documents
             {whereWithState}
@@ -437,6 +437,7 @@ public sealed class PostgresDocumentQueries : IDocumentQueries, IDocumentStateCo
         return new DocumentSummaryDto
         {
             Id = (Guid)row.id,
+            SourceReference = (string?)row.source_reference,
             DocumentNumber = (string)row.document_number,
             DocumentType = (string)row.document_type,
             IssueDate = DocumentRowReader.ToDateOnly((object)row.issue_date),

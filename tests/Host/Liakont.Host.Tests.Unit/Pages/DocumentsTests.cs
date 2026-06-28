@@ -460,6 +460,20 @@ public sealed class DocumentsTests : BunitContext
     }
 
     [Fact]
+    public void Should_Render_The_Document_Family_Column_To_Distinguish_BA_From_BV()
+    {
+        // BUG-20 : un bordereau acheteur et un bordereau vendeur de MÊME numéro (tous deux « Facture » au type) sont
+        // distinguables à l'œil par la colonne « Famille de pièce », dérivée de la référence source par le template.
+        Services.AddScoped<IDocumentConsoleQueries>(_ => FakeDocumentConsoleQueries.Returning(
+            Doc("9000004", "invoice", "Issued", customer: "ALICE", sourceReference: "encheresv6:ba:9000004"),
+            Doc("9000004", "invoice", "Issued", customer: "BOBBY", sourceReference: "encheresv6:bv:9000004")));
+
+        var cut = Render<Documents>();
+
+        cut.Markup.Should().Contain("Bordereau acheteur").And.Contain("Bordereau vendeur");
+    }
+
+    [Fact]
     public void Should_Show_Error_Banner_When_Load_Throws()
     {
         Services.AddScoped<IDocumentConsoleQueries>(_ => FakeDocumentConsoleQueries.Throwing());
@@ -628,9 +642,10 @@ public sealed class DocumentsTests : BunitContext
         cut.Markup.Should().Contain("CAROLE");
     }
 
-    private static DocumentSummaryDto Doc(string number, string type, string state, string customer = "DUPONT J.") => new()
+    private static DocumentSummaryDto Doc(string number, string type, string state, string customer = "DUPONT J.", string? sourceReference = null) => new()
     {
         Id = Guid.NewGuid(),
+        SourceReference = sourceReference,
         DocumentNumber = number,
         DocumentType = type,
         IssueDate = new DateOnly(2026, 6, 1),
@@ -660,7 +675,7 @@ public sealed class DocumentsTests : BunitContext
 
         public static FakeDocumentConsoleQueries Throwing() => new(null, throws: true);
 
-        public Task<IReadOnlyList<DocumentSummaryDto>> GetDocumentsInPeriodAsync(DateOnly? from, DateOnly? to, CancellationToken cancellationToken = default)
+        public Task<IReadOnlyList<DocumentSummaryDto>> GetDocumentsInPeriodAsync(DateOnly? from, DateOnly? to, string? documentType = null, CancellationToken cancellationToken = default)
         {
             if (_throws)
             {

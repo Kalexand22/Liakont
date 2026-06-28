@@ -30,6 +30,20 @@ public sealed class SirenValidatorTests
     }
 
     [Theory]
+    [InlineData("000000001")] // SuperPDP « Tricatel » (destinataire B2B adressable sandbox) — Luhn invalide
+    [InlineData("000000002")] // SuperPDP « Burger Queen » (émetteur sandbox) — Luhn invalide
+    public void IsValid_with_pa_sandbox_test_siren_is_gated_by_environment(string siren)
+    {
+        // BUG-23 : la dérogation de recette (Karl, 27/06/2026) pour les SIREN de test sandbox PA est GÂTÉE par
+        // l'environnement PA. Hors production (allowSandboxTestSirens=true), ces SIREN sont acceptés pour exercer
+        // le pipeline e-invoicing B2B en recette ; en production (défaut strict), la clé de Luhn s'applique — ces
+        // faux SIREN sont REFUSÉS (jamais d'affaiblissement silencieux d'une validation Blocking, CLAUDE.md n°3).
+        SirenValidator.IsValid(siren, allowSandboxTestSirens: true).Should().BeTrue("hors production, les SIREN de test sandbox PA sont tolérés (recette).");
+        SirenValidator.IsValid(siren).Should().BeFalse("en production (défaut strict), un SIREN de test sandbox échoue la clé de Luhn.");
+        SirenValidator.IsValid(siren, allowSandboxTestSirens: false).Should().BeFalse("gating explicite : sans autorisation, la clé de Luhn s'applique.");
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("12345678")] // trop court

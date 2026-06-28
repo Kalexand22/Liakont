@@ -72,6 +72,30 @@ internal static class SystemJobDefinitions
             Label: "Rectificatifs e-reporting annule-et-remplace (PIP04)",
             Class: SystemJobClass.DeploymentCadence),
         new SystemJobDefinition(
+            JobType: typeof(AggregateB2cMarginAllTrigger).FullName!,
+            ScheduleName: "E-reporting B2C de la marge (tous les tenants)",
+            CronExpression: null,
+            Label: "E-reporting B2C de la marge, agrégation jour×devise×taux + transmission (B4)",
+            Class: SystemJobClass.DeploymentCadence),
+        new SystemJobDefinition(
+            JobType: typeof(AggregateB2cTaxableAllTrigger).FullName!,
+            ScheduleName: "E-reporting B2C au régime du prix total (tous les tenants)",
+            CronExpression: null,
+            Label: "E-reporting B2C au régime du prix total taxable, agrégation jour×devise×taux + transmission (TLB1, BUG-8)",
+            Class: SystemJobClass.DeploymentCadence),
+        new SystemJobDefinition(
+            JobType: typeof(AggregateB2cExportAllTrigger).FullName!,
+            ScheduleName: "E-reporting B2C export hors UE (tous les tenants)",
+            CronExpression: null,
+            Label: "E-reporting B2C export hors UE détaxé, une transaction par opération + transmission (TLB1 unitaire, art. 262 I, BUG-11)",
+            Class: SystemJobClass.DeploymentCadence),
+        new SystemJobDefinition(
+            JobType: typeof(AggregateB2cPlainTaxableAllTrigger).FullName!,
+            ScheduleName: "E-reporting B2C document ordinaire (tous les tenants)",
+            CronExpression: null,
+            Label: "E-reporting B2C des documents ordinaires taxables (facture client/TLB1, note d'honoraires/TPS1), agrégation jour×devise×taux par catégorie + transmission (F03 §2.9, #7)",
+            Class: SystemJobClass.DeploymentCadence),
+        new SystemJobDefinition(
             JobType: typeof(ReconciliationFanOutJobPayload).FullName!,
             ScheduleName: "Rapprochement des PDF (réconciliation)",
             CronExpression: null,

@@ -137,6 +137,9 @@ public sealed class TenantSuspensionLookupTests
             public Task<FiscalSettingsDto?> GetFiscalSettings(Guid companyId, CancellationToken ct = default) =>
                 throw new NotSupportedException();
 
+            public Task<BillingMentionsDto?> GetBillingMentions(Guid companyId, CancellationToken ct = default) =>
+                throw new NotSupportedException();
+
             public Task<IReadOnlyList<PaAccountDto>> GetPaAccounts(Guid companyId, CancellationToken ct = default) =>
                 throw new NotSupportedException();
 

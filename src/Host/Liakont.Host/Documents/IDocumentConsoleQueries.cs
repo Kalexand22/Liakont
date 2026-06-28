@@ -28,10 +28,13 @@ internal interface IDocumentConsoleQueries
     /// <summary>
     /// Charge tous les documents du tenant courant dont la date d'émission est dans [<paramref name="from"/>,
     /// <paramref name="to"/>] (bornes incluses ; <c>null</c> = pas de borne). Triés par dernière mise à jour
-    /// décroissante (ordre du module).
+    /// décroissante (ordre du module). <paramref name="documentType"/> (type BRUT, ex. <c>DECLARATION</c>) borne
+    /// la requête CÔTÉ SERVEUR quand il est fourni — le plafond de chargement s'applique alors au seul type
+    /// demandé (jamais une troncature silencieuse d'un sous-ensemble filtré après coup) ; <c>null</c> = tous types.
     /// </summary>
     Task<IReadOnlyList<DocumentSummaryDto>> GetDocumentsInPeriodAsync(
         DateOnly? from,
         DateOnly? to,
+        string? documentType = null,
         CancellationToken cancellationToken = default);
 }

@@ -15,6 +15,8 @@ using Xunit;
 /// </summary>
 public sealed class SuperPdpClientSendTests
 {
+    private static readonly string[] ExpectedNoteSubjectCodes = { "PMD", "PMT", "AAB" };
+
     [Fact]
     public async Task Send_Converts_Then_Posts_The_Xml_With_Bearer_And_External_Id()
     {
@@ -112,6 +114,58 @@ public sealed class SuperPdpClientSendTests
     }
 
     [Fact]
+    public async Task Send_With_BillingMentions_Emits_payment_terms_notes_and_delivery_information()
+    {
+        var handler = new RoutedHttpMessageHandler()
+            .OnConvert(HttpStatusCode.OK, SuperPdpTestData.CiiXml)
+            .OnPost(HttpStatusCode.OK, SuperPdpTestData.IssuedJson);
+        var client = SuperPdpTestData.CreateClient(handler);
+
+        await client.SendDocumentAsync(
+            SuperPdpTestData.Invoice20WithBillingMentions("F-MENTIONS", new DateTime(2026, 1, 20)));
+
+        // BUG-26 (F16 §3.5) : le builder RECOPIE les mentions tenant du pivot dans le JSON en16931 — termes de
+        // paiement (BT-20), notes légales FR (BG-1 : note + subject_code) et la date de livraison (BT-72). Les
+        // noms snake_case sont posés par SuperPdpJson.Options (vérifiés ici par lecture des propriétés JSON).
+        var invoice = ConvertBody(handler);
+        invoice.GetProperty("payment_terms").GetString().Should().Be("Paiement à 30 jours fin de mois.");
+
+        // Chaque note porte son code sujet BT-21 (subject_code) — les 3 mentions légales FR PMD/PMT/AAB.
+        var notes = invoice.GetProperty("notes");
+        notes.GetArrayLength().Should().Be(3);
+        notes.EnumerateArray().Select(n => n.GetProperty("subject_code").GetString())
+            .Should().BeEquivalentTo(ExpectedNoteSubjectCodes);
+        notes[0].GetProperty("note").GetString().Should().Be("Pénalités de retard au taux légal.");
+
+        invoice.GetProperty("delivery_information").GetProperty("delivery_date").GetString()
+            .Should().Be("2026-01-20", "la date de livraison du pivot est recopiée (BT-72, format yyyy-MM-dd)");
+    }
+
+    [Fact]
+    public async Task Send_Without_DeliveryDate_Falls_Back_To_IssueDate()
+    {
+        var handler = new RoutedHttpMessageHandler()
+            .OnConvert(HttpStatusCode.OK, SuperPdpTestData.CiiXml)
+            .OnPost(HttpStatusCode.OK, SuperPdpTestData.IssuedJson);
+        var client = SuperPdpTestData.CreateClient(handler);
+
+        await client.SendDocumentAsync(
+            SuperPdpTestData.Invoice20WithBillingMentions("F-NODELIV", deliveryDate: null));
+
+        // BUG-26 / R008 : SANS date de livraison portée, le builder SuperPDP émet TOUJOURS delivery_information
+        // en repli sur la date d'émission (BT-2 = 2026-01-15) — sinon le converter de la PA génère un
+        // ApplicableHeaderTradeDelivery VIDE (rejet PEPPOL-EN16931-R008). Ce n'est pas une fabrication : aux
+        // enchères la livraison du lot intervient à l'adjudication (= date de vente), F16 §3.5.
+        var invoice = ConvertBody(handler);
+        invoice.GetProperty("delivery_information").GetProperty("delivery_date").GetString()
+            .Should().Be("2026-01-15", "le repli sur la date d'émission rend l'élément livraison non vide (R008)");
+
+        // Les autres mentions (termes de paiement + notes) restent émises indépendamment de la date de livraison.
+        invoice.GetProperty("payment_terms").GetString().Should().Be("Paiement à 30 jours fin de mois.");
+        invoice.GetProperty("notes").GetArrayLength().Should().Be(3);
+    }
+
+    [Fact]
     public async Task Send_With_UnitCode_Keeps_neutral_C62_on_synthetic_quantity_one_line()
     {
         var handler = new RoutedHttpMessageHandler()
@@ -123,7 +177,7 @@ public sealed class SuperPdpClientSendTests
 
         // RD407 (BT-130) : la ligne SuperPDP est un agrégat synthétique émis en quantité 1 → son unité reste
         // l'unité neutre C62, même quand le pivot porte une unité. Projeter « 1 KGM » au prix du total serait
-        // incohérent (CLAUDE.md n°3) : l'émission fidèle de BT-130 côté SuperPDP est un différé B2B (phase 2).
+        // incohérent (CLAUDE.md n°3) : l'émission fidèle de BT-130 côté SuperPDP est un raffinement différé (RD407).
         // FacturX, qui émet la quantité réelle, projette l'unité — cf. CrossIndustryInvoiceSerializerTests.
         var invoice = ConvertBody(handler);
         invoice.GetProperty("lines")[0].GetProperty("invoiced_quantity_code").GetString()

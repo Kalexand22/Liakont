@@ -107,6 +107,41 @@ Conduite à tenir (déterministe, pas inventé) :
 2 décimales, **source unique** partagée agent (net48) / plateforme (.NET 10) (`PivotRounding.cs:16-29`).
 **Zéro tolérance** : un centime d'écart bloque (`ArithmeticRule.cs:26-40`, INV-VALIDATION-017).
 
+### 3.5 Conformité CTC-FR / PEPPOL : termes de paiement, mentions FR, livraison
+
+> **Note d'amendement (2026-06-27, BUG-26 — recette EncheresV6/SuperPDP).** Une facture B2B émise vers
+> SuperPDP (converter `en16931 → cii`, profil **CTC-FR**) a été **rejetée** par trois règles que le
+> sérialiseur CII (FX03) et le builder Super PDP ne produisaient pas. Ces éléments sont des **données de
+> l'entreprise** (conditions générales de vente), **jamais inventés par le produit** (CLAUDE.md n°2) :
+> ils sont **paramétrés au niveau tenant** (groupe « Mentions de facturation », **[F12-A §3.4](F12-A-Parametrage-Tenant.md)**),
+> **surchargeables par document** (le pivot prime sur le défaut tenant), et **absents ⇒ blocage** sur une
+> facture B2B FR (CLAUDE.md n°3, jamais un envoi voué au rejet). Ces champs sont portés par le pivot
+> (`PaymentTerms`, `Notes`, `DeliveryDate` — additifs EXT01, F01-F02) et projetés à l'identique par les
+> **deux** projecteurs (sérialiseur CII *et* `SuperPdpPayloadBuilder`, schéma `en_invoice` :
+> `payment_terms`, `notes[]`, `delivery_information`).
+
+| Règle rejetée | Exigence | Élément CII (BT/BG) | Source de la valeur |
+|---|---|---|---|
+| **BR-CO-25** | montant dû (BT-115) positif ⇒ **BT-9 OU BT-20** présent | `SpecifiedTradePaymentTerms` : `DueDateDateTime` (BT-9) et/ou `Description` (BT-20) | BT-9 = `PaymentDueDate` du pivot, **jamais fabriquée** (EXT01, F14 §3.2) ; BT-20 = mention tenant « termes de paiement » |
+| **BR-FR-05** ×3 | 3 mentions légales FR obligatoires entre professionnels | `ram:IncludedNote` (BT-22 `Content` + BT-21 `SubjectCode`, codelist UNTDID 4451) | mentions tenant (3 textes), `SubjectCode` imposés par le converter CTC-FR : **PMD** pénalités de retard, **PMT** indemnité forfaitaire de recouvrement, **AAB** escompte/absence |
+| **PEPPOL-EN16931-R008** | « Document MUST not contain empty elements » | `ApplicableHeaderTradeDelivery` **jamais vide** → `ActualDeliverySupplyChainEvent/OccurrenceDateTime` (BT-72) | date de livraison effective = **date de vente** (BG-13 hors socle V1, F15 §82-83 ; aux enchères la livraison du lot intervient **à l'adjudication** — fait du modèle, pas une fabrication) |
+
+**BR-CO-25 — aux enchères.** Le bordereau acheteur est une **demande de paiement** exigible **comptant à la
+vente** ; à l'émission il n'est pas nécessairement soldé. La satisfaction de BR-CO-25 passe donc par **BT-20**
+(termes de paiement, mention tenant — ex. « Paiement comptant exigible à la vente »), valable que la facture
+soit payée ou non, **jamais par une échéance BT-9 fabriquée** (CLAUDE.md n°2 ; BT-9 n'est émise que si la
+source la porte — F14 §3.2/O11). Le **reflet du paiement effectif** (acompte BT-113 = somme des règlements ⇒
+montant dû nul, cas « facture soldée » de F14 §3.2) est un **raffinement distinct** : les règlements sont
+déjà un flux séparé (e-reporting de paiement F09, extraction `ExtractPayments` par `date_reglement`), non
+rattaché au bordereau dans la requête document — leur projection en BT-113 reste un suivi et **ne conditionne
+pas** la levée de BR-CO-25, déjà assurée par BT-20.
+
+**Périmètre du blocage.** Les mentions FR (BR-FR-05) et le BT-20 sont exigés sur la **voie document** (facture
+B2B à destinataire identifié SIREN, FR). Le **B2C** part par l'**e-reporting agrégé** (pas de Factur-X par
+document) et n'est donc pas concerné. Codes UNTDID 4451 et obligation **non inventés** : imposés par le verdict
+du converter CTC-FR (autorité sur ce qu'il exige) et adossés aux mentions obligatoires entre professionnels
+(C. com. art. L441-9 / L441-10) — le **contenu** reste saisi par le client/EC, le produit n'embarque aucun texte.
+
 ## 4. Scellement PDF/A-3
 
 **QuestPDF** (déjà au repo) : `PDFA_3B` + `AddAttachment` (relation **`Alternative`**, cf. ADR-0023 §3) +

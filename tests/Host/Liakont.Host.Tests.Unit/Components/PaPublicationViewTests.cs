@@ -136,6 +136,50 @@ public sealed class PaPublicationViewTests : BunitContext
     }
 
     [Fact]
+    public void Fields_required_when_the_pa_consumes_them_submit_disabled_while_empty()
+    {
+        // BUG-13 : PA qui CONSOMME les champs (RequiresTaxReportSettingFields = true) ⇒ saisie obligatoire,
+        // bouton « Publier » désactivé tant qu'ils sont vides.
+        var cut = Render<PaPublicationView>(p => p
+            .Add(v => v.State, new PaPublicationState
+            {
+                HasActiveAccount = true,
+                PluginType = "B2Brouter",
+                Environment = "Staging",
+                StateAvailable = true,
+                Siren = "123456782",
+                RequiresTaxReportSettingFields = true,
+            })
+            .Add(v => v.Form, new PaPublicationFormModel { StartDate = new DateOnly(2026, 1, 1) })
+            .Add(v => v.FormOpen, true));
+
+        cut.Find("[data-testid='pa-publication-submit-btn']").HasAttribute("disabled")
+            .Should().BeTrue("une PA qui consomme ces champs exige leur saisie");
+    }
+
+    [Fact]
+    public void Fields_optional_when_the_pa_ignores_them_submit_enabled_while_empty()
+    {
+        // BUG-13 : PA qui IGNORE les champs (RequiresTaxReportSettingFields = false, ex. Super PDP) ⇒ saisie
+        // facultative, bouton « Publier » actif même champs vides (CLAUDE.md n°8 : ne pas imposer un champ sans effet).
+        var cut = Render<PaPublicationView>(p => p
+            .Add(v => v.State, new PaPublicationState
+            {
+                HasActiveAccount = true,
+                PluginType = "SuperPdp",
+                Environment = "Staging",
+                StateAvailable = true,
+                Siren = "000000002",
+                RequiresTaxReportSettingFields = false,
+            })
+            .Add(v => v.Form, new PaPublicationFormModel { StartDate = new DateOnly(2026, 1, 1) })
+            .Add(v => v.FormOpen, true));
+
+        cut.Find("[data-testid='pa-publication-submit-btn']").HasAttribute("disabled")
+            .Should().BeFalse("une PA qui ignore ces champs n'impose pas leur saisie");
+    }
+
+    [Fact]
     public void Submit_invokes_the_callback_when_the_form_is_complete()
     {
         var submitted = false;

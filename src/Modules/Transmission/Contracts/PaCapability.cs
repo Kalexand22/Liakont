@@ -36,4 +36,11 @@ public enum PaCapability
 
     /// <summary>Transmission d'un Factur-X pré-construit (niveau « Essentiel » — F16 §6).</summary>
     FacturXTransmission = 10,
+
+    /// <summary>
+    /// Transmission du « montant de la marge » en e-reporting B2C (cas DGFiP n°33, régime de la marge
+    /// art. 297 A/E — F03 §2.3/§2.4). Capacité DISTINCTE de <see cref="B2cReporting"/> : la déclaration
+    /// 10.3 « Essentiel » et le report du montant de marge peuvent être supportés indépendamment (B2C09a).
+    /// </summary>
+    MarginAmountReporting = 11,
 }

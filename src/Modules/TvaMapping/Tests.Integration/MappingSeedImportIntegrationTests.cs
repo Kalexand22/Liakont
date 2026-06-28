@@ -281,9 +281,10 @@ public sealed class MappingSeedImportIntegrationTests
     public async Task DefaultTenantSeed_Has_No_DeadRules_On_FreshTenant()
     {
         // Acceptation FIX304 : boot vierge + seed par défaut → 0 règle morte au contrôle de cohérence
-        // (FIX03). Toutes les règles du seed sont en part Autre — la seule part consultée par le pipeline
-        // générique (ConsultedMappingParts.PipelineConsulted) — donc aucune n'est PartNotConsulted. Sur un
-        // tenant vierge, aucun régime n'est observé, donc RegimeNeverObserved ne s'applique pas non plus.
+        // (FIX03). Toutes les règles du seed sont en part Autre — l'une des parts consultées
+        // (ConsultedMappingParts.PipelineConsulted = { Autre (CHECK), Frais (B4) }) — donc aucune n'est
+        // PartNotConsulted. Sur un tenant vierge, aucun régime n'est observé, donc RegimeNeverObserved ne
+        // s'applique pas non plus.
         var harness = new TvaMappingHarness(_fixture);
         var companyId = Guid.NewGuid();
         var table = await ImportDefaultTenantSeedAsync(harness, companyId);

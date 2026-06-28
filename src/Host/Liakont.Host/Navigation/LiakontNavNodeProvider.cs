@@ -56,6 +56,16 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
             // historique, preuve WORM en lecture). Gardée par liakont.read comme les autres surfaces de consultation ;
             // la page /signatures porte la même policy, les ACTIONS y exigent liakont.actions.
             children.Add(new() { Label = "Signatures", Href = "/signatures" });
+
+            // Émissions e-reporting B2C (B4) : surface de CONSULTATION du journal d'émission de l'e-reporting B2C —
+            // les DEUX régimes (marge TMA1 + prix total taxable TLB1), agrégats jour×devise×catégorie×rôle, état
+            // Pending→Émis + id plateforme. Gardée par liakont.read ; la page /emissions-marge-b2c porte la même policy.
+            children.Add(new() { Label = "Émissions e-reporting B2C", Href = "/emissions-marge-b2c" });
+
+            // TVA / Déclaration (L2) : surface de CONSULTATION — aide à la déclaration de TVA sous le régime de la
+            // marge (base HT + TVA sur marge du mois à reporter en CA3, non préremplie par la PA — art. 297 E).
+            // Gardée par liakont.read ; la page /tva-declaration porte la même policy.
+            children.Add(new() { Label = "TVA / Déclaration", Href = "/tva-declaration" });
         }
 
         // Réconciliation : visible uniquement si l'agent du tenant alimente un pool de PDF non rattachés. Le
@@ -156,6 +166,7 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
             Children =
             [
                 new NavNode { Label = "Vue d'ensemble", Href = "/parametrage", ExactMatch = true },
+                new NavNode { Label = "Profil légal", Href = "/parametrage/profil" },
                 new NavNode { Label = "Paramètres fiscaux", Href = "/parametrage/fiscal" },
                 new NavNode { Label = "Table TVA", Href = "/parametrage/table-tva" },
                 new NavNode { Label = "Comptes PA", Href = "/parametrage/comptes-pa" },

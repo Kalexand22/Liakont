@@ -61,6 +61,90 @@ public sealed class CheckTvaMappingTests
     }
 
     [Fact]
+    public void BuildPlan_Line_With_No_Regime_Code_Blocks_With_Source_Absence_Message_Not_Bg30()
+    {
+        // BUG-10 : une ligne SANS code régime TVA en source (ligne_pv.code_regime_tva NULL, doc 100264 lots 29/30)
+        // est une ABSENCE de donnée source — PAS une scission multi-régime BG-30. Le message doit nommer la VRAIE
+        // cause et ne JAMAIS promettre une « évolution ultérieure » (aveu de non-couverture, à bannir).
+        var line = new PivotLineDto(
+            description: "Adjudication lot 29",
+            netAmount: 100m,
+            sourceRegimeCodes: Array.Empty<string>(),
+            taxes: new[] { new PivotLineTaxDto(0m, null) });
+        var pivot = CheckTestData.BuildPivot(new[] { line }, 100m, 0m);
+
+        var plan = CheckTvaMapping.BuildPlan(pivot);
+
+        plan.Requests.Should().BeEmpty();
+        var reason = plan.ShapeBlockReasons.Should().ContainSingle().Which;
+        reason.Should().Contain("aucun code régime TVA en source", "le motif nomme la vraie cause (absence en source)");
+        reason.Should().Contain("corrigez la donnée source", "l'action corrective est concrète et auto-suffisante");
+        reason.Should().NotContain("évolution ultérieure", "aucun aveu de non-couverture affiché à l'opérateur (BUG-10)");
+        reason.Should().NotContain("BG-30", "ce n'est pas une scission multi-régime mais une absence de code régime");
+    }
+
+    [Fact]
+    public void BuildPlan_ShapeBlockReasons_Never_Promise_Future_Pipeline_Evolution()
+    {
+        // Régression BUG-10 : la « scission BG-30 » reste un motif valide pour le cas multi-codes, mais SANS la
+        // promesse « ce cas sera couvert par une évolution ultérieure du pipeline ».
+        var regimes = new[] { "A", "B" };
+        var line = new PivotLineDto(
+            description: "Ligne ambiguë",
+            netAmount: 100m,
+            sourceRegimeCodes: regimes,
+            taxes: new[] { new PivotLineTaxDto(20m, 20m) });
+        var pivot = CheckTestData.BuildPivot(new[] { line }, 100m, 20m);
+
+        var plan = CheckTvaMapping.BuildPlan(pivot);
+
+        plan.ShapeBlockReasons.Should().ContainSingle().Which.Should().NotContain("évolution ultérieure");
+    }
+
+    [Fact]
+    public void Evaluate_Preserves_Additive_Fields_Through_The_Mapping_Rebuild()
+    {
+        // BUG-26 (régression) : le rejeu du mapping reconstruit le pivot pour poser catégorie/VATEX par ligne ;
+        // il DOIT reporter TELS QUELS les champs ADDITIFS (ADR-0007). Sinon les mentions de facturation (BT-20 +
+        // notes FR) injectées par l'enricher AVANT le mapping sont AMPUTÉES → le SEND sérialise un pivot sans
+        // mentions → rejet CTC-FR (BR-CO-25 / BR-FR-05). Ce test verrouille la conservation au mapping.
+        var regimeCodes = new[] { "NORMAL" };
+        var line = new PivotLineDto(
+            description: "Adjudication lot 7",
+            netAmount: 120.00m,
+            quantity: 1m,
+            unitPriceNet: 120.00m,
+            sourceRegimeCodes: regimeCodes,
+            taxes: new[] { new PivotLineTaxDto(24.00m, 20m) },
+            sourceLineRef: "ligne#1");
+        var pivot = new PivotDocumentDto(
+            sourceDocumentKind: "F",
+            number: "F-2026-0007",
+            issueDate: new DateTime(2026, 1, 10),
+            sourceReference: "no_ba=4007",
+            supplier: new PivotPartyDto("Étude Fictïve SVV", siren: "111111111"),
+            totals: new PivotTotalsDto(120.00m, 24.00m, 144.00m),
+            operationCategory: OperationCategory.LivraisonBiens,
+            customer: new PivotPartyDto("Client SARL", isCompanyHint: true),
+            lines: new[] { line },
+            invoicePeriod: new PivotInvoicePeriodDto(new DateTime(2026, 1, 1), new DateTime(2026, 1, 31)),
+            paymentTerms: "Paiement comptant exigible à la vente",
+            notes: new[] { new PivotDocumentNoteDto("Pénalités au taux légal", "PMD") },
+            deliveryDate: new DateTime(2026, 1, 10));
+
+        var plan = CheckTvaMapping.BuildPlan(pivot);
+        var evaluation = CheckTvaMapping.Evaluate(pivot, plan, CheckTestData.MappedResult());
+
+        evaluation.IsBlocked.Should().BeFalse();
+        var enriched = evaluation.EnrichedDocument!;
+        enriched.Lines[0].Taxes[0].CategoryCode.Should().Be(VatCategory.S, "le rebuild a bien posé la catégorie (le mapping a tourné)");
+        enriched.PaymentTerms.Should().Be("Paiement comptant exigible à la vente", "BT-20 doit survivre au rebuild du mapping (BUG-26)");
+        enriched.Notes.Should().ContainSingle().Which.SubjectCode.Should().Be("PMD", "les notes légales FR doivent survivre au rebuild (BUG-26)");
+        enriched.DeliveryDate.Should().Be(new DateTime(2026, 1, 10), "BT-72 doit survivre au rebuild (R008)");
+        enriched.InvoicePeriod.Should().NotBeNull("le champ additif BG-14 doit survivre au rebuild (ADR-0007)");
+    }
+
+    [Fact]
     public void Evaluate_All_Mapped_Enriches_Category_And_Vatex_And_Keeps_Source_Amounts()
     {
         var pivot = CheckTestData.SingleLinePivot(regimeCode: "NORMAL", net: 120.00m, tax: 24.00m, rate: 20m);
@@ -78,6 +162,51 @@ public sealed class CheckTvaMappingTests
         enrichedTax.VatexCode.Should().BeNull();
         enrichedTax.TaxAmount.Should().Be(24.00m, "le CHECK ne recalcule jamais les montants source");
         enrichedTax.Rate.Should().Be(20m);
+    }
+
+    [Fact]
+    public void Evaluate_TaxableLine_Without_Source_Rate_Applies_Fixed_Mapping_Rate()
+    {
+        // L'agent porte le MONTANT de TVA mais PAS toujours le taux (rate null — il ne mappe pas la TVA, R3).
+        // La table validée déclare un taux FIXE (20 %) pour ce régime → le CHECK applique ce taux à la ligne
+        // enrichie. Sans cela, une catégorie S sans taux serait bloquée à tort en aval (« taux absent »), alors
+        // que le taux est CONNU de la table validée (CLAUDE.md n°2 : lu de la table, jamais inventé).
+        var regimes = new[] { "NORMAL" };
+        var line = new PivotLineDto(
+            description: "Adjudication taxable",
+            netAmount: 120.00m,
+            sourceRegimeCodes: regimes,
+            taxes: new[] { new PivotLineTaxDto(taxAmount: 24.00m, rate: null) });
+        var pivot = CheckTestData.BuildPivot(new[] { line }, 120.00m, 24.00m);
+        var plan = CheckTvaMapping.BuildPlan(pivot);
+        var mapping = CheckTestData.MappedResult(version: "cmp-v1");
+
+        var evaluation = CheckTvaMapping.Evaluate(pivot, plan, mapping);
+
+        evaluation.IsBlocked.Should().BeFalse();
+        var enrichedTax = evaluation.EnrichedDocument!.Lines[0].Taxes[0];
+        enrichedTax.CategoryCode.Should().Be(VatCategory.S);
+        enrichedTax.Rate.Should().Be(20m, "taux source absent → taux FIXE de la table validée appliqué à la ligne");
+        enrichedTax.TaxAmount.Should().Be(24.00m, "le CHECK ne recalcule jamais le montant de TVA source");
+    }
+
+    [Fact]
+    public void Evaluate_Line_With_Source_Rate_Keeps_Agent_Rate_Over_Mapping()
+    {
+        // Quand l'agent porte DÉJÀ un taux, il PRIME : le mapping n'est qu'un repli pour les lignes sans taux.
+        var regimes = new[] { "NORMAL" };
+        var line = new PivotLineDto(
+            description: "Adjudication taxable taux porté",
+            netAmount: 120.00m,
+            sourceRegimeCodes: regimes,
+            taxes: new[] { new PivotLineTaxDto(taxAmount: 24.00m, rate: 5.5m) });
+        var pivot = CheckTestData.BuildPivot(new[] { line }, 120.00m, 24.00m);
+        var plan = CheckTvaMapping.BuildPlan(pivot);
+        var mapping = CheckTestData.MappedResult(version: "cmp-v1");
+
+        var evaluation = CheckTvaMapping.Evaluate(pivot, plan, mapping);
+
+        evaluation.EnrichedDocument!.Lines[0].Taxes[0].Rate.Should().Be(5.5m, "le taux porté par l'agent prime sur le repli mapping");
     }
 
     [Fact]
@@ -113,6 +242,58 @@ public sealed class CheckTvaMappingTests
     }
 
     [Fact]
+    public void Evaluate_MarginDocument_Derives_B2cReportingDeclaration_Marker()
+    {
+        // Adjudication exonérée mappée E + VATEX-EU-J (régime marge, table validée), honoraire acheteur porté en
+        // LIGNE (rôle BuyerFee, même régime MARGE → mappé E + VATEX-EU-J, BUG-17 volet b), acheteur particulier,
+        // aucune TVA distincte (297 E) → le pivot enrichi porte le marqueur de déclaration de marge.
+        var regimes = new[] { "MARGE" };
+        var adjudication = new PivotLineDto(
+            description: "Adjudication lot 1",
+            netAmount: 2000m,
+            sourceRegimeCodes: regimes,
+            taxes: new[] { new PivotLineTaxDto(taxAmount: 0m, rate: 0m) });
+        var honoraire = new PivotLineDto(
+            description: "Honoraires acheteur",
+            netAmount: 401.28m,
+            sourceRegimeCodes: regimes,
+            taxes: new[] { new PivotLineTaxDto(taxAmount: 0m, rate: 0m) },
+            role: PivotLineRole.BuyerFee);
+        var pivot = new PivotDocumentDto(
+            sourceDocumentKind: "B",
+            number: "100022",
+            issueDate: new DateTime(2024, 1, 12),
+            sourceReference: "encheresv6:ba:100022",
+            supplier: null,
+            totals: new PivotTotalsDto(2401.28m, 0m, 2401.28m),
+            operationCategory: null,
+            customer: new PivotPartyDto("Acheteur Particulier"),
+            lines: new[] { adjudication, honoraire });
+        var plan = CheckTvaMapping.BuildPlan(pivot);
+        var mapping = MarginMappedResult();
+
+        var evaluation = CheckTvaMapping.Evaluate(pivot, plan, mapping);
+
+        evaluation.IsBlocked.Should().BeFalse();
+        evaluation.EnrichedDocument!.IsB2cReportingDeclaration.Should().BeTrue(
+            "régime marge (E + VATEX-EU-J) + frais + acheteur B2C + 297 E → déclaration de marge B2C dérivée (F03)");
+    }
+
+    [Fact]
+    public void Evaluate_TaxableDocument_Does_Not_Derive_Marker()
+    {
+        // Document taxable (S, TVA distincte) : jamais une déclaration de marge → marqueur non posé.
+        var pivot = CheckTestData.SingleLinePivot(regimeCode: "NORMAL", net: 120.00m, tax: 24.00m, rate: 20m);
+        var plan = CheckTvaMapping.BuildPlan(pivot);
+        var mapping = CheckTestData.MappedResult(version: "cmp-v1");
+
+        var evaluation = CheckTvaMapping.Evaluate(pivot, plan, mapping);
+
+        evaluation.EnrichedDocument!.IsB2cReportingDeclaration.Should().BeFalse(
+            "un document taxable n'est jamais marqué déclaration de marge B2C");
+    }
+
+    [Fact]
     public void Evaluate_Preserves_PaymentDueDate_After_Enrichment()
     {
         var dueDate = new DateTime(2026, 2, 15);
@@ -141,4 +322,36 @@ public sealed class CheckTvaMappingTests
         evaluation.EnrichedDocument.Should().NotBeNull();
         evaluation.EnrichedDocument!.PaymentDueDate.Should().Be(dueDate);
     }
+
+    private static DocumentTvaMappingResult MarginMappedResult() =>
+        new()
+        {
+            TableExists = true,
+            IsValidated = true,
+            MappingVersion = "cmp-v1",
+
+            // Deux lignes au régime MARGE (adjudication + honoraire acheteur en ligne, BUG-17 volet b), toutes
+            // deux mappées E + VATEX-EU-J : le pivot enrichi est homogène marge → marqueur dérivé.
+            Lines = new[]
+            {
+                new TvaLineMappingResult
+                {
+                    SourceRegimeCode = "MARGE",
+                    LineRef = "0",
+                    IsMapped = true,
+                    Category = "E",
+                    Rate = 0m,
+                    Vatex = "VATEX-EU-J",
+                },
+                new TvaLineMappingResult
+                {
+                    SourceRegimeCode = "MARGE",
+                    LineRef = "1",
+                    IsMapped = true,
+                    Category = "E",
+                    Rate = 0m,
+                    Vatex = "VATEX-EU-J",
+                },
+            },
+        };
 }

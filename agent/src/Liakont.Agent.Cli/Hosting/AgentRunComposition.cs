@@ -2,6 +2,7 @@ namespace Liakont.Agent.Cli.Hosting;
 
 using System;
 using System.Net.Http;
+using System.Reflection;
 using System.Security.Cryptography;
 using Liakont.Agent.Core;
 using Liakont.Agent.Core.Configuration;
@@ -78,7 +79,26 @@ internal static class AgentRunComposition
                 journal,
                 autoUpdate: null,
                 extractFromUtc: config.Extraction.ExtractFromUtc);
-            return new ComposedRunCycle(cycle, queue, httpClient);
+
+            // Heartbeat périodique (AGT03 §1, F12 §2.5) : remontée d'état (version, file, dernier run,
+            // erreurs, disque) à CADENCE PROPRE (heartbeatMinutes), réutilisant le MÊME client plateforme et
+            // la MÊME file que le cycle de run. C'est le SEUL canal qui rafraîchit « Dernier contact » côté
+            // plateforme (RecordHeartbeatCommand) : sans lui, l'agent paraît muet après l'unique heartbeat à
+            // blanc de l'installation (test-api). Émis par l'hôte « même hors run » (RB16). Pas d'auto-update
+            // câblé ici (AGT04, optionnel) ; le marqueur local de heartbeat est rafraîchi pour l'updater détaché.
+            string agentVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0.0";
+            var heartbeat = new HeartbeatReporter(
+                platformClient,
+                queue,
+                journal,
+                new DriveDiskFreeSpaceProbe(AgentPaths.RootDirectory),
+                new PlatformConfigurationStore(queue),
+                clock,
+                log,
+                agentVersion,
+                heartbeatMarker: new HeartbeatMarker(AgentPaths.HeartbeatMarkerPath));
+
+            return new ComposedRunCycle(cycle, queue, httpClient, heartbeat, TimeSpan.FromMinutes(config.HeartbeatMinutes));
         }
         catch
         {

@@ -61,6 +61,49 @@ public interface IPaClient
         PaymentReportPeriod period,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Transmet une transaction d'e-reporting B2C AGRÉGÉE (flux 10.3) — représentation AGNOSTIQUE
+    /// <see cref="B2cReportingTransaction"/> que le plug-in projette vers son format de fil. L'agrégation
+    /// N→1 (jour × devise × catégorie × rôle) est faite EN AMONT par la plateforme, jamais ici ;
+    /// l'idempotence (anti-doublon) est portée par l'appelant — la PA n'expose aucune clé d'idempotence.
+    /// <para>
+    /// Implémentation PAR DÉFAUT, pilotée par les capacités déclarées (PAA01, CLAUDE.md n°8) : une PA qui ne
+    /// déclare pas <see cref="PaCapabilities.SupportsB2cReporting"/> — ou, pour la marge <c>TMA1</c>, la
+    /// capacité DISTINCTE <see cref="PaCapabilities.SupportsMarginAmountReporting"/> — retourne un
+    /// <see cref="PaCapabilityNotSupportedResult"/> TYPÉ, jamais une exception ni un blocage. Un plug-in qui
+    /// SAIT transmettre le B2C SURCHARGE cette méthode.
+    /// </para>
+    /// </summary>
+    /// <param name="transaction">La transaction agrégée à transmettre (montants <see cref="decimal"/>, n°1).</param>
+    /// <param name="cancellationToken">Jeton d'annulation.</param>
+    Task<PaSendResult> SendB2cTransactionAsync(
+        B2cReportingTransaction transaction,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!Capabilities.SupportsB2cReporting)
+        {
+            return Task.FromResult(PaSendResult.NotSupported(
+                PaCapabilityNotSupportedResult.Create(Capabilities.PaName, PaCapability.B2cReporting)));
+        }
+
+        // La FORME du montant de marge (cas DGFiP n°33) est gardée par une capacité DISTINCTE : une PA qui
+        // déclare le B2C mais pas le report de marge ne transmet pas un TMA1 (gel tant que non confirmée).
+        if (transaction.Category == EReportingTransactionCategory.Tma1 && !Capabilities.SupportsMarginAmountReporting)
+        {
+            return Task.FromResult(PaSendResult.NotSupported(
+                PaCapabilityNotSupportedResult.Create(Capabilities.PaName, PaCapability.MarginAmountReporting)));
+        }
+
+        // Capacité B2C déclarée mais transport AGRÉGÉ non surchargé (ex. une PA qui fait la déclaration 10.3
+        // par document via SendDocumentAsync mais PAS le verbe agrégé) : résultat TYPÉ NotSupported, JAMAIS une
+        // exception ni un blocage (PAA01, CLAUDE.md n°8). Un plug-in qui SAIT transmettre l'agrégat surcharge.
+        return Task.FromResult(PaSendResult.NotSupported(
+            PaCapabilityNotSupportedResult.Create(Capabilities.PaName, PaCapability.B2cReporting)));
+    }
+
     /// <summary>Relit l'état d'un document déjà transmis (état, tax_report_ids, errors — F05 §3).</summary>
     /// <param name="paDocumentId">Identifiant du document côté PA.</param>
     /// <param name="cancellationToken">Jeton d'annulation.</param>

@@ -1,0 +1,11 @@
+# Base de démo SQL Server GÉNÉRÉE (~4,5 Mo de INSERT) : régénérable depuis les extractions
+# samples via build-sqlserver-from-samples.ps1 — hors review et hors commit (donnée, pas code).
+encheresv6-demo-sqlserver.sql
+
+# Secrets locaux générés par demo.ps1 (mot de passe du login lecture seule + chaînes ODBC).
+# JAMAIS versionné (CLAUDE.md n°10).
+.secrets.local.json
+
+# agent.json générés (peuvent contenir des secrets chiffrés DPAPI propres au poste).
+agent/
+

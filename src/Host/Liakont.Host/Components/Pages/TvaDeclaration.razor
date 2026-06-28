@@ -1,0 +1,162 @@
+@page "/tva-declaration"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = LiakontPermissions.Read)]
+@using Liakont.Host.Security
+@using System.Globalization
+@using Microsoft.Extensions.Logging
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@using Liakont.Host.TvaDeclaration
+@inject ITvaDeclarationConsoleQueries DeclarationQueries
+@inject NavigationManager Nav
+@inject ILogger<TvaDeclaration> Logger
+
+<PageTitle>TVA / Déclaration — Liakont</PageTitle>
+
+<h1 class="visually-hidden">TVA / Déclaration</h1>
+
+@* ── Filtre période. TOUJOURS visible (même en erreur) pour re-sélectionner une période et réessayer.
+   Filtre de DATE pur (« yyyy-MM ») sur le jour d'émission, jamais une règle fiscale. Le changement
+   recharge le périmètre serveur (re-key de la liste). ── *@
+<div class="tvadecl-filters" data-testid="tva-declaration-filters">
+    <div class="tvadecl-filters__group">
+        <label class="tvadecl-filters__label" for="tvadecl-period">Période</label>
+        <input id="tvadecl-period" type="month" class="tvadecl-filters__input" data-testid="tva-declaration-filter-period"
+               value="@_period" @onchange="OnPeriodChangedAsync" />
+    </div>
+</div>
+
+@if (_loadFailed)
+{
+    <LiakontAlert TestId="tva-declaration-error">
+        Impossible de charger l'aide à la déclaration de TVA pour le moment. Réessayez plus tard.
+    </LiakontAlert>
+}
+else if (_model is null)
+{
+    <LiakontLoading TestId="tva-declaration-loading" />
+}
+else
+{
+    @* ── Récap de la marge à déclarer : sous le régime de la marge (art. 297 E), la TVA ne figure pas sur la
+       facture et n'est pas récupérable par l'acheteur — elle est due par l'opérateur sur sa marge et n'est PAS
+       préremplie par la Plateforme Agréée : ce récap aide à reporter la base HT et la TVA sur marge du mois en
+       déclaration (CA3). Les chiffres viennent du registre (calculés au contrôle depuis les cœurs sourcés
+       F03 §2.4/§2.5), jamais redérivés ici. ── *@
+    <section class="tvadecl-recap" data-testid="tva-declaration-recap">
+        <p class="tvadecl-recap__intro">
+            Régime de la marge (art. 297 E) : la TVA sur la marge ne figure pas sur les factures et n'est pas
+            récupérable par l'acheteur — elle est due par l'opérateur et n'est pas préremplie par la plateforme.
+            Ce récap aide à reporter la TVA sur marge du mois en déclaration de TVA.
+        </p>
+        <dl class="tvadecl-recap__totals">
+            <div class="tvadecl-recap__item">
+                <dt>Base HT totale (marge)</dt>
+                <dd data-testid="tva-declaration-total-base">@_model.TotalBaseHt.ToString("N2", Fr)</dd>
+            </div>
+            <div class="tvadecl-recap__item tvadecl-recap__item--strong">
+                <dt>TVA sur marge à reporter</dt>
+                <dd data-testid="tva-declaration-total-vat">@_model.TotalVat.ToString("N2", Fr)</dd>
+            </div>
+        </dl>
+    </section>
+
+    @* ── Détail par taux : gabarit DeclaredListPage (aucune grille « maison »). Rechargé (re-key) au changement
+       de période. Pas de fiche de détail : DetailUrl renvoie l'URI courante (activation de ligne sans effet,
+       comme Encaissements / Émissions). ── *@
+    <DeclaredListPage @key="_periodEpoch"
+                      TItem="TvaDeclarationRow"
+                      Title="TVA sur marge par taux"
+                      TestId="tva-declaration"
+                      LoadItems="LoadItemsAsync"
+                      DetailUrl="@(_ => Nav.Uri)"
+                      ColumnRegistry="_registry"
+                      ColumnTemplates="_columnTemplates"
+                      GridKey="Liakont.TvaDeclaration"
+                      AriaLabel="Marge à déclarer par devise et taux"
+                      DefaultSortColumn="@nameof(TvaDeclarationRow.RatePercent)"
+                      DefaultSortDirection="SortDirection.Ascending"
+                      SearchPlaceholder="Rechercher un taux, une devise… (raccourci : /)"
+                      AllowExport="true"
+                      ExportFormats="@(ExportFormat.Csv | ExportFormat.Excel | ExportFormat.Pdf)"
+                      ExportFileName="tva-declaration">
+        <EmptyContent>
+            <p data-testid="tva-declaration-empty">
+                Aucune marge à déclarer sur cette période. Les bases HT et TVA sur marge apparaissent ici dès
+                qu'un document au régime de la marge est contrôlé (régime de la marge — art. 297 E).
+            </p>
+        </EmptyContent>
+    </DeclaredListPage>
+}
+
+@code {
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    private readonly TvaDeclarationColumnRegistry _registry = new();
+
+    private TvaDeclarationViewModel? _model;
+    private bool _loadFailed;
+
+    // Période courante au format « yyyy-MM » (input type=month + filtre de la query).
+    private string _period = string.Empty;
+
+    // @key de la liste : incrémenté à chaque rechargement de période pour forcer DeclaredListPage à relire
+    // LoadItems (il ne recharge pas tout seul), comme la page Encaissements / Émissions.
+    private int _periodEpoch;
+
+    private readonly Dictionary<string, RenderFragment<TvaDeclarationRow>> _columnTemplates;
+
+    public TvaDeclaration()
+    {
+        _columnTemplates = new Dictionary<string, RenderFragment<TvaDeclarationRow>>
+        {
+            [nameof(TvaDeclarationRow.RatePercent)] = item => __builder =>
+            {
+                // Valeur de taux (ex. 20) rendue « 20 % » / « 5,5 % » en français — pur affichage.
+                __builder.AddContent(0, string.Format(Fr, "{0:0.##} %", item.RatePercent));
+            },
+            [nameof(TvaDeclarationRow.MarginBaseHt)] = item => __builder =>
+            {
+                __builder.AddContent(0, item.MarginBaseHt.ToString("N2", Fr));
+            },
+            [nameof(TvaDeclarationRow.MarginVat)] = item => __builder =>
+            {
+                __builder.AddContent(0, item.MarginVat.ToString("N2", Fr));
+            },
+        };
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        _period = today.ToString("yyyy-MM", CultureInfo.InvariantCulture);
+        await ReloadAsync();
+    }
+
+    private Task<IReadOnlyList<TvaDeclarationRow>> LoadItemsAsync() =>
+        Task.FromResult(_model?.Lines ?? []);
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _model = await DeclarationQueries.GetDeclarationAsync(_period);
+            _loadFailed = false;
+            _periodEpoch++;
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the Liakont VAT margin declaration aid for the current period.");
+        }
+    }
+
+    private async Task OnPeriodChangedAsync(ChangeEventArgs e)
+    {
+        // L'input type=month émet « yyyy-MM » (format invariant) ; vide = aucun filtre de période.
+        _period = (e.Value as string) ?? string.Empty;
+        await ReloadAsync();
+    }
+}

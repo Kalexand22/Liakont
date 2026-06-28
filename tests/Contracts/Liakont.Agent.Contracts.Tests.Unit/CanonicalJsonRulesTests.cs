@@ -265,6 +265,211 @@ public sealed class CanonicalJsonRulesTests
             .Should().Be(standard, "le seul différenciateur 389/standard au canonique est le booléen : le hash reste celui des champs du pivot.");
     }
 
+    [Fact]
+    public void B2cReportingDeclaration_marker_is_omitted_when_false_so_hash_is_unchanged()
+    {
+        // B2C01 : le marqueur de flux 10.3 est un champ ADDITIF hash-neutre (pattern EXT01). Un document qui
+        // n'est PAS une déclaration 10.3 (marqueur faux) produit le JSON canonique INCHANGÉ — octet par octet —
+        // que par rapport à un pivot bâti sans même connaître le champ (sa clé est ABSENTE, pas émise à false).
+        string withFlagFalse = CanonicalJson.Serialize(Build(number: "F1", isB2cReportingDeclaration: false));
+
+        withFlagFalse.Should().NotContain("IsB2cReportingDeclaration", "le marqueur 10.3 faux est OMIS (jamais émis à false) — contrairement à IsSelfBilled.");
+        PayloadHasher.ComputeHash(Build(number: "F1", isB2cReportingDeclaration: false))
+            .Should().Be(PayloadHasher.ComputeHash(Build(number: "F1")), "un document non-10.3 garde son hash canonique (champ additif hash-neutre).");
+    }
+
+    [Fact]
+    public void B2cReportingDeclaration_marker_is_emitted_in_tail_position_when_true()
+    {
+        // Quand le document EST une déclaration 10.3, le marqueur est émis (à true) en FIN d'objet (après
+        // PaymentDueDate) — c'est un NOUVEAU type de document qui n'existait pas avant, donc aucune régression
+        // de hash sur l'existant ; seules les déclarations 10.3 portent la clé.
+        string json = CanonicalJson.Serialize(Build(number: "F1", isB2cReportingDeclaration: true));
+
+        json.Should().Contain("\"IsB2cReportingDeclaration\":true");
+        json.IndexOf("\"IsSelfBilled\"", StringComparison.Ordinal)
+            .Should().BeLessThan(json.IndexOf("\"IsB2cReportingDeclaration\"", StringComparison.Ordinal), "marqueur additif émis en queue (ordre de déclaration ADR-0007).");
+    }
+
+    [Fact]
+    public void SellerFees_are_omitted_when_absent_so_hash_is_unchanged()
+    {
+        // B2C-08 : le frais vendeur (BV) est un champ ADDITIF hash-neutre (pattern EXT01). Un document qui n'en
+        // porte pas produit le JSON canonique INCHANGÉ — la clé est ABSENTE (collection nullable non émise),
+        // pas un tableau vide « SellerFees:[] » qui changerait le hash.
+        string withoutFees = CanonicalJson.Serialize(Build(number: "F1"));
+
+        withoutFees.Should().NotContain("SellerFees", "un frais vendeur absent n'émet aucune clé (jamais un tableau vide).");
+        PayloadHasher.ComputeHash(Build(number: "F1", sellerFees: null))
+            .Should().Be(PayloadHasher.ComputeHash(Build(number: "F1")), "un document sans frais vendeur garde son hash canonique (champ additif hash-neutre).");
+    }
+
+    [Fact]
+    public void SellerFees_empty_list_is_normalized_to_absent_and_stays_hash_neutral()
+    {
+        // B2C-08 : une liste de frais vendeur VIDE non-null est normalisée en absente (≡ null) — elle n'émet
+        // jamais « SellerFees:[] », pour que le hash reste neutre quel que soit ce que passe le producteur.
+        var withEmpty = Build(number: "F1", sellerFees: System.Array.Empty<PivotSellerFeeDto>());
+
+        withEmpty.SellerFees.Should().BeNull("une liste vide est normalisée en null au constructeur (vide ≡ absent).");
+        CanonicalJson.Serialize(withEmpty).Should().NotContain("SellerFees", "une liste vide n'émet aucune clé (jamais un tableau vide).");
+        PayloadHasher.ComputeHash(withEmpty)
+            .Should().Be(PayloadHasher.ComputeHash(Build(number: "F1")), "vide ou absent → même hash canonique (champ additif hash-neutre).");
+    }
+
+    [Fact]
+    public void SellerFees_carry_no_tax_breakdown_and_do_not_inflate_totals()
+    {
+        // B2C-08 / art. 297 E : le frais vendeur est une DONNÉE DE CALCUL de marge, jamais une ligne taxable.
+        // Il ne porte AUCUNE ventilation de TVA (TaxAmount/Rate/CategoryCode/VatexCode), n'ajoute aucune ligne
+        // (Lines) et ne gonfle pas les totaux (la base 10.3 reste celle des seuls champs du pivot).
+        var totals = new PivotTotalsDto(totalNet: 100.00m, totalTax: 0m, totalGross: 100.00m);
+        var sellerFees = new[] { new PivotSellerFeeDto(lotReference: "no_ba=42", netAmount: 15.00m, sourceRegimeCode: "MARGE") };
+
+        var withFees = Build(number: "F1", totals: totals, sellerFees: sellerFees);
+        string json = CanonicalJson.Serialize(withFees);
+        var root = ContractTests.PivotCanonicalReader.ParseToMap(json);
+
+        withFees.Lines.Should().BeEmpty("le frais vendeur n'est jamais porté comme ligne (Lines reste vide).");
+        var fee = Element(root, "SellerFees", 0);
+        fee.Keys.Should().NotContain(new[] { "TaxAmount", "Rate", "CategoryCode", "VatexCode", "Taxes" }, "aucune TVA distincte sous le régime de la marge (art. 297 E).");
+        var totalsNode = Child(root, "Totals");
+        totalsNode["TotalNet"].Should().Be(100.00m);
+        totalsNode["TotalGross"].Should().Be(100.00m, "le frais vendeur ne gonfle pas la base 10.3.");
+        totalsNode["TotalTax"].Should().Be(0m, "aucune TVA distincte ajoutée par le frais vendeur (art. 297 E).");
+    }
+
+    [Fact]
+    public void SellerFees_are_emitted_in_tail_position_when_present()
+    {
+        // Quand le document porte des frais vendeur, ils sont émis en FIN d'objet (après IsB2cReportingDeclaration) —
+        // champ additif (ADR-0007). Seuls les pivots qui les portent ont la clé : aucune régression sur l'existant.
+        string json = CanonicalJson.Serialize(Build(
+            number: "F1",
+            isB2cReportingDeclaration: true,
+            sellerFees: new[] { new PivotSellerFeeDto(lotReference: "no_ba=42", netAmount: 15.00m) }));
+
+        json.Should().Contain("\"SellerFees\":[");
+        json.IndexOf("\"IsB2cReportingDeclaration\"", StringComparison.Ordinal)
+            .Should().BeLessThan(json.IndexOf("\"SellerFees\"", StringComparison.Ordinal), "frais vendeur additif émis en queue (ordre de déclaration ADR-0007).");
+    }
+
+    [Fact]
+    public void BuyerFees_are_omitted_when_absent_so_hash_is_unchanged()
+    {
+        // B2C-08c : le frais acheteur est un champ ADDITIF hash-neutre (pattern EXT01). Un document qui n'en
+        // porte pas produit le JSON canonique INCHANGÉ — la clé est ABSENTE (collection nullable non émise),
+        // pas un tableau vide « BuyerFees:[] » qui changerait le hash.
+        string withoutFees = CanonicalJson.Serialize(Build(number: "F1"));
+
+        withoutFees.Should().NotContain("BuyerFees", "un frais acheteur absent n'émet aucune clé (jamais un tableau vide).");
+        PayloadHasher.ComputeHash(Build(number: "F1", buyerFees: null))
+            .Should().Be(PayloadHasher.ComputeHash(Build(number: "F1")), "un document sans frais acheteur garde son hash canonique (champ additif hash-neutre).");
+    }
+
+    [Fact]
+    public void BuyerFees_empty_list_is_normalized_to_absent_and_stays_hash_neutral()
+    {
+        // B2C-08c : une liste de frais acheteur VIDE non-null est normalisée en absente (≡ null) — elle n'émet
+        // jamais « BuyerFees:[] », pour que le hash reste neutre quel que soit ce que passe le producteur.
+        var withEmpty = Build(number: "F1", buyerFees: System.Array.Empty<PivotBuyerFeeDto>());
+
+        withEmpty.BuyerFees.Should().BeNull("une liste vide est normalisée en null au constructeur (vide ≡ absent).");
+        CanonicalJson.Serialize(withEmpty).Should().NotContain("BuyerFees", "une liste vide n'émet aucune clé (jamais un tableau vide).");
+        PayloadHasher.ComputeHash(withEmpty)
+            .Should().Be(PayloadHasher.ComputeHash(Build(number: "F1")), "vide ou absent → même hash canonique (champ additif hash-neutre).");
+    }
+
+    [Fact]
+    public void BuyerFees_carry_no_tax_breakdown_and_do_not_inflate_totals()
+    {
+        // B2C-08c / art. 297 E : le frais acheteur est une DONNÉE DE CALCUL de marge, jamais une ligne taxable.
+        // Il ne porte AUCUNE ventilation de TVA (TaxAmount/Rate/CategoryCode/VatexCode), n'ajoute aucune ligne
+        // (Lines) et ne gonfle pas les totaux (la base 10.3 reste celle des seuls champs du pivot).
+        var totals = new PivotTotalsDto(totalNet: 100.00m, totalTax: 0m, totalGross: 100.00m);
+        var buyerFees = new[] { new PivotBuyerFeeDto(lotReference: "no_ba=42", netAmount: 15.00m, sourceRegimeCode: "MARGE") };
+
+        var withFees = Build(number: "F1", totals: totals, buyerFees: buyerFees);
+        string json = CanonicalJson.Serialize(withFees);
+        var root = ContractTests.PivotCanonicalReader.ParseToMap(json);
+
+        withFees.Lines.Should().BeEmpty("le frais acheteur n'est jamais porté comme ligne (Lines reste vide).");
+        var fee = Element(root, "BuyerFees", 0);
+        fee.Keys.Should().NotContain(new[] { "TaxAmount", "Rate", "CategoryCode", "VatexCode", "Taxes" }, "aucune TVA distincte sous le régime de la marge (art. 297 E).");
+        var totalsNode = Child(root, "Totals");
+        totalsNode["TotalNet"].Should().Be(100.00m);
+        totalsNode["TotalGross"].Should().Be(100.00m, "le frais acheteur ne gonfle pas la base 10.3.");
+        totalsNode["TotalTax"].Should().Be(0m, "aucune TVA distincte ajoutée par le frais acheteur (art. 297 E).");
+    }
+
+    [Fact]
+    public void BuyerFees_are_emitted_after_seller_fees_when_present()
+    {
+        // Quand le document porte des frais acheteur, ils sont émis en FIN d'objet, APRÈS SellerFees — champ
+        // additif (ADR-0007, ordre de déclaration). Seuls les pivots qui les portent ont la clé.
+        string json = CanonicalJson.Serialize(Build(
+            number: "F1",
+            sellerFees: new[] { new PivotSellerFeeDto(lotReference: "no_ba=42", netAmount: 15.00m) },
+            buyerFees: new[] { new PivotBuyerFeeDto(lotReference: "no_ba=42", netAmount: 10.00m) }));
+
+        json.Should().Contain("\"BuyerFees\":[");
+        json.IndexOf("\"SellerFees\"", StringComparison.Ordinal)
+            .Should().BeLessThan(json.IndexOf("\"BuyerFees\"", StringComparison.Ordinal), "frais acheteur additif émis après le frais vendeur (ordre de déclaration ADR-0007).");
+    }
+
+    [Fact]
+    public void Billing_mentions_are_omitted_when_absent_so_hash_is_unchanged()
+    {
+        // BUG-26 : PaymentTerms (BT-20), Notes (BG-1) et DeliveryDate (BT-72) sont des champs ADDITIFS
+        // hash-neutres (pattern EXT01). Un document qui ne les porte pas produit le JSON canonique INCHANGÉ —
+        // aucune clé émise — donc un hash identique à un pivot bâti sans même connaître ces champs.
+        string json = CanonicalJson.Serialize(Build(number: "F1"));
+
+        json.Should().NotContain("PaymentTerms").And.NotContain("\"Notes\"").And.NotContain("DeliveryDate",
+            "des mentions absentes n'émettent aucune clé (jamais à null) — hash B2B/B2C inchangé.");
+        PayloadHasher.ComputeHash(Build(number: "F1", paymentTerms: null, notes: null, deliveryDate: null))
+            .Should().Be(PayloadHasher.ComputeHash(Build(number: "F1")), "mentions absentes → hash canonique inchangé (additif hash-neutre).");
+    }
+
+    [Fact]
+    public void Notes_empty_list_is_normalized_to_absent_and_stays_hash_neutral()
+    {
+        // BUG-26 : une liste de notes VIDE non-null est normalisée en absente (≡ null) — elle n'émet jamais
+        // « Notes:[] », pour que le hash reste neutre quel que soit ce que passe le producteur (parité SellerFees).
+        var withEmpty = Build(number: "F1", notes: System.Array.Empty<PivotDocumentNoteDto>());
+
+        withEmpty.Notes.Should().BeNull("une liste de notes vide est normalisée en null au constructeur (vide ≡ absent).");
+        CanonicalJson.Serialize(withEmpty).Should().NotContain("\"Notes\"", "une liste vide n'émet aucune clé (jamais un tableau vide).");
+        PayloadHasher.ComputeHash(withEmpty)
+            .Should().Be(PayloadHasher.ComputeHash(Build(number: "F1")), "vide ou absent → même hash canonique (champ additif hash-neutre).");
+    }
+
+    [Fact]
+    public void Billing_mentions_are_emitted_in_tail_position_when_present_and_change_the_hash()
+    {
+        // Quand le document porte les mentions, elles sont émises en FIN d'objet, dans l'ordre de déclaration
+        // (PaymentTerms, Notes, DeliveryDate — après InvoicePeriod), champ additif (ADR-0007). Porter une
+        // mention distingue l'empreinte ; l'absence la laisse intacte (sensibilité).
+        // Textes ASCII (le canonique échappe les non-ASCII en \uXXXX — cf. Non_ascii_characters_are_escaped) :
+        // on asserte clés, code sujet et date, sans dépendre de la forme échappée d'un accent.
+        string json = CanonicalJson.Serialize(Build(
+            number: "F1",
+            paymentTerms: "Paiement comptant a la vente",
+            notes: new[] { new PivotDocumentNoteDto("Penalites de retard au taux legal", "PMD") },
+            deliveryDate: new DateTime(2026, 1, 20)));
+
+        json.Should().Contain("\"PaymentTerms\":\"Paiement comptant a la vente\"");
+        json.Should().Contain("\"Content\":\"Penalites de retard au taux legal\"");
+        json.Should().Contain("\"SubjectCode\":\"PMD\"");
+        json.Should().Contain("\"DeliveryDate\":\"2026-01-20\"");
+        json.IndexOf("\"PaymentTerms\"", StringComparison.Ordinal)
+            .Should().BeLessThan(json.IndexOf("\"Notes\"", StringComparison.Ordinal), "ordre de déclaration : PaymentTerms avant Notes (ADR-0007).");
+        json.IndexOf("\"Notes\"", StringComparison.Ordinal)
+            .Should().BeLessThan(json.IndexOf("\"DeliveryDate\"", StringComparison.Ordinal), "ordre de déclaration : Notes avant DeliveryDate (ADR-0007).");
+        PayloadHasher.ComputeHash(Build(number: "F1", paymentTerms: "Paiement comptant a la vente"))
+            .Should().NotBe(PayloadHasher.ComputeHash(Build(number: "F1")), "porter une mention distingue l'empreinte canonique.");
+    }
+
     /// <summary>
     /// Garantit que chaque propriété publique de chaque DTO pivot apparaît comme clé JSON dans
     /// la sortie canonique d'un document entièrement peuplé. Un champ ajouté à un DTO sans mise
@@ -308,7 +513,10 @@ public sealed class CanonicalJsonRulesTests
         assert(Element(root, "CreditNoteRefs", 0), typeof(PivotDocumentRefDto));
         assert(Element(root, "Payments", 0), typeof(PivotPaymentDto));
         assert(Element(root, "DocumentCharges", 0), typeof(PivotDocumentChargeDto));
+        assert(Element(root, "SellerFees", 0), typeof(PivotSellerFeeDto));
+        assert(Element(root, "BuyerFees", 0), typeof(PivotBuyerFeeDto));
         assert(Child(root, "InvoicePeriod"), typeof(PivotInvoicePeriodDto));
+        assert(Element(root, "Notes", 0), typeof(PivotDocumentNoteDto));
     }
 
     private static void AssertAllPropertiesArePresent(IDictionary<string, object?> node, Type dtoType)
@@ -430,7 +638,9 @@ public sealed class CanonicalJsonRulesTests
             taxes: new[] { lineTax },
             sourceLineRef: "LIG-001",
             sourceData: "{\"raw\":\"line\"}",
-            unitCode: "C62");
+            unitCode: "C62",
+            role: PivotLineRole.BuyerFee,
+            sourceTaxAmount: 9.00m);
 
         var creditNoteRef = new PivotDocumentRefDto(
             number: "FA-2026-001",
@@ -471,9 +681,35 @@ public sealed class CanonicalJsonRulesTests
             prepaidAmount: 100.00m,
             sourceData: "{\"raw\":\"doc\"}",
             paymentDueDate: new DateTime(2026, 3, 31),
+            isB2cReportingDeclaration: true,
+            sellerFees: new[]
+            {
+                new PivotSellerFeeDto(
+                    lotReference: "no_ba=5000",
+                    netAmount: 80.00m,
+                    sourceRegimeCode: "MARGE",
+                    sourceLineRef: "ligne#bv",
+                    description: "Frais vendeur fictif"),
+            },
+            buyerFees: new[]
+            {
+                new PivotBuyerFeeDto(
+                    lotReference: "no_ba=5000",
+                    netAmount: 50.00m,
+                    sourceRegimeCode: "MARGE",
+                    sourceLineRef: "ligne#fa",
+                    description: "Frais acheteur fictif",
+                    sourceTaxAmount: 9.00m),
+            },
             invoicePeriod: new PivotInvoicePeriodDto(
                 startDate: new DateTime(2026, 1, 1),
-                endDate: new DateTime(2026, 1, 31)));
+                endDate: new DateTime(2026, 1, 31)),
+            paymentTerms: "Paiement à 30 jours fin de mois (mention fictive)",
+            notes: new[]
+            {
+                new PivotDocumentNoteDto("Pénalités de retard : trois fois le taux légal (mention fictive)", "PMD"),
+            },
+            deliveryDate: new DateTime(2026, 2, 28));
     }
 
     private static PivotDocumentDto Build(
@@ -485,7 +721,13 @@ public sealed class CanonicalJsonRulesTests
         OperationCategory category = OperationCategory.LivraisonBiens,
         PivotLineDto[]? lines = null,
         decimal? prepaid = null,
-        bool isSelfBilled = false)
+        bool isSelfBilled = false,
+        bool isB2cReportingDeclaration = false,
+        PivotSellerFeeDto[]? sellerFees = null,
+        PivotBuyerFeeDto[]? buyerFees = null,
+        string? paymentTerms = null,
+        PivotDocumentNoteDto[]? notes = null,
+        DateTime? deliveryDate = null)
     {
         return new PivotDocumentDto(
             sourceDocumentKind: "B",
@@ -498,6 +740,12 @@ public sealed class CanonicalJsonRulesTests
             customer: customer,
             lines: lines,
             prepaidAmount: prepaid,
-            isSelfBilled: isSelfBilled);
+            isSelfBilled: isSelfBilled,
+            isB2cReportingDeclaration: isB2cReportingDeclaration,
+            sellerFees: sellerFees,
+            buyerFees: buyerFees,
+            paymentTerms: paymentTerms,
+            notes: notes,
+            deliveryDate: deliveryDate);
     }
 }

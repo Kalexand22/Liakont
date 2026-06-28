@@ -235,6 +235,68 @@ public sealed class CrossIndustryInvoiceSerializerTests
     }
 
     [Fact]
+    public void Serialize_WithBillingMentions_EmitsPaymentTermsDueDateAndNote()
+    {
+        // BUG-26 (F16 §3.5) : un pivot portant les mentions de facturation (BT-20 termes de paiement, note
+        // légale FR PMD) + une échéance (BT-9) émet ram:SpecifiedTradePaymentTerms (Description + DueDateDateTime)
+        // et un ram:IncludedNote (Content + SubjectCode). Contenus = mentions tenant recopiées, rien d'inventé.
+        var pivot = SingleLineWithMentions(
+            paymentTerms: "Paiement à 30 jours fin de mois.",
+            notes: new[] { new PivotDocumentNoteDto("Pénalités de retard au taux légal.", "PMD") },
+            deliveryDate: new DateTime(2026, 1, 20),
+            paymentDueDate: new DateTime(2026, 2, 15));
+
+        var root = Parse(_serializer.Serialize(pivot));
+
+        // BT-20 (Description) + BT-9 (DueDateDateTime, format 102 = yyyyMMdd) dans les termes de paiement.
+        var terms = Settlement(root).Element(Ram + "SpecifiedTradePaymentTerms")!;
+        terms.Element(Ram + "Description")!.Value.Should().Be("Paiement à 30 jours fin de mois.");
+        var dueDate = terms.Element(Ram + "DueDateDateTime")!.Descendants().First();
+        dueDate.Value.Should().Be("20260215");
+        dueDate.Attribute("format")!.Value.Should().Be("102");
+
+        // BG-1 (IncludedNote) : Content (BT-22) puis SubjectCode (BT-21) = « PMD ».
+        var note = ExchangedDoc(root).Element(Ram + "IncludedNote")!;
+        note.Element(Ram + "Content")!.Value.Should().Be("Pénalités de retard au taux légal.");
+        note.Element(Ram + "SubjectCode")!.Value.Should().Be("PMD");
+    }
+
+    [Fact]
+    public void Serialize_WithDeliveryDate_EmitsNonEmptyDeliveryWithOccurrenceDate()
+    {
+        // BUG-26 (R008) : la date de livraison portée par le pivot (BT-72) alimente
+        // ram:ActualDeliverySupplyChainEvent/OccurrenceDateTime — l'élément livraison n'est jamais vide.
+        var pivot = SingleLineWithMentions(deliveryDate: new DateTime(2026, 1, 20));
+
+        var root = Parse(_serializer.Serialize(pivot));
+
+        var occurrence = Delivery(root)
+            .Element(Ram + "ActualDeliverySupplyChainEvent")!
+            .Element(Ram + "OccurrenceDateTime")!
+            .Descendants().First();
+        occurrence.Value.Should().Be("20260120", "la date de livraison portée par le pivot est recopiée (BT-72)");
+        occurrence.Attribute("format")!.Value.Should().Be("102");
+    }
+
+    [Fact]
+    public void Serialize_WithoutDeliveryDate_StillEmitsNonEmptyDeliveryFromIssueDate()
+    {
+        // BUG-26 (R008) : sans date de livraison portée, l'élément livraison reste NON vide — il retombe sur la
+        // date d'émission (BT-2), toujours présente. PEPPOL-EN16931-R008 interdit un élément livraison vide.
+        var pivot = SingleLineWithMentions(deliveryDate: null);
+
+        var root = Parse(_serializer.Serialize(pivot));
+
+        var delivery = Delivery(root);
+        delivery.Elements().Should().NotBeEmpty("l'élément livraison n'est jamais vide (PEPPOL-EN16931-R008)");
+        var occurrence = delivery
+            .Element(Ram + "ActualDeliverySupplyChainEvent")!
+            .Element(Ram + "OccurrenceDateTime")!
+            .Descendants().First();
+        occurrence.Value.Should().Be("20260115", "sans date de livraison, l'élément retombe sur la date d'émission (BT-2)");
+    }
+
+    [Fact]
     public void Serialize_LineWithUnitCode_ProjectsItOnBilledQuantity()
     {
         // RD407 (BT-130) : quand le pivot porte une unité, le CII l'émet telle quelle (codes UN/ECE Rec 20),
@@ -268,6 +330,22 @@ public sealed class CrossIndustryInvoiceSerializerTests
     private static PivotLineDto Line(decimal net, decimal unitPrice, decimal rate, decimal taxAmount, VatCategory category) =>
         new("Article", netAmount: net, unitPriceNet: unitPrice, taxes: new[] { new PivotLineTaxDto(taxAmount, rate, category) });
 
+    // Pivot mono-taux S/20 réconciliable (100,00 / 20,00 / 120,00) portant les champs additifs BUG-26
+    // (termes de paiement BT-20, notes BG-1, date de livraison BT-72, échéance BT-9). Tous fictifs (n°7).
+    private static PivotDocumentDto SingleLineWithMentions(
+        string? paymentTerms = null,
+        IReadOnlyList<PivotDocumentNoteDto>? notes = null,
+        DateTime? deliveryDate = null,
+        DateTime? paymentDueDate = null)
+    {
+        var line = Line(100m, 100m, 20m, 20m, VatCategory.S);
+        return new PivotDocumentDto(
+            "INVOICE", "FAC-X", new DateTime(2026, 1, 15), "SRC", Supplier(),
+            new PivotTotalsDto(100m, 20m, 120m), OperationCategory.LivraisonBiens,
+            customer: Customer(), lines: new[] { line },
+            paymentDueDate: paymentDueDate, paymentTerms: paymentTerms, notes: notes, deliveryDate: deliveryDate);
+    }
+
     private static PivotDocumentDto PivotFrom(
         IReadOnlyList<PivotLineDto> lines, decimal totalNet, decimal totalTax, decimal totalGross) =>
         new(
@@ -292,6 +370,9 @@ public sealed class CrossIndustryInvoiceSerializerTests
 
     private static XElement Settlement(XElement root) =>
         root.Descendants(Ram + "ApplicableHeaderTradeSettlement").Single();
+
+    private static XElement Delivery(XElement root) =>
+        root.Descendants(Ram + "ApplicableHeaderTradeDelivery").Single();
 
     private static XElement Summation(XElement root) =>
         Settlement(root).Element(Ram + "SpecifiedTradeSettlementHeaderMonetarySummation")!;

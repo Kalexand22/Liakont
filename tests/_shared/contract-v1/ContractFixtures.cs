@@ -182,7 +182,9 @@ public static class ContractFixtures
             taxes: new[] { lineTax },
             sourceLineRef: "LIG-001",
             sourceData: "{\"raw\":\"line\"}",
-            unitCode: "C62");
+            unitCode: "C62",
+            role: PivotLineRole.BuyerFee,
+            sourceTaxAmount: 9.00m);
 
         var creditNoteRef = new PivotDocumentRefDto(
             number: "FA-2026-001",
@@ -223,9 +225,35 @@ public static class ContractFixtures
             prepaidAmount: 100.00m,
             sourceData: "{\"raw\":\"doc\"}",
             paymentDueDate: new DateTime(2026, 3, 31),
+            isB2cReportingDeclaration: true,
+            sellerFees: new[]
+            {
+                new PivotSellerFeeDto(
+                    lotReference: "no_ba=5000",
+                    netAmount: 80.00m,
+                    sourceRegimeCode: "MARGE",
+                    sourceLineRef: "ligne#bv",
+                    description: "Frais vendeur fictif"),
+            },
+            buyerFees: new[]
+            {
+                new PivotBuyerFeeDto(
+                    lotReference: "no_ba=5000",
+                    netAmount: 50.00m,
+                    sourceRegimeCode: "MARGE",
+                    sourceLineRef: "ligne#fa",
+                    description: "Frais acheteur fictif",
+                    sourceTaxAmount: 9.00m),
+            },
             invoicePeriod: new PivotInvoicePeriodDto(
                 startDate: new DateTime(2026, 1, 1),
-                endDate: new DateTime(2026, 1, 31)));
+                endDate: new DateTime(2026, 1, 31)),
+            paymentTerms: "Paiement à 30 jours fin de mois (mention fictive)",
+            notes: new[]
+            {
+                new PivotDocumentNoteDto("Pénalités de retard : trois fois le taux légal (mention fictive)", "PMD"),
+            },
+            deliveryDate: new DateTime(2026, 2, 28));
     }
 
     /// <summary>

@@ -1,13 +1,4 @@
 {
-  "siren": "123456782",
-  "raisonSociale": "Société Fictive de Démonstration",
-  "address": {
-    "street": "1 rue de l'Exemple",
-    "postalCode": "35000",
-    "city": "Rennes",
-    "country": "FR"
-  },
-  "contactEmailAlerte": "alertes@exemple.test",
   "fiscal": {
     "vatOnDebits": null,
     "operationCategory": null,

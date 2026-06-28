@@ -167,6 +167,177 @@ public sealed class SendTenantJobTests
     }
 
     [Fact]
+    public async Task B2cReportingDeclaration_To_Pa_Without_Capability_Is_Held_Not_Transmitted()
+    {
+        // B2C01 : une déclaration e-reporting B2C (flux 10.3) vers une PA qui ne déclare PAS SupportsB2cReporting
+        // reste ReadyToSend (maintenue, jamais transmise — résultat typé journalisé, CLAUDE.md n°3). Émetteur
+        // présent dans le pivot → le SEUL motif de maintien est l'absence de capacité B2C.
+        var id = Guid.NewGuid();
+        var document = SendTestData.Document(id, "ReadyToSend");
+        var queries = new SendTestDoubles.ConfigurableDocumentQueries();
+        queries.AddDocument(document);
+        queries.AddInState("ReadyToSend", SendTestData.Summary(id, "ReadyToSend"));
+        var staging = new SendTestDoubles.MapStagingStore();
+        staging.Stage(id, CanonicalJson.Serialize(SendTestData.B2cReportingDeclarationPivot(document.DocumentNumber)));
+
+        var lifecycle = new SendTestDoubles.RecordingDocumentLifecycle();
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var fake = await PublishedFakeWithoutB2cReportingAsync();
+        var provider = BuildProvider(ActiveAccountSettings(), queries, lifecycle, staging, new SendTestDoubles.RecordingStagingPurgeService(true), archive, runLogs, fake);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        lifecycle.BeganSending.Should().BeEmpty("capacité B2C absente = aucun envoi (HOLD).");
+        lifecycle.Issued.Should().BeEmpty();
+        fake.IssuedDocumentNumbers.Should().BeEmpty();
+        fake.Calls.Should().NotContain(c => c.Method == nameof(IPaClient.SendDocumentAsync), "on ne transmet jamais une déclaration 10.3 sans la capacité B2C.");
+        archive.Requests.Should().BeEmpty("aucune archive d'un document non transmis.");
+    }
+
+    [Fact]
+    public async Task Ordinary_Invoice_To_Pa_Without_B2cReporting_Is_Still_Transmitted()
+    {
+        // B2C01 — NON-RÉGRESSION : la garde 10.3 est CIBLÉE sur le marqueur. Une facture ORDINAIRE (marqueur
+        // faux) vers la MÊME PA sans capacité B2C est TOUJOURS transmise — la garde ne touche pas la voie
+        // unique SendDocumentAsync des autres flux.
+        var (id, queries, lifecycle, staging) = SeedSingle("ReadyToSend");
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var fake = await PublishedFakeWithoutB2cReportingAsync();
+        var provider = BuildProvider(ActiveAccountSettings(), queries, lifecycle, staging, new SendTestDoubles.RecordingStagingPurgeService(true), archive, runLogs, fake);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        lifecycle.Issued.Should().ContainSingle().Which.Should().Be(id, "une facture ordinaire (sans marqueur 10.3) n'est jamais touchée par la garde B2C.");
+        fake.IssuedDocumentNumbers.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task B2cReportingDeclaration_Is_Deferred_From_The_Document_Path_Even_With_Capability()
+    {
+        // Garde D1 (généralisée à IsB2cReportingDeclaration) : une déclaration 10.3 est DIFFÉRÉE de la voie document
+        // (e-reportée par son JOB B2C, jamais e-invoicée par-document) — y compris quand la PA DÉCLARE
+        // SupportsB2cReporting. La voie document est l'e-invoicing B2B ; le B2C = e-reporting (cf. [[b2c-egale-ereporting-partout]]).
+        var id = Guid.NewGuid();
+        var document = SendTestData.Document(id, "ReadyToSend");
+        var queries = new SendTestDoubles.ConfigurableDocumentQueries();
+        queries.AddDocument(document);
+        queries.AddInState("ReadyToSend", SendTestData.Summary(id, "ReadyToSend"));
+        var staging = new SendTestDoubles.MapStagingStore();
+        staging.Stage(id, CanonicalJson.Serialize(SendTestData.B2cReportingDeclarationPivot(document.DocumentNumber)));
+
+        var lifecycle = new SendTestDoubles.RecordingDocumentLifecycle();
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var fake = await PublishedFakeAsync(FakePaScenario.Success); // capacités par défaut : SupportsB2cReporting = true.
+        var provider = BuildProvider(ActiveAccountSettings(), queries, lifecycle, staging, new SendTestDoubles.RecordingStagingPurgeService(true), archive, runLogs, fake);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        lifecycle.BeganSending.Should().BeEmpty("une déclaration 10.3 n'est jamais transmise par la voie document (différée D1).");
+        lifecycle.Issued.Should().BeEmpty("une déclaration 10.3 est e-reportée par son job, jamais émise par-document.");
+        fake.IssuedDocumentNumbers.Should().BeEmpty();
+        fake.Calls.Should().NotContain(c => c.Method == nameof(IPaClient.SendDocumentAsync), "la voie document (e-invoicing) ne transmet jamais une déclaration B2C 10.3, capacité présente ou non.");
+    }
+
+    [Fact]
+    public async Task B2cReportingDeclaration_In_Sending_Already_Transmitted_Is_Reconciled_Even_If_Capability_Removed()
+    {
+        // B2C01 — robustesse : un document Sending a forcément été TRANSMIS (capacité B2C présente à l'envoi). Si
+        // la capacité est retirée après coup, la reprise doit le RÉCONCILIER (finalisation anti-doublon depuis le
+        // statut PA) — JAMAIS le figer en Sending. La garde 10.3 ne retient QUE la re-transmission, pas la
+        // finalisation d'un document déjà parti.
+        var id = Guid.NewGuid();
+        const string number = "B2C-2026-0123";
+        var document = SendTestData.Document(id, "Sending", number: number, payloadHash: "hash-b2c-123", paDocumentId: "FAKE-" + number);
+        var queries = new SendTestDoubles.ConfigurableDocumentQueries();
+        queries.AddDocument(document);
+        queries.AddPotentiallySent(SendTestData.Summary(id, "Sending", number));
+
+        var pivot = SendTestData.B2cReportingDeclarationPivot(number);
+        var staging = new SendTestDoubles.MapStagingStore();
+        staging.Stage(id, CanonicalJson.Serialize(pivot));
+
+        var lifecycle = new SendTestDoubles.RecordingDocumentLifecycle();
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var fake = await PublishedFakeWithoutB2cReportingAsync(); // capacité B2C RETIRÉE depuis l'envoi.
+
+        // Cycle N : la déclaration a bien été transmise (la PA la connaît comme Issued), réponse perdue → restée Sending.
+        await fake.SendDocumentAsync(pivot);
+        var sendCallsBefore = fake.Calls.Count(c => c.Method == nameof(IPaClient.SendDocumentAsync));
+
+        var provider = BuildProvider(ActiveAccountSettings(), queries, lifecycle, staging, new SendTestDoubles.RecordingStagingPurgeService(true), archive, runLogs, fake);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        lifecycle.Issued.Should().ContainSingle().Which.Should().Be(id, "un document déjà transmis est finalisé (réconcilié), jamais figé par la garde.");
+        fake.Calls.Count(c => c.Method == nameof(IPaClient.SendDocumentAsync))
+            .Should().Be(sendCallsBefore, "réconciliation anti-doublon : aucune RE-transmission.");
+    }
+
+    [Fact]
+    public async Task B2cReportingDeclaration_In_Sending_Without_Capability_Stays_Sending_Not_Resent()
+    {
+        // B2C01 — chemin REPRISE (RecoverSendingAsync) : une déclaration 10.3 restée Sending (crash) vers une PA
+        // sans capacité B2C est MAINTENUE Sending (aucune finalisation, aucune retransmission) — la garde ciblée
+        // s'applique aussi sur ce chemin, jamais un faux Issued/Failed.
+        var id = Guid.NewGuid();
+        const string number = "B2C-2026-0099";
+        var document = SendTestData.Document(id, "Sending", number: number, payloadHash: "hash-b2c-99");
+        var queries = new SendTestDoubles.ConfigurableDocumentQueries();
+        queries.AddDocument(document);
+        queries.AddPotentiallySent(SendTestData.Summary(id, "Sending", number));
+        var staging = new SendTestDoubles.MapStagingStore();
+        staging.Stage(id, CanonicalJson.Serialize(SendTestData.B2cReportingDeclarationPivot(number)));
+
+        var lifecycle = new SendTestDoubles.RecordingDocumentLifecycle();
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var fake = await PublishedFakeWithoutB2cReportingAsync();
+        var provider = BuildProvider(ActiveAccountSettings(), queries, lifecycle, staging, new SendTestDoubles.RecordingStagingPurgeService(true), archive, runLogs, fake);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        lifecycle.Issued.Should().BeEmpty("capacité B2C absente = aucune finalisation depuis Sending.");
+        lifecycle.Rejected.Should().BeEmpty("maintenu, jamais un faux rejet.");
+        lifecycle.TechnicalError.Should().BeEmpty("maintenu, jamais une fausse erreur technique.");
+        fake.Calls.Should().NotContain(c => c.Method == nameof(IPaClient.SendDocumentAsync), "aucune retransmission d'une déclaration 10.3 sans la capacité.");
+        archive.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task B2cReportingDeclaration_In_TechnicalError_Without_Capability_Stays_And_Is_Not_Repromoted()
+    {
+        // B2C01 — chemin RETRY (RetryTechnicalErrorAsync) : une déclaration 10.3 en TechnicalError vers une PA
+        // sans capacité B2C est MAINTENUE (jamais re-promue en ReadyToSend ni retransmise) — la garde ciblée
+        // s'applique AVANT la reprise (pas de boucle de retry).
+        var id = Guid.NewGuid();
+        const string number = "B2C-2026-0111";
+        var document = SendTestData.Document(id, "TechnicalError", number: number, payloadHash: "hash-b2c-111");
+        var queries = new SendTestDoubles.ConfigurableDocumentQueries();
+        queries.AddDocument(document);
+        queries.AddInState("TechnicalError", SendTestData.Summary(id, "TechnicalError", number));
+        var staging = new SendTestDoubles.MapStagingStore();
+        staging.Stage(id, CanonicalJson.Serialize(SendTestData.B2cReportingDeclarationPivot(number)));
+
+        var lifecycle = new SendTestDoubles.RecordingDocumentLifecycle();
+        var runLogs = new SendTestDoubles.RecordingRunLogStore();
+        var archive = new SendTestDoubles.RecordingArchiveService();
+        var fake = await PublishedFakeWithoutB2cReportingAsync();
+        var provider = BuildProvider(ActiveAccountSettings(), queries, lifecycle, staging, new SendTestDoubles.RecordingStagingPurgeService(true), archive, runLogs, fake);
+
+        await new SendTenantJob().ExecuteAsync(new TenantJobContext(SendTestData.TenantSlug, provider));
+
+        lifecycle.ReadyToSend.Should().BeEmpty("capacité B2C absente = jamais re-promue en ReadyToSend (la garde précède la reprise).");
+        lifecycle.BeganSending.Should().BeEmpty();
+        lifecycle.Issued.Should().BeEmpty();
+        fake.Calls.Should().NotContain(c => c.Method == nameof(IPaClient.SendDocumentAsync), "aucune retransmission d'une déclaration 10.3 sans la capacité.");
+        archive.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task ReadyToSend_With_Unmapped_Tva_Regime_Is_Held_Not_Transmitted()
     {
         // Miroir TVA du test émetteur (..._Unresolvable_Emitter_Is_Held_Not_Transmitted) : le mapping TVA est
@@ -531,6 +702,35 @@ public sealed class SendTenantJobTests
     private static async Task<FakePaClient> PublishedFakeAsync(FakePaScenario scenario)
     {
         var fake = new FakePaClient(new FakePaClientOptions { SendScenario = scenario });
+        await fake.EnsureTaxReportSettingAsync(new PaTaxReportSettingRequest
+        {
+            StartDate = new DateOnly(2026, 1, 1),
+            TypeOperation = "LBS",
+            EnterpriseSize = "PME",
+        });
+        return fake;
+    }
+
+    /// <summary>PA publiée mais ne déclarant PAS la capacité e-reporting B2C (le reste = défaut V1) — pour la garde 10.3 (B2C01).</summary>
+    private static async Task<FakePaClient> PublishedFakeWithoutB2cReportingAsync()
+    {
+        var fake = new FakePaClient(new FakePaClientOptions
+        {
+            Capabilities = new PaCapabilities
+            {
+                PaName = "Fake",
+                SupportsB2cReporting = false,
+                SupportsDomesticPaymentReporting = true,
+                SupportsInternationalPaymentReporting = false,
+                SupportsB2bInvoicing = false,
+                SupportsCreditNotes = true,
+                SupportsTaxReportRetrieval = true,
+                SupportsDocumentRetrieval = true,
+                SupportsReportRectification = true,
+                SupportsSelfBilling = true,
+                MaxDocumentsPerRequest = null,
+            },
+        });
         await fake.EnsureTaxReportSettingAsync(new PaTaxReportSettingRequest
         {
             StartDate = new DateOnly(2026, 1, 1),

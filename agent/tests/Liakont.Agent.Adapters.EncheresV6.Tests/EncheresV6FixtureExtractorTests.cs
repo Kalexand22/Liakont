@@ -2,346 +2,198 @@ namespace Liakont.Agent.Adapters.EncheresV6.Tests;
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using FluentAssertions;
+using Liakont.Agent.Adapters.EncheresV6;
 using Liakont.Agent.Contracts.Pivot;
-using Liakont.Agent.Contracts.Serialization;
-using Liakont.Agent.Contracts.Transport;
 using Liakont.Agent.Core.Extraction;
 using Xunit;
 
 /// <summary>
-/// Tests bout-en-bout de l'extracteur de fixtures EncheresV6 : rejeu de fichiers JSON au format
-/// source → documents pivot valides, empreinte canonique stable (acceptance ADP01). Les fixtures
-/// sont copiées en sortie de build et lues depuis <see cref="AppContext.BaseDirectory"/>.
+/// Tests SMOKE du mode FIXTURES (<see cref="EncheresV6FixtureExtractor"/>) sur le modèle BA/BV : un
+/// snapshot JSON (bordereaux acheteur + vendeur) rejoue exactement la transformation du mode ODBC —
+/// le BA porte la commission acheteur en LIGNE (rôle BuyerFee, BUG-17 volet b), le BV la commission
+/// vendeur (SellerFees). Couverture
+/// fiscale détaillée dans <see cref="EncheresV6RowMapperTests"/>. NB : suite fixtures exhaustive
+/// (avoirs lettrés, paiements, régimes, fusion de répertoire) à reconstruire sur le modèle BA/BV.
 /// </summary>
 public class EncheresV6FixtureExtractorTests
 {
-    private static readonly DateTime PeriodFrom = new DateTime(2026, 1, 1);
-    private static readonly DateTime PeriodTo = new DateTime(2026, 3, 1);
-
-    private static string FixturesDirectory => Path.Combine(AppContext.BaseDirectory, "fixtures", "encheresv6");
-
-    private static string SalesFile => Path.Combine(FixturesDirectory, "encheresv6-source.json");
+    private const string Snapshot = @"{
+      ""regimes"": [],
+      ""bordereaux"": [
+        { ""no_ba"": ""100022"", ""bordereau_ou_avoir"": ""B"", ""date_vente"": ""2024-01-12"",
+          ""nom"": ""Acheteur Particulier (fictif)"", ""code_postal"": ""35000"", ""ville"": ""Rennes"", ""code_pays"": ""FR"",
+          ""total_bordereau"": 2401.28,
+          ""lignes"": [
+            { ""type_ligne"": ""1"", ""no_ligne_pv"": ""1"", ""libelle_ligne"": ""Adjudication lot 1"",
+              ""montant_adj_ht"": 2000.0, ""montant_frais_ht"": 334.40, ""montant_tva_frais"": 66.88, ""code_regime"": ""6"" }
+          ] }
+      ],
+      ""bordereaux_vendeur"": [
+        { ""no_bv"": ""100012"", ""bordereau_ou_avoir"": ""B"", ""date_vente"": ""2024-01-12"",
+          ""nom"": ""Vendeur Commettant (fictif)"", ""code_regime_tva"": ""6"", ""total_bordereau"": 1860.0,
+          ""lignes"": [
+            { ""type_ligne"": ""1"", ""no_ligne_pv"": ""1"", ""montant_adj_ht"": 2000.0 },
+            { ""type_ligne"": ""2"", ""no_ligne_pv"": ""0"", ""libelle_ligne"": ""Frais de vente 15%"", ""mtt_frais_ht"": 300.0, ""mtt_tva_frais"": 60.0 }
+          ] }
+      ]
+    }";
 
     [Fact]
-    public void SourceName_is_EncheresV6()
+    public void ExtractDocuments_emits_buyer_and_seller_bordereaux()
     {
-        SalesExtractor().SourceName.Should().Be("EncheresV6");
+        EncheresV6FixtureExtractor extractor = EncheresV6FixtureExtractor.FromJson(Snapshot);
+
+        List<PivotDocumentDto> docs = extractor.ExtractDocuments(new DateTime(2024, 1, 1), new DateTime(2025, 1, 1)).ToList();
+
+        docs.Should().HaveCount(2);
+
+        PivotDocumentDto ba = docs.Single(d => d.SourceReference.StartsWith("encheresv6:ba:", StringComparison.Ordinal));
+
+        // BUG-17 volet b : la commission acheteur est portée en LIGNE au rôle BuyerFee (TTC), plus dans BuyerFees.
+        var honoraire = ba.Lines.Should().ContainSingle(l => l.Role == PivotLineRole.BuyerFee).Subject;
+        honoraire.NetAmount.Should().Be(401.28m, "commission acheteur TTC");
+        ba.BuyerFees.Should().BeNull("l'honoraire acheteur n'est plus dans le side-channel BuyerFees (BUG-17 volet b)");
+
+        PivotDocumentDto bv = docs.Single(d => d.SourceReference.StartsWith("encheresv6:bv:", StringComparison.Ordinal));
+        bv.SellerFees.Should().ContainSingle();
+        bv.SellerFees![0].NetAmount.Should().Be(360.00m, "commission vendeur TTC (type 2), débours exclus");
     }
 
     [Fact]
-    public void Capabilities_reflect_the_easy_EncheresV6_case()
+    public void ExtractDocuments_emits_facture_client_as_plain_b2c_document()
     {
-        ExtractorCapabilities caps = SalesExtractor().Capabilities;
+        // Une facture client (document ORDINAIRE hors enchères) rejouée par les fixtures : lignes plates au prix
+        // total, AUCUN frais d'enchères, code_tva en clé de régime — parité stricte avec le mode ODBC (F03 §2.9).
+        const string snapshot = @"{
+          ""regimes"": [], ""bordereaux"": [], ""bordereaux_vendeur"": [],
+          ""factures_clients"": [
+            { ""no_fact"": ""00100007"", ""facture_ou_avoir"": ""F"", ""date_fact"": ""2024-04-12"",
+              ""nom"": ""LOBRY"", ""prenom"": ""STEEVE"", ""adresse1"": ""15 rue Boberie"", ""cp"": ""53000"", ""ville"": ""LAVAL"", ""code_pays"": ""FR"",
+              ""montant_ht"": 144.0, ""montant_tva"": 28.8, ""montant_ttc"": 172.8, ""code_devise"": ""EURO"",
+              ""lignes"": [
+                { ""type_ligne"": ""1"", ""no_ligne"": ""1"", ""code_article"": ""CV"", ""designation"": ""Caisse de Vins"", ""qte"": 12, ""prix_unitaire_ht"": 12.0, ""code_tva"": 1, ""taux_tva"": 20.0 },
+                { ""type_ligne"": ""2"", ""no_ligne"": ""1"", ""code_article"": """", ""designation"": ""Carte bancaire"", ""qte"": 0, ""prix_unitaire_ht"": 172.8, ""code_tva"": 0, ""taux_tva"": 0.0 }
+              ] }
+          ] }";
 
-        caps.HasDetailedLines.Should().BeTrue();
-        caps.HasCreditNoteLink.Should().BeTrue();
-        caps.ExposesPayments.Should().BeTrue();
-        caps.HasStoredHeaderTotal.Should().BeTrue();
-        caps.RegimeKeyShape.Should().Be(RegimeKeyShape.Simple);
-        caps.EmitterIdentitySource.Should().Be(EmitterIdentitySource.FromConfig);
-        caps.ProvidesSourceDocuments.Should().BeFalse("false par défaut : aucune source PDF configurée (ADP05 pilote la capacité par config)");
-        caps.ProvidesUnlinkedDocumentPool.Should().BeFalse();
-        caps.ExtractsOnlyFinalizedDocuments.Should().BeTrue("R9 — le seed de fixtures curé (versionné) ne contient que des documents émis ; conformité portée par le seed, pas par le schéma réel (cf. PervasiveExtractor fail-closed)");
+        EncheresV6FixtureExtractor extractor = EncheresV6FixtureExtractor.FromJson(snapshot);
+
+        List<PivotDocumentDto> docs = extractor.ExtractDocuments(new DateTime(2024, 1, 1), new DateTime(2025, 1, 1)).ToList();
+
+        PivotDocumentDto fc = docs.Single(d => d.SourceReference.StartsWith("encheresv6:fc:", StringComparison.Ordinal));
+        fc.Number.Should().Be("00100007");
+        fc.BuyerFees.Should().BeNull("une facture ordinaire ne porte aucun frais d'enchères");
+        fc.SellerFees.Should().BeNull();
+        fc.OperationCategory.Should().BeNull("la nature est plateforme (profil tenant)");
+        fc.Lines.Should().ContainSingle("le règlement (type 2) est écarté");
+        fc.Lines[0].NetAmount.Should().Be(144.00m);
+        fc.Lines[0].Taxes[0].TaxAmount.Should().Be(28.80m, "TVA ligne = HT × taux_tva source");
+        fc.Lines[0].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("20", "clé = taux effectif (taux_tva)");
+        fc.Totals.SourceTotalGross.Should().Be(172.80m);
     }
 
     [Fact]
-    public void CheckHealth_is_healthy()
+    public void ExtractDocuments_emits_note_hono_as_plain_b2c_service_document()
     {
-        SalesExtractor().CheckHealth().IsHealthy.Should().BeTrue();
+        // Une note d'honoraires d'inventaire (prestation de services) rejouée par les fixtures : honoraires (type 1)
+        // au prix total, TVA distincte source, taux effectif recouvré en clé de régime, règlement (type 3) exclu.
+        const string snapshot = @"{
+          ""regimes"": [], ""bordereaux"": [], ""bordereaux_vendeur"": [], ""factures_clients"": [],
+          ""notes_hono"": [
+            { ""no_note_hono"": ""100008"", ""facture_ou_avoir"": ""F"", ""date_facture"": ""2024-04-12"",
+              ""nom"": ""GLOUX"", ""adresse"": ""1 rue de la Criée"", ""code_postal"": ""56000"", ""ville"": ""Vannes"", ""code_pays"": ""FR"",
+              ""montant_ttc"": 27.6, ""code_devise"": ""EURO"",
+              ""lignes"": [
+                { ""type_ligne"": ""1"", ""libelle"": ""Honoraires d'inventaire"", ""montant_ht"": 23.0, ""montant_tva"": 4.6 },
+                { ""type_ligne"": ""3"", ""code_ligne"": ""CE"", ""libelle"": ""Chèque"", ""montant_ht"": 27.6, ""montant_tva"": 0.0 }
+              ] }
+          ] }";
+
+        EncheresV6FixtureExtractor extractor = EncheresV6FixtureExtractor.FromJson(snapshot);
+
+        List<PivotDocumentDto> docs = extractor.ExtractDocuments(new DateTime(2024, 1, 1), new DateTime(2025, 1, 1)).ToList();
+
+        PivotDocumentDto nh = docs.Single(d => d.SourceReference.StartsWith("encheresv6:nh:", StringComparison.Ordinal));
+        nh.Number.Should().Be("100008");
+        nh.BuyerFees.Should().BeNull("une note d'honoraires ne porte aucun frais d'enchères");
+        nh.SellerFees.Should().BeNull();
+        nh.OperationCategory.Should().BeNull("la nature (TPS1) est plateforme (profil tenant)");
+        nh.Lines.Should().ContainSingle("le règlement (type 3) est exclu");
+        nh.Lines[0].NetAmount.Should().Be(23.00m);
+        nh.Lines[0].Taxes[0].TaxAmount.Should().Be(4.60m, "TVA distincte source (montant_tva)");
+        nh.Lines[0].SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("20", "taux effectif recouvré (4,6/23)");
+        nh.Totals.SourceTotalGross.Should().Be(27.60m);
     }
 
     [Fact]
-    public void ExtractDocuments_returns_the_three_sales_as_raw_kind_B()
+    public void FromJson_rejects_duplicate_no_note_hono_for_idempotence()
     {
-        List<PivotDocumentDto> docs = SalesExtractor().ExtractDocuments(PeriodFrom, PeriodTo).ToList();
+        // Deux notes de même no_note_hono produiraient deux pivots de même SourceReference (double-déclaration, R2).
+        const string dup = @"{ ""regimes"": [], ""bordereaux"": [], ""bordereaux_vendeur"": [], ""factures_clients"": [], ""notes_hono"": [
+            { ""no_note_hono"": ""100008"", ""facture_ou_avoir"": ""F"", ""date_facture"": ""2024-04-12"", ""nom"": ""A"", ""lignes"": [] },
+            { ""no_note_hono"": ""100008"", ""facture_ou_avoir"": ""F"", ""date_facture"": ""2024-04-13"", ""nom"": ""B"", ""lignes"": [] }
+          ] }";
 
-        docs.Should().HaveCount(3);
-        docs.Select(d => d.SourceReference).Should().BeEquivalentTo("no_ba=4500", "no_ba=4042", "no_ba=4501");
-        docs.Should().OnlyContain(d => d.SourceDocumentKind == "B");
+        ((Action)(() => EncheresV6FixtureExtractor.FromJson(dup))).Should().Throw<SourceSchemaException>();
     }
 
     [Fact]
-    public void ExtractDocuments_operation_category_comes_from_config()
+    public void FromJson_rejects_duplicate_no_fact_for_idempotence()
     {
-        EncheresV6FixtureExtractor extractor =
-            EncheresV6FixtureExtractor.FromFile(SalesFile, Emitter(), OperationCategory.PrestationServices);
+        // Deux factures de même no_fact produiraient deux pivots de même SourceReference (double-déclaration, R2).
+        const string dup = @"{ ""regimes"": [], ""bordereaux"": [], ""bordereaux_vendeur"": [], ""factures_clients"": [
+            { ""no_fact"": ""00100007"", ""facture_ou_avoir"": ""F"", ""date_fact"": ""2024-04-12"", ""nom"": ""A"", ""lignes"": [] },
+            { ""no_fact"": ""00100007"", ""facture_ou_avoir"": ""F"", ""date_fact"": ""2024-04-13"", ""nom"": ""B"", ""lignes"": [] }
+          ] }";
 
-        extractor.ExtractDocuments(PeriodFrom, PeriodTo)
-            .Should().OnlyContain(d => d.OperationCategory == OperationCategory.PrestationServices);
-    }
-
-    [Fact]
-    public void ExtractDocuments_does_not_map_tva_and_keeps_regime_raw()
-    {
-        PivotDocumentDto sale = SalesExtractor().ExtractDocuments(PeriodFrom, PeriodTo)
-            .Single(d => d.SourceReference == "no_ba=4500");
-
-        sale.Lines.Should().HaveCount(2, "la ligne de règlement type 3 n'est pas une ligne de document");
-        PivotLineDto adjudication = sale.Lines[0];
-        adjudication.SourceRegimeCodes.Should().ContainSingle().Which.Should().Be("5");
-        adjudication.Taxes[0].CategoryCode.Should().BeNull();
-        adjudication.Taxes[0].VatexCode.Should().BeNull();
-        sale.Supplier!.Siren.Should().Be("111111111");
-    }
-
-    [Fact]
-    public void ExtractDocuments_rounds_dirty_floats_half_up()
-    {
-        PivotDocumentDto sale = SalesExtractor().ExtractDocuments(PeriodFrom, PeriodTo)
-            .Single(d => d.SourceReference == "no_ba=4500");
-
-        PivotLineDto fees = sale.Lines[1];
-        fees.NetAmount.Should().Be(8.33m);
-        fees.Taxes[0].TaxAmount.Should().Be(1.67m);
-    }
-
-    [Fact]
-    public void ExtractDocuments_marge_sale_carries_regime_6_with_zero_vat()
-    {
-        PivotDocumentDto marge = SalesExtractor().ExtractDocuments(PeriodFrom, PeriodTo)
-            .Single(d => d.SourceReference == "no_ba=4042");
-
-        PivotLineDto margeLine = marge.Lines.Single(l => l.SourceRegimeCodes.Contains("6"));
-        margeLine.Taxes[0].TaxAmount.Should().Be(0m);
-        margeLine.Taxes[0].Rate.Should().Be(0m);
-        margeLine.Taxes[0].CategoryCode.Should().BeNull("la catégorie E/VATEX du régime de marge est mappée par la plateforme");
-    }
-
-    [Fact]
-    public void ExtractDocuments_pro_buyer_sets_company_hint()
-    {
-        List<PivotDocumentDto> docs = SalesExtractor().ExtractDocuments(PeriodFrom, PeriodTo).ToList();
-
-        docs.Single(d => d.SourceReference == "no_ba=4501").Customer!.IsCompanyHint.Should().BeTrue();
-        docs.Single(d => d.SourceReference == "no_ba=4500").Customer!.IsCompanyHint.Should().BeFalse();
-    }
-
-    [Fact]
-    public void ExtractDocuments_is_idempotent()
-    {
-        EncheresV6FixtureExtractor extractor = SalesExtractor();
-
-        IEnumerable<string> first = extractor.ExtractDocuments(PeriodFrom, PeriodTo).Select(d => d.SourceReference);
-        IEnumerable<string> second = extractor.ExtractDocuments(PeriodFrom, PeriodTo).Select(d => d.SourceReference);
-
-        first.Should().Equal(second);
+        ((Action)(() => EncheresV6FixtureExtractor.FromJson(dup))).Should().Throw<SourceSchemaException>();
     }
 
     [Fact]
     public void ExtractDocuments_filters_by_period()
     {
-        List<PivotDocumentDto> firstHalf = SalesExtractor()
-            .ExtractDocuments(new DateTime(2026, 1, 1), new DateTime(2026, 1, 15))
-            .ToList();
+        EncheresV6FixtureExtractor extractor = EncheresV6FixtureExtractor.FromJson(Snapshot);
 
-        firstHalf.Select(d => d.SourceReference).Should().BeEquivalentTo("no_ba=4500", "no_ba=4042");
+        extractor.ExtractDocuments(new DateTime(2025, 1, 1), new DateTime(2026, 1, 1)).Should().BeEmpty();
     }
 
     [Fact]
-    public void ExtractPayments_returns_raw_payment_from_type3_line()
+    public void SourceName_is_EncheresV6_and_emitter_is_filled_by_platform()
     {
-        List<PivotPaymentDto> payments = SalesExtractor().ExtractPayments(PeriodFrom, PeriodTo).ToList();
+        EncheresV6FixtureExtractor extractor = EncheresV6FixtureExtractor.FromJson(Snapshot);
 
-        payments.Should().ContainSingle();
-        PivotPaymentDto payment = payments[0];
-        payment.PaymentDate.Should().Be(new DateTime(2026, 1, 15));
-        payment.Amount.Should().Be(130.00m);
-        payment.Method.Should().Be("CB");
-        payment.RelatedDocumentNumber.Should().Be("F-2026-0500");
-        payment.SourceReference.Should().Be("no_remise=REM-0500");
+        extractor.SourceName.Should().Be("EncheresV6");
+        extractor.Capabilities.EmitterIdentitySource.Should().Be(EmitterIdentitySource.FilledByPlatform);
     }
 
     [Fact]
-    public void ListSourceTaxRegimes_returns_regimes_with_occurrences()
+    public void FromJson_rejects_invalid_json()
     {
-        IReadOnlyList<SourceTaxRegimeDto> regimes = SalesExtractor().ListSourceTaxRegimes();
-
-        regimes.Should().HaveCount(2);
-        regimes.Single(r => r.Code == "5").Occurrences.Should().Be(5);
-        regimes.Single(r => r.Code == "6").Occurrences.Should().Be(1);
-        regimes.Single(r => r.Code == "6").Label.Should().Be("Regime de la marge");
+        ((Action)(() => EncheresV6FixtureExtractor.FromJson("{ not json"))).Should().Throw<SourceSchemaException>();
     }
 
     [Fact]
-    public void GetAttachments_and_pool_are_empty_in_fixture_mode()
+    public void FromJson_rejects_duplicate_no_ba_for_idempotence()
     {
-        EncheresV6FixtureExtractor extractor = SalesExtractor();
+        // Deux BA de même no_ba produiraient deux pivots de même SourceReference (double-déclaration, R2).
+        const string dup = @"{ ""regimes"": [], ""bordereaux"": [
+            { ""no_ba"": ""100022"", ""bordereau_ou_avoir"": ""B"", ""date_vente"": ""2024-01-12"", ""nom"": ""A"", ""lignes"": [] },
+            { ""no_ba"": ""100022"", ""bordereau_ou_avoir"": ""B"", ""date_vente"": ""2024-01-13"", ""nom"": ""B"", ""lignes"": [] }
+          ], ""bordereaux_vendeur"": [] }";
 
-        extractor.GetAttachments("no_ba=4500").Should().BeEmpty();
-        extractor.ListPoolDocuments(PeriodFrom, PeriodTo).Should().BeEmpty();
+        ((Action)(() => EncheresV6FixtureExtractor.FromJson(dup))).Should().Throw<SourceSchemaException>();
     }
 
     [Fact]
-    public void FromDirectory_merges_files_and_resolves_credit_note_across_files()
+    public void FromJson_rejects_duplicate_no_bv_for_idempotence()
     {
-        EncheresV6FixtureExtractor extractor =
-            EncheresV6FixtureExtractor.FromDirectory(FixturesDirectory, Emitter(), OperationCategory.LivraisonBiens);
+        const string dup = @"{ ""regimes"": [], ""bordereaux"": [], ""bordereaux_vendeur"": [
+            { ""no_bv"": ""100012"", ""bordereau_ou_avoir"": ""B"", ""date_vente"": ""2024-01-12"", ""nom"": ""V"", ""code_regime_tva"": ""6"", ""lignes"": [] },
+            { ""no_bv"": ""100012"", ""bordereau_ou_avoir"": ""B"", ""date_vente"": ""2024-01-13"", ""nom"": ""V"", ""code_regime_tva"": ""6"", ""lignes"": [] }
+          ] }";
 
-        List<PivotDocumentDto> docs = extractor.ExtractDocuments(PeriodFrom, PeriodTo).ToList();
-        docs.Should().HaveCount(4, "3 ventes + 1 avoir (fichier séparé)");
-
-        PivotDocumentDto avoir = docs.Single(d => d.SourceDocumentKind == "A");
-        avoir.CreditNoteRefs.Should().ContainSingle();
-        avoir.CreditNoteRefs[0].Number.Should().Be("F-2026-0500");
-        avoir.CreditNoteRefs[0].IssueDate.Should().Be(new DateTime(2026, 1, 12));
-        avoir.CreditNoteRefs[0].SourceReference.Should().Be("no_ba=4500");
+        ((Action)(() => EncheresV6FixtureExtractor.FromJson(dup))).Should().Throw<SourceSchemaException>();
     }
-
-    [Fact]
-    public void Canonical_hash_is_stable_across_two_independent_extractions()
-    {
-        PivotDocumentDto first = SalesExtractor().ExtractDocuments(PeriodFrom, PeriodTo)
-            .Single(d => d.SourceReference == "no_ba=4500");
-        PivotDocumentDto second = SalesExtractor().ExtractDocuments(PeriodFrom, PeriodTo)
-            .Single(d => d.SourceReference == "no_ba=4500");
-
-        string hashFirst = PayloadHasher.ComputeHash(first);
-        string hashSecond = PayloadHasher.ComputeHash(second);
-
-        hashFirst.Should().Be(hashSecond, "le même bordereau doit produire une empreinte identique (idempotence + canonicalisation)");
-        Regex.IsMatch(hashFirst, "^[0-9a-f]{64}$").Should().BeTrue("empreinte SHA-256 en hexadécimal minuscule de 64 caractères");
-        CanonicalJson.Serialize(first).Should().Be(CanonicalJson.Serialize(second));
-    }
-
-    [Fact]
-    public void Canonical_hash_differs_between_distinct_documents()
-    {
-        List<PivotDocumentDto> docs = SalesExtractor().ExtractDocuments(PeriodFrom, PeriodTo).ToList();
-
-        string hashSale = PayloadHasher.ComputeHash(docs.Single(d => d.SourceReference == "no_ba=4500"));
-        string hashMarge = PayloadHasher.ComputeHash(docs.Single(d => d.SourceReference == "no_ba=4042"));
-
-        hashSale.Should().NotBe(hashMarge);
-    }
-
-    [Fact]
-    public void FromJson_with_invalid_json_throws_SourceSchemaException()
-    {
-        Action act = () => EncheresV6FixtureExtractor.FromJson("{ not json", Emitter(), OperationCategory.LivraisonBiens);
-
-        act.Should().Throw<SourceSchemaException>();
-    }
-
-    [Fact]
-    public void FromJson_with_null_content_throws_SourceSchemaException()
-    {
-        Action act = () => EncheresV6FixtureExtractor.FromJson("null", Emitter(), OperationCategory.LivraisonBiens);
-
-        act.Should().Throw<SourceSchemaException>();
-    }
-
-    [Fact]
-    public void FromJson_with_duplicate_no_ba_throws_SourceSchemaException()
-    {
-        const string duplicateNoBaJson = @"{
-  ""regimes"": [],
-  ""bordereaux"": [
-    {
-      ""no_ba"": ""BA-001"",
-      ""numero_piece"": ""F-2026-0001"",
-      ""bordereau_ou_avoir"": ""B"",
-      ""date_vente"": ""2026-01-12"",
-      ""total_ht"": 100.0,
-      ""total_tva"": 20.0,
-      ""total_ttc"": 120.0,
-      ""lignes_ba"": [
-        { ""type_ligne"": ""4"", ""designation"": ""Lot 1"", ""montant_ht"": 100.0, ""montant_tva"": 20.0 }
-      ]
-    },
-    {
-      ""no_ba"": ""BA-001"",
-      ""numero_piece"": ""F-2026-0002"",
-      ""bordereau_ou_avoir"": ""B"",
-      ""date_vente"": ""2026-01-13"",
-      ""total_ht"": 50.0,
-      ""total_tva"": 10.0,
-      ""total_ttc"": 60.0,
-      ""lignes_ba"": [
-        { ""type_ligne"": ""4"", ""designation"": ""Lot 2"", ""montant_ht"": 50.0, ""montant_tva"": 10.0 }
-      ]
-    }
-  ]
-}";
-
-        Action act = () => EncheresV6FixtureExtractor.FromJson(duplicateNoBaJson, Emitter(), OperationCategory.LivraisonBiens);
-
-        act.Should().Throw<SourceSchemaException>();
-    }
-
-    [Fact]
-    public void FromFile_with_nonexistent_path_throws_SourceSchemaException()
-    {
-        Action act = () => EncheresV6FixtureExtractor.FromFile(
-            Path.Combine(AppContext.BaseDirectory, "fixtures", "does-not-exist.json"),
-            Emitter(),
-            OperationCategory.LivraisonBiens);
-
-        act.Should().Throw<SourceSchemaException>();
-    }
-
-    [Fact]
-    public void ExtractPayments_excludes_payment_outside_period()
-    {
-        // La fixture encheresv6-source.json contient un règlement REM-0500 daté du 2026-01-15.
-        // Une période [2026-02-01, 2026-03-01) ne doit pas le retourner.
-        List<PivotPaymentDto> payments = SalesExtractor()
-            .ExtractPayments(new DateTime(2026, 2, 1), new DateTime(2026, 3, 1))
-            .ToList();
-
-        payments.Should().BeEmpty("le règlement du 2026-01-15 est hors de la période [2026-02-01, 2026-03-01)");
-    }
-
-    [Fact]
-    public void ListSourceTaxRegimes_dedup_last_wins_on_label_and_sums_occurrences()
-    {
-        // Deux entrées dans « regimes » avec le même code_regime "5" mais des libellés différents.
-        // Résultat attendu : une seule entrée pour le code "5", libellé = dernier vu (last-wins),
-        // occurrences = nombre de lignes de type document référençant le code "5".
-        const string json = @"{
-  ""regimes"": [
-    { ""code_regime"": ""5"", ""libelle"": ""Normal v1"" },
-    { ""code_regime"": ""5"", ""libelle"": ""Normal v2"" }
-  ],
-  ""bordereaux"": [
-    {
-      ""no_ba"": ""BA-DEDUP-001"",
-      ""numero_piece"": ""F-2026-9001"",
-      ""bordereau_ou_avoir"": ""B"",
-      ""date_vente"": ""2026-01-20"",
-      ""total_ht"": 100.0,
-      ""total_tva"": 20.0,
-      ""total_ttc"": 120.0,
-      ""lignes"": [
-        { ""type_ligne"": ""4"", ""designation"": ""Lot A"", ""montant_ht"": 60.0, ""montant_tva"": 12.0, ""code_regime"": ""5"" },
-        { ""type_ligne"": ""4"", ""designation"": ""Lot B"", ""montant_ht"": 40.0, ""montant_tva"": 8.0, ""code_regime"": ""5"" }
-      ]
-    }
-  ]
-}";
-
-        EncheresV6FixtureExtractor extractor =
-            EncheresV6FixtureExtractor.FromJson(json, Emitter(), OperationCategory.LivraisonBiens);
-
-        IReadOnlyList<SourceTaxRegimeDto> regimes = extractor.ListSourceTaxRegimes();
-
-        regimes.Should().ContainSingle("deux déclarations du même code_regime fusionnent en une seule entrée");
-        SourceTaxRegimeDto regime5 = regimes.Single(r => r.Code == "5");
-        regime5.Label.Should().Be("Normal v2", "last-wins sur le libellé (dernière déclaration du code_regime)");
-        regime5.Occurrences.Should().Be(2, "deux lignes de document référencent le code_regime « 5 »");
-    }
-
-    private static EncheresV6EmitterIdentity Emitter() =>
-        new EncheresV6EmitterIdentity(
-            name: "Étude Fictïve SVV",
-            siren: "111111111",
-            city: "Rennes",
-            postalCode: "35000",
-            countryCode: "FR");
-
-    private static EncheresV6FixtureExtractor SalesExtractor() =>
-        EncheresV6FixtureExtractor.FromFile(SalesFile, Emitter(), OperationCategory.LivraisonBiens);
 }

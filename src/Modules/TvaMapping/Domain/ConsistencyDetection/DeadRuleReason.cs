@@ -9,10 +9,12 @@ namespace Liakont.Modules.TvaMapping.Domain.ConsistencyDetection;
 public enum DeadRuleReason
 {
     /// <summary>
-    /// La part de la règle (Adjudication / Frais) n'est consultée par AUCUN document : le pipeline
-    /// générique mappe toujours avec la part <c>Autre</c> (<c>CheckTvaMapping.LinePart</c>) — la
-    /// dérivation adjudication/frais est figée (ADR-0004 / PIP03b). Indépendant de l'activation du
-    /// vertical enchères (qui ne gouverne que l'éditeur — D4).
+    /// La part de la règle n'est consultée par AUCUN consommateur. Les parts consultées sont <c>Autre</c>
+    /// (CHECK, <c>CheckTvaMapping.LinePart</c>) et <c>Frais</c> (B4 e-reporting B2C de la marge,
+    /// <c>B2cMarginAggregatorTenantJob.ResolveMarginAsync</c>) — voir <c>ConsultedMappingParts</c>. Seule
+    /// <c>Adjudication</c> reste non consultée (la dérivation adjudication/frais au CHECK est figée —
+    /// ADR-0004 / PIP03b). Indépendant de l'activation du vertical enchères (qui ne gouverne que
+    /// l'éditeur — D4).
     /// </summary>
     PartNotConsulted = 0,
 

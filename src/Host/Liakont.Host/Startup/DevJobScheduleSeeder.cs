@@ -32,14 +32,12 @@ internal static partial class DevJobScheduleSeeder
             .GetRequiredService<ILoggerFactory>()
             .CreateLogger("Liakont.Host.Startup.DevJobScheduleSeeder");
 
-        // Société fictive de dev : porte les planifications système en dev (le fan-out par tenant est
-        // assuré par les handlers, indépendamment de cette company — la clé est juste une scope de schedule).
-        var companyIdRaw = app.Configuration["DevTenantSeed:CompanyId"];
-        if (!Guid.TryParse(companyIdRaw, out var companyId))
-        {
-            LogSeedSkippedNoCompany(logger, companyIdRaw ?? "(absent)");
-            return;
-        }
+        // Société porteuse système (sentinel plateforme, PAS un tenant réel) : la MÊME porteuse qu'en prod
+        // (formulaire d'admin + liste cross-tenant, BUG-4b). Indispensable pour la cohérence : si dev amorçait
+        // sur une autre société, un opérateur plateforme ne verrait pas les planifications amorcées et en
+        // recréerait des DOUBLONS (clé de dé-dup (type, company) distincte → double fan-out). Le fan-out par
+        // tenant reste assuré par les handlers, indépendamment de cette société (juste une scope de schedule).
+        var companyId = LiakontSystemScheduleHost.HostCompanyId;
 
         try
         {
@@ -133,12 +131,6 @@ internal static partial class DevJobScheduleSeeder
         Level = LogLevel.Warning,
         Message = "Échec de l'amorçage de la planification système « {Name} » (dev) — le démarrage se poursuit.")]
     private static partial void LogScheduleSeedFailed(ILogger logger, string name, Exception exception);
-
-    [LoggerMessage(
-        EventId = 7213,
-        Level = LogLevel.Debug,
-        Message = "Amorçage des planifications système ignoré : DevTenantSeed:CompanyId absent ou invalide ({Raw}).")]
-    private static partial void LogSeedSkippedNoCompany(ILogger logger, string raw);
 
     [LoggerMessage(
         EventId = 7214,

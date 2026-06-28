@@ -119,9 +119,10 @@ public sealed class PaPublicationConsoleServiceTests
     }
 
     [Fact]
-    public async Task PublishAsync_Missing_Form_Fields_Is_Refused()
+    public async Task PublishAsync_Missing_Form_Fields_Is_Refused_When_The_Pa_Consumes_Them()
     {
-        var client = new RecordingPaClient();
+        // BUG-13 : la PA CONSOMME les champs (capacité true, ex. B2Brouter) ⇒ saisie obligatoire, refus si vide.
+        var client = new RecordingPaClient { SupportsTaxReportSettingWritable = true };
         var service = Service(
             new StubRegistry("Fake", client),
             new StubSettings { Profile = ProfileWithSiren("123456782"), Accounts = [ActiveAccount("Fake")] },
@@ -137,7 +138,33 @@ public sealed class PaPublicationConsoleServiceTests
         });
 
         result.Success.Should().BeFalse();
-        client.Ensured.Should().BeEmpty("rien d'inventé : sans saisie, pas de publication");
+        client.Ensured.Should().BeEmpty("rien d'inventé : la PA exige ces champs, sans saisie pas de publication");
+    }
+
+    [Fact]
+    public async Task PublishAsync_Missing_Form_Fields_Allowed_When_The_Pa_Ignores_Them()
+    {
+        // BUG-13 : la PA IGNORE les champs (capacité false, ex. Super PDP) ⇒ publication possible champs vides
+        // (CLAUDE.md n°8 : ne pas imposer une saisie sans effet). La demande est construite avec des champs vides.
+        var client = new RecordingPaClient { SupportsTaxReportSettingWritable = false };
+        var service = Service(
+            new StubRegistry("SuperPdp", client),
+            new StubSettings { Profile = ProfileWithSiren("000000002"), Accounts = [ActiveAccount("SuperPdp")] },
+            new RecordingActivityLogger(),
+            permission: true,
+            today: new DateOnly(2026, 6, 11));
+
+        var result = await service.PublishAsync(new PaPublicationFormModel
+        {
+            StartDate = new DateOnly(2026, 1, 1),
+            TypeOperation = string.Empty,
+            EnterpriseSize = string.Empty,
+        });
+
+        result.Success.Should().BeTrue("une PA qui ignore ces champs ne bloque pas la publication");
+        client.Ensured.Should().ContainSingle();
+        client.Ensured.Single().TypeOperation.Should().BeEmpty();
+        client.Ensured.Single().EnterpriseSize.Should().BeEmpty();
     }
 
     [Fact]
@@ -184,6 +211,31 @@ public sealed class PaPublicationConsoleServiceTests
         state.IsPublished.Should().BeTrue();
         state.StartDate.Should().Be(new DateOnly(2026, 1, 1));
         state.Siren.Should().Be("123456782");
+    }
+
+    [Fact]
+    public async Task GetStateAsync_Flags_Required_Fields_From_The_Pa_Capability()
+    {
+        // BUG-13 : l'état porte le « requis » des champs depuis la capacité déclarée de la PA active.
+        var consuming = new RecordingPaClient { SupportsTaxReportSettingWritable = true, CurrentSetting = new PaTaxReportSetting() };
+        var consumingService = Service(
+            new StubRegistry("B2Brouter", consuming),
+            new StubSettings { Profile = ProfileWithSiren("123456782"), Accounts = [ActiveAccount("B2Brouter")] },
+            new RecordingActivityLogger(),
+            permission: true,
+            today: new DateOnly(2026, 6, 11));
+        var consumingState = await consumingService.GetStateAsync();
+        consumingState.RequiresTaxReportSettingFields.Should().BeTrue("la PA déclare consommer ces champs");
+
+        var ignoring = new RecordingPaClient { SupportsTaxReportSettingWritable = false, CurrentSetting = new PaTaxReportSetting() };
+        var ignoringService = Service(
+            new StubRegistry("SuperPdp", ignoring),
+            new StubSettings { Profile = ProfileWithSiren("000000002"), Accounts = [ActiveAccount("SuperPdp")] },
+            new RecordingActivityLogger(),
+            permission: true,
+            today: new DateOnly(2026, 6, 11));
+        var ignoringState = await ignoringService.GetStateAsync();
+        ignoringState.RequiresTaxReportSettingFields.Should().BeFalse("la PA n'utilise pas ces champs");
     }
 
     [Fact]
@@ -357,6 +409,9 @@ public sealed class PaPublicationConsoleServiceTests
         public Task<FiscalSettingsDto?> GetFiscalSettings(Guid companyId, CancellationToken ct = default) =>
             Task.FromResult<FiscalSettingsDto?>(null);
 
+        public Task<BillingMentionsDto?> GetBillingMentions(Guid companyId, CancellationToken ct = default) =>
+            Task.FromResult<BillingMentionsDto?>(null);
+
         public Task<IReadOnlyList<PaAccountDto>> GetPaAccounts(Guid companyId, CancellationToken ct = default) =>
             Task.FromResult(Accounts);
 
@@ -415,7 +470,14 @@ public sealed class PaPublicationConsoleServiceTests
 
         public PaTaxReportSetting CurrentSetting { get; set; } = new();
 
-        public PaCapabilities Capabilities => new() { PaName = "FakeTest" };
+        /// <summary>BUG-13 : la PA CONSOMME-t-elle les champs type d'opération / taille d'entreprise (capacité déclarée) ?</summary>
+        public bool SupportsTaxReportSettingWritable { get; set; }
+
+        public PaCapabilities Capabilities => new()
+        {
+            PaName = "FakeTest",
+            SupportsTaxReportSettingWritable = SupportsTaxReportSettingWritable,
+        };
 
         public Task EnsureTaxReportSettingAsync(PaTaxReportSettingRequest request, CancellationToken cancellationToken = default)
         {

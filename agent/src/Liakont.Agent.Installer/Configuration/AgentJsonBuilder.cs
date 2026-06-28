@@ -35,6 +35,9 @@ internal static class AgentJsonBuilder
         ProfileFieldKeys.OdbcConnection,
         ProfileFieldKeys.PdfPoolPath,
         ProfileFieldKeys.Schedule,
+        ProfileFieldKeys.ExtractFromUtc,
+        ProfileFieldKeys.Dossier,
+        ProfileFieldKeys.SourceSchema,
     };
 
     /// <summary>
@@ -79,6 +82,15 @@ internal static class AgentJsonBuilder
         extraction["schedule"] = BuildScheduleArray(scheduleRaw);
         extraction["catchUpOnStart"] = false;
 
+        // Borne « extraire depuis » (factures à partir de cette date) : OPTIONNELLE. Vide = aucun rattrapage
+        // d'historique (fenêtre depuis maintenant, uniquement les nouveaux documents — ADR-0031). Transmise
+        // telle quelle ; le format date/heure est validé par le chargeur du cœur agent (re-validation ci-dessous).
+        string? extractFromClear = config.Get(ProfileFieldKeys.ExtractFromUtc);
+        if (!string.IsNullOrWhiteSpace(extractFromClear))
+        {
+            extraction["extractFromUtc"] = extractFromClear!.Trim();
+        }
+
         var root = new JObject
         {
             ["platformUrl"] = config.Get(ProfileFieldKeys.PlatformUrl) ?? string.Empty,
@@ -86,6 +98,29 @@ internal static class AgentJsonBuilder
             ["heartbeatMinutes"] = AgentConfigLoader.DefaultHeartbeatMinutes,
             ["extraction"] = extraction,
         };
+
+        // adapterConfig.<adaptateur> : configuration SPÉCIFIQUE à l'adaptateur sélectionné (ex. EncheresV6 :
+        // « dossier » = filtre tenant, « schema » = préfixe SQL source). Écrite sous le NOM de l'adaptateur
+        // SÉLECTIONNÉ (générique, jamais codé en dur) ; seules les valeurs renseignées sont émises (un adaptateur
+        // sans config spécifique n'a pas de bloc). La FABRIQUE de l'adaptateur valide ces champs au run.
+        var adapterConfig = new JObject();
+        string? dossier = config.Get(ProfileFieldKeys.Dossier);
+        if (!string.IsNullOrWhiteSpace(dossier))
+        {
+            adapterConfig["dossier"] = dossier!.Trim();
+        }
+
+        string? sourceSchema = config.Get(ProfileFieldKeys.SourceSchema);
+        if (!string.IsNullOrWhiteSpace(sourceSchema))
+        {
+            adapterConfig["schema"] = sourceSchema!.Trim();
+        }
+
+        string adapterName = config.Get(ProfileFieldKeys.Adapter) ?? string.Empty;
+        if (adapterConfig.HasValues && !string.IsNullOrWhiteSpace(adapterName))
+        {
+            root["adapterConfig"] = new JObject { [adapterName] = adapterConfig };
+        }
 
         string json = root.ToString(Formatting.Indented);
 

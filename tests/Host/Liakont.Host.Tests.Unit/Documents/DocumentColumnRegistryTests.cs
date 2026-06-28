@@ -62,4 +62,17 @@ public sealed class DocumentColumnRegistryTests
         registry.GetColumn("TotalGross")!.Title.Should().Be("Montant");
         registry.GetColumn("State")!.Title.Should().Be("État");
     }
+
+    [Fact]
+    public void Should_Declare_The_Document_Family_Column_Visible_By_Default()
+    {
+        // BUG-20 : la famille de pièce (BA/BV/FC/NH) est une colonne Texte visible par défaut, dérivée par le
+        // ColumnTemplate de la page depuis la référence source (clé « SourceReference »).
+        var registry = new DocumentColumnRegistry();
+
+        var family = registry.GetColumn("SourceReference")!;
+        family.Title.Should().Be("Famille de pièce");
+        family.DataType.Should().Be(ColumnDataType.Text);
+        registry.GetDefaultVisibleColumns().Select(c => c.Key).Should().Contain("SourceReference");
+    }
 }

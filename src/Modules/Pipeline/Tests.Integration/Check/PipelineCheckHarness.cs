@@ -128,6 +128,51 @@ public sealed class PipelineCheckHarness : IAsyncLifetime
         await staging.WriteAsync(new StagedPayloadKey(TenantSlug, documentId, payloadHash), canonicalJson);
     }
 
+    /// <summary>
+    /// Écrit (UPSERT) les mentions de facturation du tenant (BUG-26, F12-A §3.4) — termes de paiement (BT-20) +
+    /// mentions légales FR (PMD/PMT/AAB). Contenus FICTIFS (CLAUDE.md n°7). Une ligne par société (clé unique).
+    /// </summary>
+    public async Task SeedBillingMentionsAsync(
+        string paymentTerms = "Paiement à 30 jours fin de mois.",
+        string latePenaltyTerms = "Pénalités de retard au taux légal.",
+        string recoveryFeeTerms = "Indemnité forfaitaire de recouvrement de 40 €.",
+        string discountTerms = "Pas d'escompte pour paiement anticipé.")
+    {
+        const string sql = """
+            INSERT INTO tenantsettings.billing_mentions
+                (id, company_id, payment_terms, late_penalty_terms, recovery_fee_terms, discount_terms, created_at)
+            VALUES
+                (@Id, @CompanyId, @PaymentTerms, @LatePenaltyTerms, @RecoveryFeeTerms, @DiscountTerms, now())
+            ON CONFLICT (company_id) DO UPDATE SET
+                payment_terms = EXCLUDED.payment_terms,
+                late_penalty_terms = EXCLUDED.late_penalty_terms,
+                recovery_fee_terms = EXCLUDED.recovery_fee_terms,
+                discount_terms = EXCLUDED.discount_terms,
+                updated_at = now()
+            """;
+
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync();
+        await connection.ExecuteAsync(sql, new
+        {
+            Id = Guid.NewGuid(),
+            CompanyId,
+            PaymentTerms = paymentTerms,
+            LatePenaltyTerms = latePenaltyTerms,
+            RecoveryFeeTerms = recoveryFeeTerms,
+            DiscountTerms = discountTerms,
+        });
+    }
+
+    /// <summary>Supprime les mentions de facturation du tenant (pour exercer le blocage CHECK quand elles manquent).</summary>
+    public async Task RemoveBillingMentionsAsync()
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync();
+        await connection.ExecuteAsync(
+            "DELETE FROM tenantsettings.billing_mentions WHERE company_id = @CompanyId", new { CompanyId });
+    }
+
     /// <summary>État courant d'un document (ou <c>null</c> s'il n'existe pas).</summary>
     public async Task<string?> GetDocumentStateAsync(Guid documentId)
     {
@@ -153,6 +198,18 @@ public sealed class PipelineCheckHarness : IAsyncLifetime
         return await queries.GetRecentRunsAsync(200);
     }
 
+    /// <summary>
+    /// Rejeu read-time du contenu d'un document (BUG-5, <see cref="IDocumentContentReplayService"/>) dans un scope
+    /// résolu sur le tenant de test — le chemin EXACT consommé par la console pour afficher les lignes avant
+    /// transmission.
+    /// </summary>
+    public async Task<DocumentContentReplay> ReplayContentAsync(Guid documentId)
+    {
+        await using var scope = _provider!.CreateAsyncScope();
+        var replay = scope.ServiceProvider.GetRequiredService<IDocumentContentReplayService>();
+        return await replay.ReplayAsync(documentId);
+    }
+
     private ServiceProvider BuildProvider()
     {
         _stagingRoot = Path.Combine(Path.GetTempPath(), "liakont-pip01b-" + CompanyId.ToString("N"));
@@ -173,6 +230,11 @@ public sealed class PipelineCheckHarness : IAsyncLifetime
         services.AddSingleton<IConnectionFactory>(new NpgsqlConnectionFactory(databaseOptions));
         services.AddSingleton<ITenantConnectionFactory>(new SingleDatabaseConnectionFactory(ConnectionString));
         services.AddSingleton(TimeProvider.System);
+
+        // Contexte tenant résolu sur le slug de la base de test (BUG-5 : le rejeu read-time lit le pivot stagé
+        // via une clé tenant-scopée). La base unique EST le tenant — le slug fixe suffit.
+        services.AddSingleton<ITenantContext>(new FixedTenantContext(TenantSlug));
+
         services.AddDataProtection();
 
         services.AddDocumentsModule();
@@ -220,13 +282,27 @@ public sealed class PipelineCheckHarness : IAsyncLifetime
             RateValue = 20m,
         };
 
+        // Régime de la marge (Part.Autre) → E + VATEX-EU-J : signal validé permettant à la plateforme de DÉRIVER
+        // le marqueur de déclaration de marge B2C au CHECK (B2cMarginMarking) et d'exercer la garde fail-closed
+        // « marge non classée » (honoraires + exonéré + acheteur pro → bloqué). Clé (MARGE, Autre) distincte.
+        var marginAdjudicationRule = new MappingRule
+        {
+            SourceRegimeCode = "MARGE",
+            Label = "Régime de la marge — objets de collection (art. 297 A)",
+            Part = MappingPart.Autre,
+            Category = VatCategory.E,
+            Vatex = "VATEX-EU-J",
+            RateMode = RateMode.Fixed,
+            RateValue = 0m,
+        };
+
         var table = MappingTable.Create(
             CompanyId,
             MappingVersion,
             "Expert-comptable CMP",
             new DateOnly(2026, 7, 15),
             MappingDefaultBehavior.Block,
-            new[] { rule });
+            new[] { rule, marginAdjudicationRule });
 
         await using var scope = _provider!.CreateAsyncScope();
         var factory = scope.ServiceProvider.GetRequiredService<ITvaMappingUnitOfWorkFactory>();
@@ -275,6 +351,16 @@ public sealed class PipelineCheckHarness : IAsyncLifetime
             await connection.OpenAsync(cancellationToken);
             return connection;
         }
+    }
+
+    /// <summary>Contexte tenant fixe (la base de test EST le tenant — le slug est constant).</summary>
+    private sealed class FixedTenantContext : ITenantContext
+    {
+        public FixedTenantContext(string tenantId) => TenantId = tenantId;
+
+        public string? TenantId { get; }
+
+        public bool IsResolved => !string.IsNullOrWhiteSpace(TenantId);
     }
 
     private sealed class ProviderTenantScopeFactory : ITenantScopeFactory

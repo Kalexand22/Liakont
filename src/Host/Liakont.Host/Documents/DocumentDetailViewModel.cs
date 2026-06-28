@@ -1,5 +1,6 @@
 namespace Liakont.Host.Documents;
 
+using System;
 using System.Collections.Generic;
 using Liakont.Modules.Documents.Contracts.DTOs;
 
@@ -34,9 +35,26 @@ public sealed record DocumentDetailViewModel
     /// </summary>
     public string? BlockingReason { get; init; }
 
+    /// <summary>
+    /// Récapitulatif de marge (onglet Contenu) quand le document est au régime de la marge (B2C ou B2B, art. 297 E) :
+    /// commission acheteur + vendeur, base HT, TVA sur marge à déclarer. <c>null</c> hors régime de la marge. Calculé
+    /// par le module Pipeline (cœurs e-reporting réutilisés) — ici pure PRÉSENTATION, aucune fiscalité dérivée.
+    /// </summary>
+    public MarginRecapView? MarginRecap { get; init; }
+
     /// <summary>Référence d'archive WORM du document (onglet Archive), ou <c>null</c> s'il n'est pas archivé.</summary>
     public ArchiveReferenceDto? Archive { get; init; }
 
     /// <summary><c>true</c> si une entrée de coffre existe pour ce document, <c>false</c> sinon.</summary>
     public bool IsArchived { get; init; }
+
+    /// <summary>
+    /// Lot d'émission e-reporting B2C dans lequel ce document a été RÉELLEMENT déclaré (BUG-24) : non <c>null</c>
+    /// quand le document a été e-reporté avec succès via la transmission AGRÉGÉE (flux 10.3), sinon <c>null</c>.
+    /// Reflète l'état d'e-reporting au read-time (lien doc ↔ lot) SANS modifier la machine à états : un document
+    /// e-reporté reste techniquement « prêt à l'envoi » côté domaine, mais la voie document ne le concerne plus
+    /// (garde D1) — la fiche affiche alors « E-reporté » + le lien vers sa déclaration au lieu de « À envoyer »,
+    /// et la barre d'actions masque l'envoi par la voie document.
+    /// </summary>
+    public Guid? B2cReportedBatchId { get; init; }
 }

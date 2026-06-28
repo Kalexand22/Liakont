@@ -47,6 +47,7 @@ public sealed partial class SendTenantJob
         Guid companyId,
         TenantProfileDto? tenantProfile,
         FiscalSettingsDto? fiscalSettings,
+        BillingMentionsDto? billingMentions,
         string tenantId,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -74,7 +75,7 @@ public sealed partial class SendTenantJob
                     continue;
                 }
 
-                var staged = await ReadStagedPivotAsync(services, tenantId, companyId, tenantProfile, fiscalSettings, document, logger, cancellationToken);
+                var staged = await ReadStagedPivotAsync(services, tenantId, companyId, tenantProfile, fiscalSettings, billingMentions, document, logger, cancellationToken);
                 if (staged.Status != StagedReadStatus.Ok)
                 {
                     // Absent = transitoire (repris au prochain cycle) ; intégrité = laissé Blocked (déjà signalé au CHECK).

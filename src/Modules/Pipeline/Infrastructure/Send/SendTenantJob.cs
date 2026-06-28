@@ -17,6 +17,7 @@ using Liakont.Modules.Mandats.Contracts.Queries;
 using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Domain;
+using Liakont.Modules.Pipeline.Domain.B2cReporting;
 using Liakont.Modules.Pipeline.Infrastructure.Check;
 using Liakont.Modules.Pipeline.Infrastructure.Serialization;
 using Liakont.Modules.Staging.Contracts;
@@ -170,34 +171,38 @@ public sealed partial class SendTenantJob : ITenantJob
         var tenantProfile = await tenantSettings.GetTenantProfile(companyId.Value, cancellationToken);
         var fiscalSettings = await tenantSettings.GetFiscalSettings(companyId.Value, cancellationToken);
 
+        // Mentions de facturation (BUG-26, F12-A §3.4) résolues UNE fois et propagées comme profil/fiscal (RB9) :
+        // BT-20 + notes légales FR injectées au read-time par document (la valeur portée par le document prime).
+        var billingMentions = await tenantSettings.GetBillingMentions(companyId.Value, cancellationToken);
+
         // 1) PRE-SEND : raccroche les Sending restés en suspens (crash) — repris dès le 1er cycle (TRK03).
         var sending = await services.GetRequiredService<IDocumentQueries>().GetPotentiallySentDocumentsAsync(cancellationToken);
         foreach (var summary in sending)
         {
-            tally.Add(await SafeProcessAsync(() => RecoverSendingAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, summary.Id, logger, cancellationToken), summary.Id, logger, cancellationToken));
+            tally.Add(await SafeProcessAsync(() => RecoverSendingAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, billingMentions, summary.Id, logger, cancellationToken), summary.Id, logger, cancellationToken));
         }
 
         // 2) Retry des TechnicalError (anti-doublon vérifié AVANT tout renvoi).
         await ForEachByStateAsync(
             services,
             TechnicalErrorStateName,
-            async id => tally.Add(await SafeProcessAsync(() => RetryTechnicalErrorAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, id, logger, cancellationToken), id, logger, cancellationToken)),
+            async id => tally.Add(await SafeProcessAsync(() => RetryTechnicalErrorAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, billingMentions, id, logger, cancellationToken), id, logger, cancellationToken)),
             cancellationToken);
 
         // 3) Envoi des ReadyToSend (les FACTURES d'origine des avoirs sont émises ICI, avant la réconciliation).
-        await SendReadyToSendPassAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, tally, logger, cancellationToken);
+        await SendReadyToSendPassAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, billingMentions, tally, logger, cancellationToken);
 
         // 4) RÉORDONNANCEMENT DES AVOIRS (PIP02, F07 §B.5) : un avoir resté Blocked parce que sa facture d'origine
         //    n'était pas (encore) émise est ré-évalué dès lors que l'origine est désormais émise (Blocked →
         //    ReadyToSend). Cela GARANTIT l'ordre chronologique « l'avoir après sa facture d'origine » : l'origine
         //    vient d'être émise en (3), l'avoir débloqué est envoyé en (5) — jamais l'inverse.
-        var unblockedCreditNotes = await ReconcileCreditNotesAsync(services, companyId.Value, tenantProfile, fiscalSettings, tenantId, logger, cancellationToken);
+        var unblockedCreditNotes = await ReconcileCreditNotesAsync(services, companyId.Value, tenantProfile, fiscalSettings, billingMentions, tenantId, logger, cancellationToken);
 
         // 5) Envoi CIBLÉ des avoirs fraîchement débloqués (on n'envoie QUE ces IDs, jamais un re-snapshot de tous
         //    les ReadyToSend : sinon les différés / ignorés de l'étape 3 seraient recomptés dans la trace SEND).
         foreach (var documentId in unblockedCreditNotes)
         {
-            tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, documentId, logger, cancellationToken), documentId, logger, cancellationToken));
+            tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, active, timeProvider, tenantId, companyId.Value, tenantProfile, fiscalSettings, billingMentions, documentId, logger, cancellationToken), documentId, logger, cancellationToken));
         }
 
         var detail = unblockedCreditNotes.Count > 0
@@ -217,13 +222,14 @@ public sealed partial class SendTenantJob : ITenantJob
         Guid companyId,
         TenantProfileDto? tenantProfile,
         FiscalSettingsDto? fiscalSettings,
+        BillingMentionsDto? billingMentions,
         SendTally tally,
         ILogger logger,
         CancellationToken cancellationToken) =>
         ForEachByStateAsync(
             services,
             ReadyToSendStateName,
-            async id => tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, account, timeProvider, tenantId, companyId, tenantProfile, fiscalSettings, id, logger, cancellationToken), id, logger, cancellationToken)),
+            async id => tally.Add(await SafeProcessAsync(() => SendReadyAsync(services, paClient, account, timeProvider, tenantId, companyId, tenantProfile, fiscalSettings, billingMentions, id, logger, cancellationToken), id, logger, cancellationToken)),
             cancellationToken);
 
     /// <summary>Premier compte Plateforme Agréée ACTIF du tenant (l'envoi passe par lui), ou <c>null</c>.</summary>
@@ -254,6 +260,7 @@ public sealed partial class SendTenantJob : ITenantJob
         Guid companyId,
         TenantProfileDto? tenantProfile,
         FiscalSettingsDto? fiscalSettings,
+        BillingMentionsDto? billingMentions,
         Guid documentId,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -265,7 +272,7 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
-        var staged = await ReadStagedPivotAsync(services, tenantId, companyId, tenantProfile, fiscalSettings, document, logger, cancellationToken);
+        var staged = await ReadStagedPivotAsync(services, tenantId, companyId, tenantProfile, fiscalSettings, billingMentions, document, logger, cancellationToken);
         if (staged.Status == StagedReadStatus.NotStaged)
         {
             return SendOutcome.Deferred;
@@ -316,6 +323,16 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
+        // Filet de transmission (garde PRIMAIRE au CHECK ; ce filet couvre un changement de PA après ReadyToSend
+        // — décision Karl 2026-06-22 « jamais une capacité d'une PA n'impacte le FLUX »). Un document à
+        // destinataire identifié (acheteur SIREN) sans canal de transmission (ni PDP B2B, ni transport Factur-X)
+        // est maintenu, jamais dégradé en e-reporting B2C anonyme — voir IsUnsendableB2bInvoice (CLAUDE.md n°3/8).
+        if (IsUnsendableB2bInvoice(staged.Pivot!, paClient))
+        {
+            LogB2bInvoicingCapabilityMissing(logger, document.Id, paClient.Capabilities.PaName);
+            return SendOutcome.Skipped;
+        }
+
         // Garde anti double-envoi pour une PA SANS dédoublonnage propre (Essentiel : la générique email/dépôt
         // ne déduplique pas, GetDocumentStatus = CapabilityNotSupported). Un cycle précédent a pu transmettre +
         // journaliser ce Factur-X puis crasher AVANT MarkIssued : la journalisation FX06/FX07 (clé d'idempotence
@@ -324,6 +341,16 @@ public sealed partial class SendTenantJob : ITenantJob
         if (await TryFinalizeFromJournalAsync(services, tenantId, document, staged.Pivot!, staged.Json!, beginSending: false, logger, cancellationToken))
         {
             return SendOutcome.Succeeded;
+        }
+
+        // Garde déclaration 10.3 (B2C01) — placée APRÈS les deux raccrochages anti-doublon : un document déjà
+        // Sending a forcément franchi la garde au ReadyToSend (capacité B2C présente à l'envoi) et a été TRANSMIS.
+        // Si la capacité a été retirée depuis, on le RÉCONCILIE (finalisation ci-dessus) plutôt que de le figer ;
+        // la garde ne retient ICI que la RE-transmission (jamais un renvoi sans la capacité).
+        if (IsUnsendableB2cReportingDeclaration(staged.Pivot!, paClient))
+        {
+            LogB2cReportingDeclarationHeld(logger, paClient, document.Id);
+            return SendOutcome.Skipped;
         }
 
         // Aucune transmission journalisée : on (re)transmet (déjà Sending). Pilotage : la PA déduplique par numéro (F05). Essentiel : le destinataire dédoublonne par numéro (BT-1) — at-least-once assumé (canal externe).
@@ -341,6 +368,7 @@ public sealed partial class SendTenantJob : ITenantJob
         Guid companyId,
         TenantProfileDto? tenantProfile,
         FiscalSettingsDto? fiscalSettings,
+        BillingMentionsDto? billingMentions,
         Guid documentId,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -360,7 +388,7 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
-        var staged = await ReadStagedPivotAsync(services, tenantId, companyId, tenantProfile, fiscalSettings, document, logger, cancellationToken);
+        var staged = await ReadStagedPivotAsync(services, tenantId, companyId, tenantProfile, fiscalSettings, billingMentions, document, logger, cancellationToken);
         if (staged.Status == StagedReadStatus.NotStaged)
         {
             return SendOutcome.Deferred;
@@ -392,12 +420,29 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
+        if (IsUnsendableB2cReportingDeclaration(staged.Pivot!, paClient))
+        {
+            // Déclaration 10.3 vers une PA sans capacité B2C : laissée en TechnicalError (aucune transition) —
+            // jamais re-promue ni transmise sans la capacité (résultat typé journalisé, pas de boucle).
+            LogB2cReportingDeclarationHeld(logger, paClient, documentId);
+            return SendOutcome.Skipped;
+        }
+
         // Garde autofacturation 389 (MND07) AVANT toute reprise/transition : un self-billed sans capacité PA
         // ou sans BT-1 fiscal alloué reste en TechnicalError (jamais re-promu ni émis faux), comme l'avoir
         // sans capacité — pas de double comptage ni de boucle.
         var selfBilled = await ResolveSelfBilledSendAsync(services, paClient, companyId, document.Id, staged.Pivot!, logger, cancellationToken);
         if (selfBilled.Hold)
         {
+            return SendOutcome.Skipped;
+        }
+
+        // Filet de transmission (parité CHECK + autres chemins SEND) : un document à destinataire identifié sans
+        // canal de transmission (ni PDP B2B, ni transport Factur-X) reste en l'état, jamais dégradé en e-reporting
+        // B2C anonyme — voir IsUnsendableB2bInvoice (CLAUDE.md n°3/8 ; capacité au bord, jamais dans le flux).
+        if (IsUnsendableB2bInvoice(staged.Pivot!, paClient))
+        {
+            LogB2bInvoicingCapabilityMissing(logger, document.Id, paClient.Capabilities.PaName);
             return SendOutcome.Skipped;
         }
 
@@ -447,6 +492,7 @@ public sealed partial class SendTenantJob : ITenantJob
         Guid companyId,
         TenantProfileDto? tenantProfile,
         FiscalSettingsDto? fiscalSettings,
+        BillingMentionsDto? billingMentions,
         Guid documentId,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -458,7 +504,7 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
-        var staged = await ReadStagedPivotAsync(services, tenantId, companyId, tenantProfile, fiscalSettings, document, logger, cancellationToken);
+        var staged = await ReadStagedPivotAsync(services, tenantId, companyId, tenantProfile, fiscalSettings, billingMentions, document, logger, cancellationToken);
         if (staged.Status == StagedReadStatus.NotStaged)
         {
             return SendOutcome.Deferred;
@@ -490,11 +536,42 @@ public sealed partial class SendTenantJob : ITenantJob
             return SendOutcome.Skipped;
         }
 
+        // Garde D1 (B4) : TOUTE déclaration e-reporting B2C (flux 10.3, marqueur IsB2cReportingDeclaration) est
+        // transmise EXCLUSIVEMENT par un job B2C dédié (b2c_transactions) — JAMAIS par cette voie document
+        // (SendDocumentAsync la rejetterait : pas de destinataire identifié). On la DIFFÈRE ici (reste ReadyToSend ;
+        // jamais émise par-document, jamais Sending). Invariant FUTURE-PROOF : on défère sur le MARQUEUR lui-même,
+        // pas sur une forme particulière — qu'elle porte des frais (bordereau d'enchères AGRÉGÉ : marge/TMA1, prix
+        // total/TLB1, export/TLB1-TNT1 unitaire) ou AUCUN frais (document ORDINAIRE : facture client TLB1 / note
+        // d'honoraires TPS1, F03 §2.9) ; tout marquage 10.3 futur est ainsi couvert sans risque de fuite vers la
+        // voie document. Placée AVANT la garde de capacité 10.3 : déférée quelle que soit la capacité (gardée DANS
+        // le job). QUEL job la ramasse se décide en aval (B2cMarginDeclaration / B2cTaxableDeclaration /
+        // B2cExportDeclaration / B2cPlainTaxableDeclaration), jamais ici.
+        if (staged.Pivot!.IsB2cReportingDeclaration)
+        {
+            LogB2cAggregatedDeclarationDeferred(logger, documentId);
+            return SendOutcome.Skipped;
+        }
+
+        // NB : la garde de capacité B2C (IsUnsendableB2cReportingDeclaration) n'est PLUS nécessaire ICI — la garde
+        // D1 ci-dessus défère TOUTE déclaration 10.3 hors voie document (la capacité est gardée DANS le job
+        // d'e-reporting). Elle reste appliquée sur les chemins de REPRISE (Sending / TechnicalError), où un document
+        // a pu être transmis avant un retrait de capacité.
+
         // Garde autofacturation 389 (MND07) : self-billed sans capacité PA ou sans BT-1 fiscal alloué (MND05)
         // → maintenu ReadyToSend (jamais émis faux ni dégradé en facture standard — CLAUDE.md n°3/8).
         var selfBilled = await ResolveSelfBilledSendAsync(services, paClient, companyId, document.Id, staged.Pivot!, logger, cancellationToken);
         if (selfBilled.Hold)
         {
+            return SendOutcome.Skipped;
+        }
+
+        // Filet de transmission (même garde qu'au CHECK, parité avec le hold 389) : un document à destinataire
+        // identifié (acheteur SIREN) n'est émissible que vers une PA offrant un canal (PDP B2B OU transport
+        // Factur-X) ; sinon MAINTENU ReadyToSend, jamais dégradé en e-reporting B2C anonyme — voir
+        // IsUnsendableB2bInvoice (CLAUDE.md n°3/8 ; capacité au bord, jamais dans le flux ; décision Karl 2026-06-22).
+        if (IsUnsendableB2bInvoice(staged.Pivot!, paClient))
+        {
+            LogB2bInvoicingCapabilityMissing(logger, document.Id, paClient.Capabilities.PaName);
             return SendOutcome.Skipped;
         }
 
@@ -795,10 +872,47 @@ public sealed partial class SendTenantJob : ITenantJob
             },
             cancellationToken);
 
+        // B2C04 — déclaration e-reporting B2C (flux 10.3) ÉMISE : on GÈLE le lien reporting↔pièces (B2C03) entre
+        // la transmission et sa pièce source (le bordereau acheteur, identifié par la référence source du pivot).
+        // Le lien est figé À L'ÉMISSION (le store est le PRODUCTEUR attendu par IReportingPieceLinkStore), APPEND-ONLY
+        // et idempotent (un Issued ré-examiné par une finalisation anti-doublon ne le ré-insère pas, CLAUDE.md n°4).
+        // Tenant-scopé (companyId résolu sur la connexion courante, n°9). Posé APRÈS MarkIssued (le lien est une
+        // métadonnée de traçabilité aval — l'export contrôle fiscal le consomme — pas une ancre d'idempotence d'envoi).
+        // CIBLÉ sur le marqueur 10.3 : aucune facture/avoir ordinaire ne crée de lien.
+        if (pivot.IsB2cReportingDeclaration && !string.IsNullOrWhiteSpace(pivot.SourceReference))
+        {
+            await FreezeReportingPieceLinkAsync(services, document.Id, pivot.SourceReference, cancellationToken);
+        }
+
         // Purge subordonnée à la présence EFFECTIVE du paquet WORM (jamais à la seule étiquette Issued).
         var key = new StagedPayloadKey(tenantId, document.Id, document.PayloadHash);
         var locator = new ArchivedDocumentLocator(document.Id, document.IssueDate.Year, document.IssueDate.Month, document.DocumentNumber);
         await services.GetRequiredService<IStagingPurgeService>().PurgeIfArchivedAsync(key, locator, cancellationToken);
+    }
+
+    /// <summary>
+    /// Gèle le lien reporting↔pièces (B2C03/B2C04) d'une déclaration 10.3 émise : résout le <c>companyId</c> du
+    /// tenant courant (la connexion EST le tenant, CLAUDE.md n°9) et appelle <see cref="IReportingPieceLinkStore"/>
+    /// (APPEND-ONLY, idempotent). Si le profil tenant (companyId) n'est pas résolu, on n'invente rien : on ne
+    /// gèle pas de lien (la déclaration reste émise ; un envoi sans profil tenant est déjà écarté en amont).
+    /// </summary>
+    private static async Task FreezeReportingPieceLinkAsync(
+        IServiceProvider services,
+        Guid documentId,
+        string sourceReference,
+        CancellationToken cancellationToken)
+    {
+        var companyId = await services.GetRequiredService<ITenantSettingsQueries>().GetCurrentCompanyId(cancellationToken);
+        if (companyId is null)
+        {
+            return;
+        }
+
+        await services.GetRequiredService<IReportingPieceLinkStore>().AppendAsync(
+            companyId.Value,
+            documentId,
+            new[] { sourceReference },
+            cancellationToken);
     }
 
     /// <summary>
@@ -864,6 +978,7 @@ public sealed partial class SendTenantJob : ITenantJob
         Guid companyId,
         TenantProfileDto? tenantProfile,
         FiscalSettingsDto? fiscalSettings,
+        BillingMentionsDto? billingMentions,
         DocumentDto document,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -879,7 +994,10 @@ public sealed partial class SendTenantJob : ITenantJob
             // pivot SOURCE (hashé à l'ingestion pour l'anti-doublon F06). On l'enrichit ICI pour l'émission, et on
             // RE-SÉRIALISE l'enrichi pour que l'archive WORM porte EXACTEMENT ce qui est émis. Le profil/fiscal sont
             // résolus UNE fois en tête de job (ExecuteAsync) et propagés — aucune relecture tenant par document.
-            var enriched = PivotEmitterEnricher.Enrich(pivot, tenantProfile, fiscalSettings);
+            // Mentions de facturation (BT-20 + notes FR, BUG-26 / F12-A §3.4) résolues UNE fois en tête de job
+            // et propagées (comme profil/fiscal) : la valeur portée par le document PRIME, le défaut tenant ne
+            // comble que l'absence (enricher).
+            var enriched = PivotEmitterEnricher.Enrich(pivot, tenantProfile, fiscalSettings, billingMentions);
 
             // Garde anti-« envoi faux » (RB9) : si le profil tenant a perdu son SIREN entre le CHECK (passé,
             // émetteur rempli) et le SEND, l'émetteur redevient nul. On NE transmet PAS un document sans
@@ -942,6 +1060,40 @@ public sealed partial class SendTenantJob : ITenantJob
 
     private static bool IsUnsendableCreditNote(PivotDocumentDto pivot, IPaClient paClient) =>
         pivot.CreditNoteRefs.Count > 0 && !paClient.Capabilities.SupportsCreditNotes;
+
+    // Un document à DESTINATAIRE IDENTIFIÉ (acheteur avec SIREN — B2B ou B2G, hors self-billed qui a sa propre
+    // garde 389) n'est émissible que si la PA active a un CANAL pour le transmettre : soit le routage PDP B2B
+    // (SupportsB2bInvoicing), soit le transport du Factur-X produit par la plateforme (SupportsFacturXTransmission
+    // — ex. Generique email/dépôt, Chorus Pro B2G). Sinon il serait dégradé en e-reporting B2C anonyme par une PA
+    // B2C-only (ex. B2Brouter) → on bloque (CLAUDE.md n°3). Le FLUX vient du DOCUMENT, les capacités ne font que
+    // gater la transmission au bord (CLAUDE.md n°8 ; décision Karl 2026-06-22). Jamais un if (pa is …).
+    private static bool IsUnsendableB2bInvoice(PivotDocumentDto pivot, IPaClient paClient) =>
+        !pivot.IsSelfBilled
+        && !string.IsNullOrWhiteSpace(pivot.Customer?.Siren)
+        && !paClient.Capabilities.SupportsB2bInvoicing
+        && !paClient.Capabilities.SupportsFacturXTransmission;
+
+    /// <summary>
+    /// Garde CIBLÉE sur la DÉCLARATION e-reporting B2C (flux 10.3, B2C01) : vraie UNIQUEMENT quand le document
+    /// porte le marqueur <see cref="PivotDocumentDto.IsB2cReportingDeclaration"/> ET que la PA active ne déclare
+    /// PAS <c>SupportsB2cReporting</c>. Un document ORDINAIRE (facture B2C Factur-X, avoir, B2B — marqueur faux)
+    /// n'est JAMAIS concerné : la garde ne touche pas la voie unique <c>SendDocumentAsync</c> des autres flux
+    /// (pas de régression de l'Essentiel générique ni des avoirs). Capacité existante (PAA01) — aucune nouvelle
+    /// capacité introduite. Jamais un <c>if (pa is …)</c> (CLAUDE.md n°8/16).
+    /// </summary>
+    private static bool IsUnsendableB2cReportingDeclaration(PivotDocumentDto pivot, IPaClient paClient) =>
+        pivot.IsB2cReportingDeclaration && !paClient.Capabilities.SupportsB2cReporting;
+
+    /// <summary>
+    /// Construit le résultat TYPÉ « capacité B2C absente » (message opérateur FR, journalisable — jamais une
+    /// exception, jamais <c>PendingCapability</c> qui est un statut Pipeline de paiement/rectification) et le
+    /// journalise. La déclaration 10.3 est MAINTENUE en l'état (jamais transmise sans la capacité, CLAUDE.md n°3).
+    /// </summary>
+    private static void LogB2cReportingDeclarationHeld(ILogger logger, IPaClient paClient, Guid documentId)
+    {
+        var notSupported = PaCapabilityNotSupportedResult.Create(paClient.Capabilities.PaName, PaCapability.B2cReporting);
+        LogB2cReportingCapabilityMissing(logger, documentId, notSupported.OperatorMessage);
+    }
 
     /// <summary>
     /// Résout l'envoi d'un document self-billed (autofacturation 389, MND07) : lit l'acceptation (MND02/03)
@@ -1140,6 +1292,10 @@ public sealed partial class SendTenantJob : ITenantJob
         Message = "SEND : avoir {DocumentId} non envoyé — la Plateforme Agréée « {PaName} » ne déclare pas la capacité avoirs (maintenu ReadyToSend, traité par le pipeline des avoirs).")]
     private static partial void LogCreditNoteCapabilityMissing(ILogger logger, Guid documentId, string paName);
 
+    [LoggerMessage(EventId = 7221, Level = LogLevel.Warning,
+        Message = "SEND : déclaration e-reporting B2C (flux 10.3) {DocumentId} non envoyée — {OperatorMessage} Document MAINTENU (jamais transmis sans la capacité). Action opérateur : activez une Plateforme Agréée déclarant l'e-reporting B2C.")]
+    private static partial void LogB2cReportingCapabilityMissing(ILogger logger, Guid documentId, string operatorMessage);
+
     [LoggerMessage(EventId = 7210, Level = LogLevel.Warning,
         Message = "SEND : document {DocumentId} sans version de mapping en envoi — anomalie de données, non renvoyé.")]
     private static partial void LogMissingMappingVersion(ILogger logger, Guid documentId);
@@ -1164,6 +1320,10 @@ public sealed partial class SendTenantJob : ITenantJob
         Message = "SEND : auto-facture sous mandat (389) {DocumentId} non envoyée — la Plateforme Agréée « {PaName} » ne déclare pas la capacité d'émission 389 (maintenue ; ne sera jamais émise en facture standard).")]
     private static partial void LogSelfBilledCapabilityMissing(ILogger logger, Guid documentId, string paName);
 
+    [LoggerMessage(EventId = 7225, Level = LogLevel.Warning,
+        Message = "SEND : facture à destinataire identifié {DocumentId} non envoyée — la Plateforme Agréée « {PaName} » n'offre aucun canal (ni facturation B2B PDP, ni transport Factur-X) ; maintenue ReadyToSend, jamais dégradée en e-reporting B2C anonyme.")]
+    private static partial void LogB2bInvoicingCapabilityMissing(ILogger logger, Guid documentId, string paName);
+
     [LoggerMessage(EventId = 7214, Level = LogLevel.Warning,
         Message = "SEND : auto-facture sous mandat (389) {DocumentId} non envoyée — acceptation par le mandant non acquise (art. 289 I-2 CGI) ; maintenue jusqu'à acceptation.")]
     private static partial void LogSelfBilledNotAccepted(ILogger logger, Guid documentId);
@@ -1179,6 +1339,10 @@ public sealed partial class SendTenantJob : ITenantJob
     [LoggerMessage(EventId = 7217, Level = LogLevel.Information,
         Message = "SEND : document {DocumentId} déjà transmis (journalisé) à un cycle précédent — finalisé Issued sans renvoi (anti double-envoi FX07).")]
     private static partial void LogAntiDuplicateJournalFinalized(ILogger logger, Guid documentId);
+
+    [LoggerMessage(EventId = 7224, Level = LogLevel.Information,
+        Message = "SEND : déclaration e-reporting B2C {DocumentId} (flux 10.3 — bordereau d'enchères agrégé OU document ordinaire facture/note) non transmise par la voie document — différée vers son job B2C dédié (b2c_transactions). Comportement nominal (D1, B4).")]
+    private static partial void LogB2cAggregatedDeclarationDeferred(ILogger logger, Guid documentId);
 
     /// <summary>Issue de la résolution self-billed (MND07) : émettre (avec/sans projection) ou maintenir (hold).</summary>
     private readonly struct SelfBilledSend

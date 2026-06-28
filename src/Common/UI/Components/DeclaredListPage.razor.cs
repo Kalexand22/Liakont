@@ -319,6 +319,10 @@ public partial class DeclaredListPage<TItem> : ComponentBase
     [Inject]
     private IGridPreferenceService? PreferenceService { get; set; }
 
+    /// <summary>BUG-19 — mémoire de circuit de l'ordre affiché, pour la navigation précédent/suivant en vue détail.</summary>
+    [Inject]
+    private Navigation.IListNavigationContext? ListNavigation { get; set; }
+
     /// <summary>GUX03 — session-scoped persistent selection service (TItem is its own key).</summary>
     [Inject]
     private IPersistentSelectionService<TItem> PersistentSelectionService { get; set; } = default!;
@@ -881,7 +885,30 @@ public partial class DeclaredListPage<TItem> : ComponentBase
 
     private void HandleRowActivated(TItem item)
     {
+        CaptureListNavigationContext();
         Nav.NavigateTo(DetailUrl(item));
+    }
+
+    /// <summary>
+    /// BUG-19 — mémorise l'ORDRE AFFICHÉ (filtré + trié, toutes pages : <see cref="_filteredItems"/>) sous forme
+    /// d'URLs de détail, pour la navigation précédent/suivant en vue détail (<c>RecordNavigator</c>). Appelée au
+    /// moment où l'opérateur ouvre une fiche. Sans effet si la liste n'a pas de vue détail (<see cref="DetailUrl"/>
+    /// nul) ou si le service n'est pas enregistré (rendu hors <c>AddCommonUI</c>). Lecture seule.
+    /// </summary>
+    private void CaptureListNavigationContext()
+    {
+        if (DetailUrl is null || ListNavigation is null || _filteredItems.Count == 0)
+        {
+            return;
+        }
+
+        var urls = new List<string>(_filteredItems.Count);
+        foreach (var item in _filteredItems)
+        {
+            urls.Add(DetailUrl(item));
+        }
+
+        ListNavigation.Capture(urls);
     }
 
     private Task HandlePageChangedAsync(int page)
@@ -1238,6 +1265,7 @@ public partial class DeclaredListPage<TItem> : ComponentBase
 
     private void HandleMultiViewRowActivated(TItem item)
     {
+        CaptureListNavigationContext();
         Nav.NavigateTo(DetailUrl(item));
     }
 

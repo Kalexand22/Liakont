@@ -6,7 +6,7 @@ public enum DocumentRecheckOutcome
     /// <summary>Aucun document de cet identifiant dans le tenant courant (→ 404).</summary>
     NotFound,
 
-    /// <summary>Le document n'est pas dans l'état <c>Blocked</c> : la re-vérification ne s'applique pas (→ 409).</summary>
+    /// <summary>Le document n'est ni <c>Blocked</c> ni <c>RejectedByPa</c> : la re-vérification ne s'applique pas (→ 409).</summary>
     NotBlocked,
 
     /// <summary>Le contenu pivot stagé est indisponible (pas encore stagé, ou altéré/illisible) : impossible de re-vérifier (→ 409).</summary>
@@ -44,8 +44,8 @@ public sealed record DocumentRecheckResult
     /// <summary>Document présent mais pas <c>Blocked</c> (état courant porté pour le message opérateur).</summary>
     public static DocumentRecheckResult NotBlocked(string state) => new() { Outcome = DocumentRecheckOutcome.NotBlocked, State = state };
 
-    /// <summary>Contenu pivot stagé indisponible (pas encore stagé ou altéré).</summary>
-    public static DocumentRecheckResult ContentUnavailable() => new() { Outcome = DocumentRecheckOutcome.ContentUnavailable, State = "Blocked" };
+    /// <summary>Contenu pivot stagé indisponible (pas encore stagé ou altéré) : le document garde son état d'entrée (<c>Blocked</c> ou <c>RejectedByPa</c>) — aucune transition.</summary>
+    public static DocumentRecheckResult ContentUnavailable(string state) => new() { Outcome = DocumentRecheckOutcome.ContentUnavailable, State = state };
 
     /// <summary>Document débloqué : <c>Blocked → ReadyToSend</c>.</summary>
     public static DocumentRecheckResult ReadyToSend() => new() { Outcome = DocumentRecheckOutcome.ReadyToSend, State = "ReadyToSend" };

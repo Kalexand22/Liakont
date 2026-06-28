@@ -14,9 +14,11 @@ using Liakont.PaClients.B2Brouter.Wire;
 /// </summary>
 internal static class B2BrouterPayloadBuilder
 {
-    // En V1, Liakont est B2C : la facture/avoir part en facture simplifiée émise (F07-F08 :
-    // « on envoie l'avoir comme IssuedSimplifiedInvoice avec is_credit_note: true »). Le B2B
-    // (SupportsB2bInvoicing) est une capacité de phase 2 — non couverte ici (PAB03 §5).
+    // Ce builder JSON ne couvre QUE le flux e-reporting B2C (10.3) de B2Brouter : la facture/avoir part en
+    // « facture simplifiée émise » (F07-F08 : avoir = IssuedSimplifiedInvoice + is_credit_note). Le B2B
+    // e-invoicing (facture structurée EN 16931) est un flux de Lot 1, mais il transite en Factur-X (PA à
+    // SupportsFacturXTransmission) ou via une PA-PDP construisant son propre CII (ex. SuperPdp) — PAS par ce
+    // builder. B2Brouter déclare SupportsB2bInvoicing=false tant que ce routage n'est pas câblé dans ce plug-in.
     private const string SimplifiedInvoiceType = "IssuedSimplifiedInvoice";
 
     /// <summary>

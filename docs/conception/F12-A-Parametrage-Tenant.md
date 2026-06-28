@@ -141,6 +141,39 @@ La fréquence **bimestrielle** (franchise en base) est, elle, absente de D4.
 > fiscale** (CLAUDE.md n°2). La sémantique `null = suspension` garantit qu'aucune transmission ne
 > part sur une cadence supposée tant que la décision n'est pas prise.
 
+### 3.4 Mentions de facturation (facture B2B)
+
+> **Note d'amendement (2026-06-27, BUG-26).** Ces mentions sont des **données de l'entreprise**
+> (conditions générales de vente), pas des règles fiscales : le produit **n'en invente jamais le
+> contenu** (CLAUDE.md n°2/7). Elles sont **saisies par le client / son expert-comptable** depuis la
+> console, **surchargeables par document** (la valeur portée par le pivot prime sur le défaut tenant).
+
+Le converter **CTC-FR** d'une PA (Super PDP, profil franco-français) **exige** sur une **facture B2B**
+trois mentions légales obligatoires entre professionnels (C. com. art. L441-9 / L441-10) et, pour un
+montant dû positif, des **termes de paiement** (EN 16931 BR-CO-25). Faute de quoi le document est
+**rejeté** (recette BUG-26). Ces mentions sont consommées par la **génération Factur-X**
+([F16 §3.5](F16-FacturX-Generation.md)) et par `SuperPdpPayloadBuilder` (schéma `en_invoice` :
+`payment_terms`, `notes[]`), injectées dans le pivot au *read-time* par `PivotEmitterEnricher`.
+
+| Champ | Type | Élément cible | `null` ⇒ |
+|---|---|---|---|
+| `paymentTerms` | `string?` | BT-20 (`SpecifiedTradePaymentTerms/Description`) | satisfait BR-CO-25 quand le montant dû est positif (sinon échéance BT-9 du pivot) |
+| `latePenaltyTerms` | `string?` | note BT-22, `SubjectCode` **PMD** (pénalités de retard) | mention BR-FR-05 manquante |
+| `recoveryFeeTerms` | `string?` | note BT-22, `SubjectCode` **PMT** (indemnité forfaitaire de recouvrement) | mention BR-FR-05 manquante |
+| `discountTerms` | `string?` | note BT-22, `SubjectCode` **AAB** (escompte ou son absence) | mention BR-FR-05 manquante |
+
+**Mécanique de sûreté (même esprit que §3.1).** Sur une **facture B2B FR** (voie document, acheteur
+identifié SIREN), une mention requise absente ⇒ **document bloqué** au CHECK avec **message opérateur**
+(numéro de document + action corrective : « Renseignez les mentions de facturation dans Paramètres » —
+CLAUDE.md n°12), **jamais un envoi voué au rejet** (CLAUDE.md n°3). Une fois saisies, le re-CHECK
+débloque (même mécanique que le mapping TVA / le SIREN). Le **B2C** (e-reporting agrégé, pas de Factur-X
+par document) n'est **pas** concerné. Codes UNTDID 4451 et obligation **non inventés** : imposés par le
+verdict du converter CTC-FR.
+
+> ⚠️ Ces mentions sont du **paramétrage client**, pas une décision fiscale ouverte : elles ne figurent
+> donc pas au récapitulatif §9 (points à trancher par l'expert-comptable). Un déploiement les fournit
+> via le seed (`tenant-profile.json`, §8) ou la console.
+
 ---
 
 ## 4. Comptes Plateforme Agréée (PA) du tenant
@@ -234,11 +267,18 @@ Le paramétrage d'un tenant peut être **versionné en seed** lorsqu'il doit êt
 
 ```
 deployments/<client>/
-├─ tenant-profile.json     # Profil (§2) + paramétrage fiscal (§3) + planification (§5) + seuils (§6)
+├─ tenant-profile.json     # paramétrage fiscal (§3) + planification (§5) + seuils (§6) — PAS l'identité (§2)
 ├─ tva-table.csv           # Table TVA du tenant (codes régime source → catégorie/taux/VATEX) — lot TVA
 ├─ pa-accounts.json        # Comptes PA (§4) avec secrets en PLACEHOLDER (jamais en clair)
 └─ fixtures/               # Jeux de données fictifs de démo/recette (facultatif)
 ```
+
+> **L'identité légale (§2 : SIREN, raison sociale, adresse, contact d'alerte) n'est JAMAIS seedée**
+> (BUG-14) : c'est une donnée tenant-spécifique RÉELLE, saisie **manuellement** à la création du tenant
+> (console « Profil légal ») et jamais écrasée par une baseline de démo. Seul le **paramétrage**
+> réutilisable est seedable. Conséquence : la garde *create-only* du provisioning (refus de ré-import
+> qui écraserait des réglages saisis en console) s'ancre sur les **réglages fiscaux** présents, plus
+> sur l'existence du profil.
 
 - **Aucun secret en clair** dans un fichier versionné (CLAUDE.md n°10) : `pa-accounts.json` ne
   porte que des **placeholders** ; la clé API réelle est saisie depuis la console (chiffrée en
@@ -252,7 +292,9 @@ deployments/<client>/
 
 - **Opération** : `ImportTenantSeed(deployments/<client>/)` (handler CFG02), consommée par le
   **provisioning OPS03** (« Créer un tenant », F12 §6.3).
-- **Idempotence** : l'import **crée ou met à jour** le profil et son paramétrage (rejouable).
+- **Idempotence** : l'import **crée ou met à jour** le paramétrage (rejouable). L'identité légale
+  n'est pas importée (BUG-14) ; un ré-import sur un tenant ayant déjà des réglages est refusé
+  (create-only) pour ne pas écraser une saisie console.
 - **Secrets** : l'import **n'écrit jamais** un secret en clair ; les placeholders restent à
   compléter via la console (saisie chiffrée). La table TVA importée **n'est pas pré-validée** :
   elle suit le workflow de validation expert-comptable (§7).
@@ -283,6 +325,7 @@ deployments/<client>/
 | Trois niveaux Instance/Tenant/Agent | F12 §6.1 |
 | 1 tenant = 1 SIREN, isolation, journalisation, revalidation | blueprint §7 ; décision 2026-06-02 (paramétrage console) |
 | `vatOnDebits`, `operationCategory`, `reportingFrequency` (nullable, suspension) | F09 §1/§2/§6 + amendements ; décisions D2, D4 |
+| Mentions de facturation (§3.4 : BT-20, notes PMD/PMT/AAB) | F16 §3.5 ; converter CTC-FR (BR-CO-25 / BR-FR-05) ; C. com. L441-9/L441-10 ; BUG-26 (2026-06-27) |
 | Table régime → fréquence → délai | F09 §2 (décret n° 2022-1299) |
 | Comptes PA, chiffrement des secrets | F12 §6.1 ; blueprint §7 ; CLAUDE.md n°10 ; décision D9 (capacités PA) |
 | Généricité PA (pas de `if (pa is …)`) | CLAUDE.md n°6/8 ; décision 2026-06-02 |

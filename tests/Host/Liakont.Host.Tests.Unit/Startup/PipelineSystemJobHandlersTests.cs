@@ -13,8 +13,9 @@ using Xunit;
 
 /// <summary>
 /// RDL06 (findings A6-cons-1 P1 / A6-cons-3 P2) — test de composition de l'EXTENSION
-/// <c>AddPipelineSystemJobHandlers</c> : les 4 fan-out SYSTÈME récurrents du pipeline (SendAll / SyncAll /
-/// AggregatePaymentsAll / RectifyReportsAll) doivent être à la fois DISPATCHABLES
+/// <c>AddPipelineSystemJobHandlers</c> : les fan-out SYSTÈME récurrents du pipeline (SendAll / SyncAll /
+/// AggregatePaymentsAll / RectifyReportsAll / AggregateB2cMarginAll / AggregateB2cTaxableAll /
+/// AggregateB2cExportAll / AggregateB2cPlainTaxableAll) doivent être à la fois DISPATCHABLES
 /// (<c>IJobHandlerResolver.CanHandle</c>) et PLANIFIABLES (présents dans <c>IJobTypeCatalog</c>). C'est
 /// l'enregistrement <c>AddJobHandler</c> (et la <c>JobHandlerRegistration</c> singleton qu'il pose) qui le
 /// garantit — un <c>AddScoped</c> seul (état antérieur dans le module Pipeline) laissait ces déclencheurs
@@ -29,13 +30,19 @@ using Xunit;
 /// </summary>
 public sealed class PipelineSystemJobHandlersTests
 {
-    // Les 4 déclencheurs de fan-out récurrents câblés par AddPipelineSystemJobHandlers.
+    // Les déclencheurs de fan-out récurrents câblés par AddPipelineSystemJobHandlers (doit refléter l'extension —
+    // tout nouveau handler enregistré doit être ajouté ici ; la garde drift-proof réelle est portée par
+    // PipelineSystemJobHandlersCompositionIntegrationTests, qui dérive la liste de l'extension).
     private static readonly Type[] RecurringFanOutTriggers =
     [
         typeof(SendAllTrigger),
         typeof(SyncAllTrigger),
         typeof(AggregatePaymentsAllTrigger),
         typeof(RectifyReportsAllTrigger),
+        typeof(AggregateB2cMarginAllTrigger),
+        typeof(AggregateB2cTaxableAllTrigger),
+        typeof(AggregateB2cExportAllTrigger),
+        typeof(AggregateB2cPlainTaxableAllTrigger),
     ];
 
     private static ServiceProvider BuildProvider()

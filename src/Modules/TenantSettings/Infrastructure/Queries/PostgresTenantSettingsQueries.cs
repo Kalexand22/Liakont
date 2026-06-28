@@ -89,6 +89,37 @@ public sealed class PostgresTenantSettingsQueries : ITenantSettingsQueries
         };
     }
 
+    public async Task<BillingMentionsDto?> GetBillingMentions(Guid companyId, CancellationToken ct = default)
+    {
+        const string sql = """
+            SELECT id, company_id, payment_terms, late_penalty_terms, recovery_fee_terms,
+                   discount_terms, created_at, updated_at
+            FROM tenantsettings.billing_mentions
+            WHERE company_id = @CompanyId
+            """;
+
+        using var conn = await _connectionFactory.OpenAsync(ct);
+        var row = await conn.QuerySingleOrDefaultAsync(
+            new CommandDefinition(sql, new { CompanyId = companyId }, cancellationToken: ct));
+
+        if (row is null)
+        {
+            return null;
+        }
+
+        return new BillingMentionsDto
+        {
+            Id = (Guid)row.id,
+            CompanyId = (Guid)row.company_id,
+            PaymentTerms = (string?)row.payment_terms,
+            LatePenaltyTerms = (string?)row.late_penalty_terms,
+            RecoveryFeeTerms = (string?)row.recovery_fee_terms,
+            DiscountTerms = (string?)row.discount_terms,
+            CreatedAt = TenantSettingsRowReader.ToDateTimeOffset((object)row.created_at),
+            UpdatedAt = TenantSettingsRowReader.ToNullableDateTimeOffset((object?)row.updated_at),
+        };
+    }
+
     public async Task<IReadOnlyList<PaAccountDto>> GetPaAccounts(Guid companyId, CancellationToken ct = default)
     {
         // Les secrets chiffrés ne sont JAMAIS sélectionnés : on n'expose que leur existence (has_*).

@@ -29,6 +29,14 @@ public sealed record DocumentLineView
     /// <summary>Code VATEX d'exonération (EN 16931 BT-121), ou « — » si absent.</summary>
     public required string Vatex { get; init; }
 
+    /// <summary>
+    /// Mention EXPLICITE du régime de la marge (« Régime de la marge – objets de collection… ») quand la ligne est
+    /// sous ce régime (catégorie E + VATEX-EU-F/I/J), sinon <c>null</c>. Présentation pure (dérivée du VATEX déjà
+    /// mappé, <see cref="Components.MarginRegimeDisplay"/>) : évite que la ligne marge (TVA 0) soit prise pour une
+    /// exonération classique. La mention légale 297 E figure en note sous le tableau du détail.
+    /// </summary>
+    public string? MarginMention { get; init; }
+
     /// <summary>Montant de TVA de la ligne (decimal), ou <c>null</c> si la ligne ne porte aucune ventilation.</summary>
     public required decimal? TaxAmount { get; init; }
 

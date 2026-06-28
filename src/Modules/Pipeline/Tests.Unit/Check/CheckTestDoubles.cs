@@ -150,9 +150,13 @@ internal static class CheckTestDoubles
         /// <summary>Vrai si la validation des seules règles INDÉPENDANTES du mapping (FIX06) a été appelée.</summary>
         public bool MappingIndependentWasCalled { get; private set; }
 
+        /// <summary>Valeur du flag de dérogation aux SIREN de test sandbox reçue au dernier appel de validation (BUG-23).</summary>
+        public bool? LastAllowSandboxTestIdentifiers { get; private set; }
+
         public Task<ValidationResult> ValidateAsync(DocumentValidationContext context, CancellationToken cancellationToken = default)
         {
             WasCalled = true;
+            LastAllowSandboxTestIdentifiers = context.AllowSandboxTestIdentifiers;
             return Task.FromResult(_result);
         }
 
@@ -179,6 +183,10 @@ internal static class CheckTestDoubles
 
         public string? RecheckStillBlockedReason { get; private set; }
 
+        public Guid? RecheckBlockedFromRejectedId { get; private set; }
+
+        public string? RecheckBlockedFromRejectedReason { get; private set; }
+
         public Task BlockAsync(Guid documentId, string reason, CancellationToken cancellationToken = default)
         {
             BlockedId = documentId;
@@ -203,6 +211,13 @@ internal static class CheckTestDoubles
         {
             RecheckStillBlockedId = documentId;
             RecheckStillBlockedReason = reevaluatedReason;
+            return Task.FromResult(DocumentRecheckPersistOutcome.Persisted);
+        }
+
+        public Task<DocumentRecheckPersistOutcome> MarkBlockedByRecheckAsync(Guid documentId, string reevaluatedReason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
+        {
+            RecheckBlockedFromRejectedId = documentId;
+            RecheckBlockedFromRejectedReason = reevaluatedReason;
             return Task.FromResult(DocumentRecheckPersistOutcome.Persisted);
         }
 
@@ -303,6 +318,9 @@ internal static class CheckTestDoubles
         public Task<FiscalSettingsDto?> GetFiscalSettings(Guid companyId, CancellationToken ct = default) =>
             Task.FromResult(_fiscal);
 
+        public Task<BillingMentionsDto?> GetBillingMentions(Guid companyId, CancellationToken ct = default) =>
+            Task.FromResult<BillingMentionsDto?>(null);
+
         public Task<ExtractionScheduleDto?> GetExtractionSchedule(Guid companyId, CancellationToken ct = default) =>
             throw new NotSupportedException();
 
@@ -367,6 +385,30 @@ internal static class CheckTestDoubles
 
         public Task<Liakont.Modules.Pipeline.Domain.Ventilation.VentilationSnapshot?> GetAsync(Guid documentId, string mappingVersion, CancellationToken cancellationToken = default) =>
             Task.FromResult(Saved);
+    }
+
+    /// <summary>
+    /// Registre de la marge à déclarer factice (L2) : enregistre le dernier UPSERT et la dernière SUPPRESSION pour
+    /// prouver, au passage ReadyToSend, qu'un document marge upsert son entrée et qu'un document non-marge supprime
+    /// l'entrée périmée. PROJECTION recalculable (jamais append-only).
+    /// </summary>
+    internal sealed class FakeMarginRegistryStore : IMarginRegistryStore
+    {
+        public Liakont.Modules.Pipeline.Domain.B2cReporting.MarginRegistryEntry? Upserted { get; private set; }
+
+        public Guid? Deleted { get; private set; }
+
+        public Task UpsertAsync(Liakont.Modules.Pipeline.Domain.B2cReporting.MarginRegistryEntry entry, CancellationToken cancellationToken = default)
+        {
+            Upserted = entry;
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteAsync(Guid documentId, CancellationToken cancellationToken = default)
+        {
+            Deleted = documentId;
+            return Task.CompletedTask;
+        }
     }
 
     /// <summary>

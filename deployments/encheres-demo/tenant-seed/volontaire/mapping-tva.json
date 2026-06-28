@@ -1,0 +1,128 @@
+// Table de mapping TVA de DÉMO — tenant VOLONTAIRE (SVV, ventes volontaires aux enchères, dossier 2).
+//
+// CODES RÉGIME RÉELS de la base source EncheresV6_Demo (colonne Regime_tva.code_regime_tva, transportée
+// BRUTE par l'agent depuis ligne_pv.code_regime_tva). Le pipeline mappe TOUJOURS en part « Autre »
+// (CheckTvaMapping.LinePart est une constante = Autre ; le découpage adjudication/frais n'est PAS dérivé
+// du pivot générique — ADR-0004 / F03 §2.3). Une règle en part Adjudication/Frais serait MORTE (FIX03).
+//
+// PÉRIMÈTRE VOLONTAIREMENT MINIMAL (fail-closed, CLAUDE.md n°2/3) : seuls les DEUX régimes tranchés sont
+// mappés —
+//   « 5 » Assujetti 20 %      -> adjudication TAXABLE (catégorie S, 20 %)            F03 §2.1 « 20→S »
+//   « 6 » Non assujetti 20 %  -> RÉGIME DE LA MARGE (enchères B2C)                   F03 §2.3 / §3
+// Tous les AUTRES régimes présents dans la base (1, 2, 3, 7, 8, 9, 0) restent NON mappés : le CHECK les
+// BLOQUE (defaultBehavior=Block) avec un verdict opérateur « régime absent de la table validée ». C'est
+// VOULU : le caractère « marge / hors champ / exonéré » d'un régime non assujetti se tranche
+// régime-par-régime par l'expert-comptable (F03 §3, décision ouverte #1) — jamais deviné par le produit.
+// Karl complète la table en direct dans la console pendant la recette (démontre le workflow opérateur).
+//
+// Régime de la marge (« 6 », décision Karl ancrée F03 §2.3/§2.5 et README de deployments/encheres-demo) :
+// adjudication EXONÉRÉE (catégorie E, VATEX-EU-J = objets de collection, F03 §2.2) ; la TVA porte sur la
+// MARGE (honoraire acheteur TTC + honoraire vendeur TTC), JAMAIS distincte (art. 297 E, F03 §2.3). Le
+// marqueur de déclaration B2C-marge est DÉRIVÉ par la plateforme depuis cette catégorie E+VATEX (jamais
+// posé par l'agent, jamais depuis une heuristique « TVA=0 ») — voir B2cMarginMarking.IsMarginDeclaration.
+//
+// EXONÉRÉ INTERNATIONAL (clés par ZONE « EXP_{zone} », F03 §2.8) : un lot livré hors France est détaxé QUEL
+// QUE SOIT le régime domestique (l'exonération internationale prime) — l'agent dérive la clé de code_export +
+// mode_livraison (une clé par ZONE, pas par couple régime×zone). Classification validée PO (2026-06-26) :
+//   « EXP_HORSUE » -> catégorie G + VATEX-EU-G, taux 0   export hors UE (art. 262 I)      -> e-reporting TLB1
+//   « EXP_CEE »    -> catégorie K + VATEX-EU-IC, taux 0  intracommunautaire (art. 262 ter / 258 A) -> TNT1
+//   « EXP_FR »     -> catégorie G + VATEX-EU-G, taux 0   franchise export (art. 275)      -> e-reporting TLB1
+// La plateforme DÉRIVE le marqueur (B2cExportMarking) et l'émet en e-reporting B2C UNITAIRE (une transaction
+// par opération, TT-81 par catégorie : G->TLB1, K->TNT1 ; B2cExportReportingTenantJob), à la différence de la
+// marge/prix total domestiques (agrégés jour×devise). Défauts défendables, refinables (CLAUDE.md n°2 : la
+// classification vient d'ici, jamais devinée par le code).
+//
+// Données STRICTEMENT FICTIVES (base de démo, CLAUDE.md n°7) : aucun client réel. Import idempotent.
+{
+  "mappingVersion": "encheres-demo-volontaire-v1",
+  "validatedBy": "Table de DÉMO (codes régime EncheresV6_Demo) — variante enchères volontaires — usage démo uniquement",
+  "validatedDate": null,
+  "defaultBehavior": "Block",
+  "rules": [
+    {
+      "sourceRegimeCode": "5",
+      "label": "Régime 5 « Assujetti 20 % » — adjudication taxable (vente normale)",
+      "part": "Autre",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 20,
+      "note": "Assujetti à taux normal -> catégorie S (F03 §2.1 « 20→S »)."
+    },
+    {
+      "sourceRegimeCode": "6",
+      "label": "Régime 6 « Non assujetti 20 % » — régime de la marge (enchères B2C)",
+      "part": "Autre",
+      "category": "E",
+      "vatex": "VATEX-EU-J",
+      "rateMode": "Fixed",
+      "rateValue": 0,
+      "note": "Déclencheur du régime de la marge (décision Karl, F03 §2.3/§3) : adjudication EXONÉRÉE, la TVA porte sur la marge (honoraires acheteur + vendeur TTC), jamais distincte (art. 297 E)."
+    },
+    {
+      "sourceRegimeCode": "EXP_HORSUE",
+      "label": "Livré HORS CEE — export hors UE détaxé (art. 262 I)",
+      "part": "Autre",
+      "category": "G",
+      "vatex": "VATEX-EU-G",
+      "rateMode": "Fixed",
+      "rateValue": 0,
+      "note": "Export hors UE (clé par zone, F03 §2.8) : exonéré art. 262 I quel que soit le régime domestique. E-reporting B2C UNITAIRE, catégorie G -> TT-81 TLB1, taux 0."
+    },
+    {
+      "sourceRegimeCode": "EXP_CEE",
+      "label": "Livré en CEE — livraison intracommunautaire (art. 262 ter / 258 A)",
+      "part": "Autre",
+      "category": "K",
+      "vatex": "VATEX-EU-IC",
+      "rateMode": "Fixed",
+      "rateValue": 0,
+      "note": "Intracom B2C (clé par zone, F03 §2.8, validé PO) : non soumis en France, catégorie K -> TT-81 TNT1, taux 0 (la taxe à destination OSS est un autre flux). E-reporting B2C UNITAIRE."
+    },
+    {
+      "sourceRegimeCode": "EXP_FR",
+      "label": "Mode FRANCE + code_export — achat en franchise pour export (art. 275)",
+      "part": "Autre",
+      "category": "G",
+      "vatex": "VATEX-EU-G",
+      "rateMode": "Fixed",
+      "rateValue": 0,
+      "note": "Franchise export (clé par zone, F03 §2.8, validé PO) : livraison détaxée export-bound, catégorie G -> TT-81 TLB1, taux 0. Défaut défendable, refinable."
+    },
+    {
+      "sourceRegimeCode": "20",
+      "label": "Taux 20 % — document ORDINAIRE (facture client / note d'honoraires) taxable au taux normal",
+      "part": "Autre",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 20,
+      "note": "Documents B2C ORDINAIRES hors enchères (F03 §2.9). La clé de régime est le TAUX effectif (taux_tva des factures ; montant_tva/montant_ht recouvré des notes) -> clé UNIFIÉE factures + notes. 20 % -> catégorie S. TT-81 dérivé de l'operationCategory du tenant (PrestationServices -> TPS1 / LivraisonBiens -> TLB1)."
+    },
+    {
+      "sourceRegimeCode": "5.5",
+      "label": "Taux 5,5 % — document ORDINAIRE taxable au taux réduit",
+      "part": "Autre",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 5.5,
+      "note": "Documents B2C ordinaires (F03 §2.9), taux réduit 5,5 % -> catégorie S (le taux porte la distinction). Clé = taux effectif unifié factures/notes. Un document à taux MIXTES (p. ex. honoraires 20 % + frais 0 %) reste fail-closed (0 % non mappé)."
+    },
+    {
+      "sourceRegimeCode": "6",
+      "label": "Régime 6 — part FRAIS (commission/honoraire de la marge) taxable au taux normal",
+      "part": "Frais",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 20,
+      "note": "REQUIS pour l'e-reporting de la MARGE : le job B4 marge mappe la COMMISSION (honoraire acheteur+vendeur) en Part.Frais pour obtenir le TAUX de la marge (20 %, F03 §2.5) ; sans cette règle la marge BLOQUE (UnmappedRate). L'adjudication, elle, reste exonérée (règle « 6 » en Part.Autre/« Adjudication et factures » -> E+VATEX-EU-J). Même code régime, deux composantes."
+    },
+    {
+      "sourceRegimeCode": "5",
+      "label": "Régime 5 — part FRAIS (commission acheteur) taxable au taux normal",
+      "part": "Frais",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 20,
+      "note": "REQUIS pour l'e-reporting du PRIX TOTAL TAXABLE : le job B4 taxable mappe la commission acheteur en Part.Frais (20 %, F03 §2.7) ; sans cette règle le taxable BLOQUE (UnmappedRate). L'adjudication taxable est mappée par la règle « 5 » en Part.Autre/« Adjudication et factures »."
+    }
+  ]
+}

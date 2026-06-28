@@ -327,13 +327,15 @@ public static class DocumentActionsEndpointMapping
             return Results.Ok(new VerdictResponse(id, VerdictHandleManually, ManuallyHandledState));
         }).RequireAuthorization(ActionsPermission);
 
-        // POST /api/v1/documents/{id}/recheck — re-vérifie UN document Blocked (CHECK complet : mapping TVA →
-        // garde-fou production → validation) sans attendre le prochain traitement : Blocked → ReadyToSend s'il
-        // passe désormais (table TVA complétée/validée, verdict B2C posé), sinon reste Blocked avec les NOUVEAUX
-        // motifs (renvoyés pour affichage immédiat — la machine à états interdit Blocked → Blocked). DANS LES DEUX
-        // cas, le geste opérateur est tracé dans la piste d'audit append-only (item FIX02) : événement ReadyToSend
-        // attribué au déblocage, ou événement RecheckedStillBlocked portant le motif réévalué (qui devient le motif
-        // courant affiché). 404 hors tenant, 409 si non bloqué ou contenu pivot indisponible.
+        // POST /api/v1/documents/{id}/recheck — re-vérifie UN document Blocked OU RejectedByPa (CHECK complet :
+        // mapping TVA → garde-fou production → validation) sans attendre le prochain traitement : → ReadyToSend
+        // s'il passe désormais (table TVA complétée/validée, mentions B2B saisies, verdict B2C posé). Un document
+        // rejeté par la PA dont la cause n'est PAS corrigée est TRANSITIONNÉ RejectedByPa → Blocked (il quitte le
+        // cul-de-sac pour montrer le motif à corriger — « bloquer plutôt qu'envoyer faux »), tandis qu'un document
+        // déjà Blocked reste Blocked (la machine à états interdit Blocked → Blocked) ; dans les deux cas les motifs
+        // frais sont renvoyés pour affichage immédiat. DANS TOUS LES CAS, le geste opérateur est tracé dans la
+        // piste d'audit append-only (item FIX02). 404 hors tenant, 409 si ni bloqué ni rejeté, ou contenu pivot
+        // indisponible.
         group.MapPost("/{id:guid}/recheck", async (
             Guid id,
             IDocumentRecheckService recheckService,
@@ -353,7 +355,7 @@ public static class DocumentActionsEndpointMapping
                 case DocumentRecheckOutcome.NotBlocked:
                     return Results.Conflict(new ActionProblem(string.Create(
                         CultureInfo.InvariantCulture,
-                        $"La re-vérification ne s'applique qu'à un document bloqué (état actuel : {result.State}).")));
+                        $"La re-vérification ne s'applique qu'à un document bloqué ou rejeté par la Plateforme Agréée (état actuel : {result.State}).")));
 
                 case DocumentRecheckOutcome.ContentUnavailable:
                     return Results.Conflict(new ActionProblem(

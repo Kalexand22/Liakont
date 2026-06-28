@@ -2,6 +2,7 @@ namespace Liakont.Host.Documents;
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 /// <summary>
 /// Contenu affichable d'un document pour l'onglet « Contenu » du détail (FIX205, F10 §2.3) : les lignes, les
@@ -21,10 +22,36 @@ public sealed record DocumentContentView
     /// <summary>Contrôle de cohérence totaux ↔ lignes (S2.5), ou <c>null</c> si le document n'est pas transmis.</summary>
     public required DocumentTotalsCheck? Totals { get; init; }
 
+    /// <summary>
+    /// SIREN de l'émetteur EFFECTIVEMENT porté par le contenu transmis / relu (EN 16931 BG-4, BUG-28).
+    /// L'identité émetteur est injectée au SEND / read-time depuis le profil tenant (ADR-0031) et n'est PAS
+    /// persistée sur l'entité Document : l'en-tête lit donc cette valeur (repli sur l'entité). <c>null</c> si
+    /// le contenu ne la porte pas (document non encore transmis et émetteur non résolu). Affichage seul.
+    /// </summary>
+    public string? SupplierSiren { get; init; }
+
+    /// <summary>
+    /// Termes / conditions de paiement EFFECTIFS du document (EN 16931 BT-20, BUG-26) — valeur du document, sinon
+    /// défaut tenant (F12-A §3.4) ; <c>null</c> si aucun terme n'est paramétré. Donnée de l'entreprise, jamais inventée.
+    /// </summary>
+    public string? PaymentTerms { get; init; }
+
+    /// <summary>
+    /// Mentions légales FR EFFECTIVES du document (EN 16931 BG-1, BR-FR-05 : PMD/PMT/AAB, BUG-26) — valeur du
+    /// document, sinon défaut tenant (F12-A §3.4) ; vide si aucune n'est paramétrée. Contenu tenant, jamais inventé.
+    /// </summary>
+    public IReadOnlyList<DocumentNoteView> Notes { get; init; } = Array.Empty<DocumentNoteView>();
+
     /// <summary><c>true</c> s'il y a des lignes à afficher (document transmis).</summary>
     public bool HasLines => Lines.Count > 0;
 
-    /// <summary>Contenu vide (document non transmis) : aucune ligne, aucune charge, aucun contrôle.</summary>
+    /// <summary><c>true</c> si au moins une ligne est au régime de la marge (mention explicite portée) — pilote la note 297 E de REPLI (affichée seulement si le récap de marge chiffré est absent).</summary>
+    public bool HasMarginLines => Lines.Any(line => line.MarginMention is not null);
+
+    /// <summary><c>true</c> si au moins une mention de facturation effective est portée (termes de paiement OU note).</summary>
+    public bool HasMentions => !string.IsNullOrWhiteSpace(PaymentTerms) || Notes.Count > 0;
+
+    /// <summary>Contenu vide (document non transmis) : aucune ligne, aucune charge, aucun contrôle, aucune mention.</summary>
     public static DocumentContentView Empty { get; } = new()
     {
         Lines = Array.Empty<DocumentLineView>(),

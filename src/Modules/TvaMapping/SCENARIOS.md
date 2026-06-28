@@ -63,8 +63,9 @@
 - `Handle_UnresolvedTenant_Throws` (slug `null`/vide/blanc) — aucune lecture tant que le tenant n'est pas résolu (message opérateur FR + action).
 
 ### MappingConsistencyAnalyzerTests (contrôle de cohérence FIX03 — INV-TVAMAPPING-013)
-- `PipelineConsulted_IsAutreOnly` — le jeu consulté reflète la réalité du pipeline (`{Autre}`, PIP03b gelé), indépendant de l'activation.
-- `AdjudicationRule_IsDead_PartNotConsulted_UnderPipelineReality` — une règle Adjudication est morte (part non consultée par le pipeline).
+- `PipelineConsulted_IsAutreAndFrais` — le jeu consulté reflète la réalité des consommateurs (`{Autre}` CHECK + `{Frais}` B4 e-reporting B2C marge), indépendant de l'activation.
+- `AdjudicationRule_IsDead_PartNotConsulted_UnderPipelineReality` — une règle Adjudication est morte (seule part non consultée par un consommateur).
+- `FraisRule_IsNotDead_BecauseB4ConsultsFrais` — régression BUG-3 : une règle Frais EST consultée (B4) → jamais marquée morte.
 - `Analyzer_IsGeneric_WhenPartIsConsulted_RuleNotDeadForPart` — l'analyseur est générique : si on lui DÉCLARE une part consultée (cas futur PIP03b), la règle n'est pas morte pour ce motif.
 - `RegimeNeverObserved_IsFlagged_WhenObservationsExist` — code jamais observé signalé (faute de frappe), quand des régimes ont été observés.
 - `RegimeNeverObserved_IsNotFlagged_OnFreshTenant_NoObservations` — tenant vierge : aucun faux positif « jamais observé ».
@@ -74,7 +75,8 @@
 
 ### GetMappingConsistencyReportHandlerTests (câblage FIX03 — INV-TVAMAPPING-008/013)
 - `Handle_RoutesResolvedSlugToRegimeQuery_AndCompanyIdToMappingQuery` — **isolation tenant** : slug vers les régimes observés, `company_id` vers la table.
-- `Handle_AdjudicationRule_IsReportedDead_PipelineConsultsAutreOnly` — le pipeline ne consulte qu'`Autre` : une règle Adjudication est morte (indépendant de l'activation).
+- `Handle_AdjudicationRule_IsReportedDead_SinceNoConsumerReadsAdjudication` — aucun consommateur ne lit Adjudication (CHECK=Autre, B4=Frais) : une règle Adjudication est morte (indépendant de l'activation).
+- `Handle_FraisRule_IsNotReportedDead_SinceB4ConsultsFrais` — régression BUG-3 : B4 consulte Frais → une règle Frais n'est jamais morte.
 - `Handle_AutreRuleOnObservedRegime_IsNotDead` — une règle `Autre` sur un régime observé n'est pas morte.
 - `Handle_NoTableConfigured_ReturnsNotConfigured_NoDeadRules` — aucune table → `IsTableConfigured=false`, aucune règle morte.
 - `Handle_UnresolvedTenant_Throws_AndReadsNothing` (slug `null`/vide/blanc) — aucune lecture sans tenant résolu.

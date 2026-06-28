@@ -20,7 +20,7 @@ internal static class SuperPdpCapabilities
     {
         PaName = SuperPdpDefaults.PaName,
 
-        // ✅ vérifiées en sandbox : e-reporting B2C (DR17, flux 10.3 — schéma de fil à mapper) ET
+        // ✅ vérifiées en sandbox : e-reporting B2C (flux 10.3, schéma de fil b2c_transactions mappé 2026-06-22) ET
         // facturation B2B (envoi réel confirmé, facture 72272 — activée sur directive de recette, Karl 18/06/2026).
         SupportsB2cReporting = true,
         SupportsB2bInvoicing = true,
@@ -33,6 +33,7 @@ internal static class SuperPdpCapabilities
         SupportsTaxReportRetrieval = false,            // endpoints tax reports non confirmés (O2).
         SupportsDocumentRetrieval = false,             // endpoint de téléchargement non confirmé (O4).
         SupportsReportRectification = false,           // flux RE non documenté (O9).
+        SupportsMarginAmountReporting = true,          // montant de marge TMA1 ✅ POST confirmé sandbox 2026-06-22 (id 585) + forme ancrée F03 §2.5 (gate levée — B2C09c).
 
         MaxDocumentsPerRequest = null,                 // aucune limite déclarée connue.
     };

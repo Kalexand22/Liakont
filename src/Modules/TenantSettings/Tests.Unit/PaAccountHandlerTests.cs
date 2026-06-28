@@ -392,6 +392,15 @@ public sealed class PaAccountHandlerTests
         public Task UpdateFiscalSettingsAsync(FiscalSettings settings, CancellationToken ct = default) =>
             throw new NotSupportedException();
 
+        public Task<BillingMentions?> GetBillingMentionsByCompanyAsync(Guid companyId, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task InsertBillingMentionsAsync(BillingMentions mentions, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task UpdateBillingMentionsAsync(BillingMentions mentions, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
         public Task<IReadOnlyList<PaAccount>> GetPaAccountsByCompanyAsync(Guid companyId, CancellationToken ct = default) =>
             throw new NotSupportedException();
 

@@ -176,6 +176,12 @@ public static class AppBootstrap
         // Modules
         builder.Services.AddIdentityModule(builder.Configuration);
         builder.Services.AddJobModule(builder.Configuration);
+
+        // Société porteuse des planifications de jobs SYSTÈME (BUG-4b) — remplace le défaut no-op du socle :
+        // permet à un opérateur PLATEFORME (sans société courante) de planifier ET consulter les fan-out
+        // tous-tenants. Enregistré APRÈS AddJobModule (qui pose le défaut via TryAdd) pour gagner la résolution.
+        builder.Services.AddSingleton<Stratum.Modules.Job.Contracts.Services.ISystemScheduleHost, LiakontSystemScheduleHost>();
+
         builder.Services.AddNotificationModule();
 
         // Branding d'INSTANCE (BRD01, marque grise — blueprint.md §3.3, F12 §6.1) lié depuis la section
@@ -707,6 +713,14 @@ public static class AppBootstrap
         // GET /payments) et l'état du paramétrage pertinent (capacité PA, complétude fiscale — GET /settings).
         builder.Services.AddScoped<Liakont.Host.Payments.IEncaissementsConsoleQueries, Liakont.Host.Payments.EncaissementsConsoleQueryService>();
 
+        // Composition en lecture de la page Émissions e-reporting B2C de la marge (B4) : lit le journal
+        // d'émission regroupé par agrégat transmis (pipeline.b2c_margin_emissions) et le projette pour la console.
+        builder.Services.AddScoped<Liakont.Host.B2cReporting.IB2cMarginEmissionsConsoleQueries, Liakont.Host.B2cReporting.B2cMarginEmissionsConsoleQueryService>();
+
+        // Composition en lecture de la page TVA / Déclaration (L2) : lit le registre de la marge agrégé par mois
+        // × devise × taux (pipeline.margin_registry) et le projette (avec totaux) pour l'aide à la déclaration de TVA.
+        builder.Services.AddScoped<Liakont.Host.TvaDeclaration.ITvaDeclarationConsoleQueries, Liakont.Host.TvaDeclaration.TvaDeclarationConsoleQueryService>();
+
         // Composition de la page Réconciliation des PDF (WEB08) : lecture des trois files (TRK07/API04) et
         // actions opérateur (confirmer / rejeter / lier), appelées in-process par la page (tenant-scopé,
         // garde liakont.actions). Isole l'accès au module hors de la page.
@@ -739,6 +753,19 @@ public static class AppBootstrap
         // déléguées en in-process (garde liakont.settings côté page). Rend l'e-reporting des encaissements
         // activable sans SQL : sans cet écran, le paramètre restait non renseignable (suspension perpétuelle).
         builder.Services.AddScoped<Liakont.Host.Fiscal.IFiscalConsoleService, Liakont.Host.Fiscal.FiscalConsoleService>();
+
+        // Composition de l'écran « Paramétrage › Mentions de facturation » (BUG-26, F12-A §3.4) : lecture des
+        // mentions de facturation du tenant (GetBillingMentionsQuery) et modification (SetBillingMentionsCommand,
+        // qui upsert/journalise), déléguées en in-process (garde liakont.settings côté page). Mentions légales FR
+        // (BT-20 + BR-FR-05) portées sur la facture B2B — renseignables sans SQL.
+        builder.Services.AddScoped<Liakont.Host.BillingMentions.IBillingMentionsConsoleService, Liakont.Host.BillingMentions.BillingMentionsConsoleService>();
+
+        // Composition de l'écran « Paramétrage › Profil légal » (BUG-15) : lecture du profil du tenant
+        // (GetTenantProfileQuery) et modification de la raison sociale / adresse / contact
+        // (SaveTenantProfileCommand, qui valide/journalise), déléguées en in-process (garde liakont.settings
+        // côté page). Le SIREN reste IMMUABLE (INV-TENANTSETTINGS-001), repassé inchangé par le service : on
+        // peut désormais corriger l'identité légale post-création sans supprimer/recréer tout le tenant.
+        builder.Services.AddScoped<Liakont.Host.Profil.IProfilConsoleService, Liakont.Host.Profil.ProfilConsoleService>();
 
         // Témoin de vie du dead-man's-switch (FIX210, F12 §5.1) : lit les exécutions du job SYSTÈME
         // d'évaluation (base système) via un scope SANS tenant ambiant. Horloge partagée (TimeProvider) pour

@@ -1,0 +1,159 @@
+@page "/parametrage/profil"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = LiakontPermissions.Settings)]
+@using Liakont.Host.Profil
+@using Liakont.Host.Components
+@using Liakont.Host.Security
+@using Stratum.Common.Abstractions.Exceptions
+@using Stratum.Common.Abstractions.Security
+@using Stratum.Common.UI.Models
+@inject IProfilConsoleService Service
+@inject IPermissionService Permissions
+@inject ILogger<Profil> Logger
+
+<PageTitle>Profil légal — Liakont</PageTitle>
+
+<h1 class="visually-hidden">Profil légal du tenant</h1>
+
+@if (!_canManage)
+{
+    @* Paramétrage du tenant : réservé à liakont.settings. Sans la permission, aucune donnée n'est chargée et
+       seul le message d'accès refusé est rendu (la garde serveur reste l'unique contrôle du chemin console). *@
+    <LiakontAlert Severity="Severity.Warning" TestId="profil-denied">
+        Accès refusé : la modification du profil légal du tenant requiert l'autorisation de paramétrage (liakont.settings).
+        Rapprochez-vous de l'administrateur de votre organisation.
+    </LiakontAlert>
+}
+else if (_loadFailed)
+{
+    <LiakontAlert TestId="profil-error">
+        Impossible de charger le profil légal du tenant pour le moment. Réessayez plus tard.
+    </LiakontAlert>
+}
+else if (_notCreated)
+{
+    <LiakontAlert TestId="profil-absent">
+        Le profil du tenant n'a pas encore été créé. Créez le tenant (et son profil) avant de pouvoir le modifier.
+    </LiakontAlert>
+}
+else if (_model is null)
+{
+    <LiakontLoading TestId="profil-loading" />
+}
+else
+{
+    <ProfilView Model="_model"
+                Busy="_busy"
+                Message="@_message"
+                IsError="_isError"
+                OnSave="SaveAsync" />
+}
+
+@code {
+    private ProfilViewModel? _model;
+    private bool _loadFailed;
+
+    /// <summary><c>true</c> quand le tenant n'a pas encore de profil (rien à éditer).</summary>
+    private bool _notCreated;
+
+    /// <summary>Permission de paramétrage du tenant : conditionne TOUTE la page (accès + actions).</summary>
+    private bool _canManage;
+
+    private bool _busy;
+    private string? _message;
+    private bool _isError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Contrôle côté serveur (circuit Blazor Server), non falsifiable côté client.
+        _canManage = Permissions.HasPermission(LiakontPermissions.Settings);
+        if (_canManage)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _model = await Service.GetAsync();
+            _notCreated = _model is null;
+            _loadFailed = false;
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the Liakont tenant legal profile page.");
+        }
+    }
+
+    private async Task ReloadAfterSaveAsync()
+    {
+        try
+        {
+            var reloaded = await Service.GetAsync();
+            if (reloaded is not null)
+            {
+                _model = reloaded;
+            }
+        }
+        catch (Exception ex)
+        {
+            // Un échec de RECHARGEMENT après un enregistrement réussi ne doit pas masquer la réussite
+            // (l'opérateur croirait l'envoi échoué — leçon WEB09). On garde le _model précédent.
+            Logger.LogError(ex, "Failed to reload the Liakont tenant legal profile after a successful save.");
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_model is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _isError = false;
+
+        try
+        {
+            await Service.SaveAsync(new ProfilInput
+            {
+                RaisonSociale = _model.Form.RaisonSociale,
+                Street = _model.Form.Street,
+                PostalCode = _model.Form.PostalCode,
+                City = _model.Form.City,
+                Country = _model.Form.Country,
+                ContactEmailAlerte = _model.Form.ContactEmailAlerte,
+            });
+            await ReloadAfterSaveAsync();
+            _message = "Profil légal enregistré.";
+            _isError = false;
+        }
+        catch (ConflictException ex)
+        {
+            // Invariant métier (ex. SIREN immuable) : message du domaine restitué tel quel.
+            _message = ex.Message;
+            _isError = true;
+        }
+        catch (ArgumentException)
+        {
+            // Validation domaine (adresse, code pays, e-mail, raison sociale) : message opérateur actionnable.
+            _message = "Profil légal invalide : vérifiez la raison sociale, l'adresse (code pays sur 2 lettres) et l'e-mail de contact.";
+            _isError = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save the Liakont tenant legal profile.");
+            _message = "L'enregistrement du profil légal a échoué. Réessayez plus tard.";
+            _isError = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

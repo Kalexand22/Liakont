@@ -56,6 +56,37 @@ public sealed class DocumentReceivedConsumerTests
         harness.RunLog.Saved.Trigger.Should().Be(PipelineRunTrigger.Event);
         harness.RunLog.Saved.DocumentsSucceeded.Should().Be(1);
         harness.RunLog.Saved.DocumentsFailed.Should().Be(0);
+
+        // L2 — un document NON marge (taxable) prêt à l'envoi ne crée jamais d'entrée de registre de marge ;
+        // il SUPPRIME une éventuelle entrée périmée (idempotent : la projection suit l'état courant).
+        harness.MarginRegistry.Upserted.Should().BeNull();
+        harness.MarginRegistry.Deleted.Should().Be(documentId);
+    }
+
+    [Fact]
+    public async Task Margin_Document_Upserts_The_Margin_Registry_Entry_At_ReadyToSend()
+    {
+        // L2 — un bordereau au RÉGIME DE LA MARGE prêt à l'envoi écrit son entrée de registre (base HT + TVA sur
+        // marge à déclarer), calculée par les cœurs purs PARTAGÉS (ToHt : 10 TTC @ 20 % → 8,33 HT / 1,67 TVA).
+        var documentId = Guid.NewGuid();
+        var harness = Build(
+            document: CheckTestData.Document(documentId, "Detected"),
+            companyId: Guid.NewGuid(),
+            staging: Staging(CheckTestData.MarginPivot(buyerFeeTtc: 10.00m)),
+            mapping: CheckTestData.MarginMappedResult(feeRate: 20m),
+            validation: ValidOk);
+
+        await harness.Consumer.HandleAsync(CheckTestData.Event(documentId));
+
+        harness.Lifecycle.ReadyToSendId.Should().Be(documentId);
+        harness.MarginRegistry.Deleted.Should().BeNull();
+        harness.MarginRegistry.Upserted.Should().NotBeNull();
+        harness.MarginRegistry.Upserted!.DocumentId.Should().Be(documentId);
+        harness.MarginRegistry.Upserted.VatRate.Should().Be(20m);
+        harness.MarginRegistry.Upserted.MarginBaseHt.Should().Be(8.33m);
+        harness.MarginRegistry.Upserted.MarginVat.Should().Be(1.67m);
+        harness.MarginRegistry.Upserted.IssueDate.Should().Be(new DateOnly(2026, 6, 26));
+        harness.MarginRegistry.Upserted.CurrencyCode.Should().Be("EUR");
     }
 
     [Fact]
@@ -304,6 +335,69 @@ public sealed class DocumentReceivedConsumerTests
     }
 
     [Fact]
+    public async Task Without_Any_Active_Pa_Account_Sandbox_Test_Identifiers_Are_Not_Tolerated()
+    {
+        // BUG-23 (durcissement) : la dérogation aux SIREN de TEST sandbox exige une PREUVE POSITIVE de contexte hors
+        // production. Aucun compte PA actif ⇒ fail-closed : la validation reçoit allowSandboxTestIdentifiers = false
+        // (sinon un SIREN de test resterait toléré sur un tenant non configuré, alors qu'il doit échouer au Luhn).
+        var documentId = Guid.NewGuid();
+        var harness = Build(
+            document: CheckTestData.Document(documentId, "Detected"),
+            companyId: Guid.NewGuid(),
+            staging: Staging(CheckTestData.SingleLinePivot()),
+            mapping: CheckTestData.MappedResult(),
+            validation: ValidOk);
+
+        await harness.Consumer.HandleAsync(CheckTestData.Event(documentId));
+
+        harness.Validation.WasCalled.Should().BeTrue();
+        harness.Validation.LastAllowSandboxTestIdentifiers.Should().BeFalse(
+            "sans compte PA actif, aucune dérogation aux SIREN de test (fail-closed)");
+    }
+
+    [Fact]
+    public async Task Active_Sandbox_Account_Tolerates_Sandbox_Test_Identifiers()
+    {
+        // Contexte sandbox réellement câblé (compte PA actif, aucun en production) ⇒ la validation reçoit
+        // allowSandboxTestIdentifiers = true : le flux recette SuperPDP reste préservé.
+        var documentId = Guid.NewGuid();
+        var harness = Build(
+            document: CheckTestData.Document(documentId, "Detected"),
+            companyId: Guid.NewGuid(),
+            staging: Staging(CheckTestData.SingleLinePivot()),
+            mapping: CheckTestData.MappedResult(),
+            validation: ValidOk,
+            paAccounts: new[] { CheckTestData.PaAccount("Sandbox", isActive: true) });
+
+        await harness.Consumer.HandleAsync(CheckTestData.Event(documentId));
+
+        harness.Validation.WasCalled.Should().BeTrue();
+        harness.Validation.LastAllowSandboxTestIdentifiers.Should().BeTrue(
+            "un compte sandbox actif (aucun en production) tolère les SIREN de test");
+    }
+
+    [Fact]
+    public async Task Active_Production_Account_Never_Tolerates_Sandbox_Test_Identifiers()
+    {
+        // Même avec une table validée (le garde-fou production ne bloque pas), un compte production actif INTERDIT la
+        // dérogation : la clé de Luhn reste stricte en production (CLAUDE.md n°3).
+        var documentId = Guid.NewGuid();
+        var harness = Build(
+            document: CheckTestData.Document(documentId, "Detected"),
+            companyId: Guid.NewGuid(),
+            staging: Staging(CheckTestData.SingleLinePivot()),
+            mapping: CheckTestData.MappedResult(),
+            validation: ValidOk,
+            paAccounts: new[] { CheckTestData.PaAccount("Production", isActive: true) });
+
+        await harness.Consumer.HandleAsync(CheckTestData.Event(documentId));
+
+        harness.Validation.WasCalled.Should().BeTrue();
+        harness.Validation.LastAllowSandboxTestIdentifiers.Should().BeFalse(
+            "un compte production actif interdit la dérogation aux SIREN de test");
+    }
+
+    [Fact]
     public async Task Absent_Mapping_Table_Blocks_With_Create_Table_Reason()
     {
         var documentId = Guid.NewGuid();
@@ -492,6 +586,7 @@ public sealed class DocumentReceivedConsumerTests
         var runLog = new FakeRunLogStore();
         var validationService = new FakeValidationService(validation, mappingIndependentValidation);
         var snapshots = new FakeVentilationSnapshotStore();
+        var marginRegistry = new FakeMarginRegistryStore();
 
         // Gate ouvert par défaut (non-régression : les documents non self-billed ne le consultent jamais —
         // la garde est gardée par pivot.IsSelfBilled). Les tests self-billed fournissent un gate explicite.
@@ -507,6 +602,7 @@ public sealed class DocumentReceivedConsumerTests
             [typeof(IDocumentLifecycle)] = lifecycle,
             [typeof(IPipelineRunLogStore)] = runLog,
             [typeof(IVentilationSnapshotStore)] = snapshots,
+            [typeof(IMarginRegistryStore)] = marginRegistry,
             [typeof(ISelfBilledGate)] = gate,
             [typeof(ITenantContext)] = new FakeTenantContext(CheckTestData.TenantSlug),
         };
@@ -524,7 +620,7 @@ public sealed class DocumentReceivedConsumerTests
             NullLogger<DocumentReceivedConsumer>.Instance,
             new FixedTimeProvider(CheckTestData.Now));
 
-        return new ConsumerHarness(consumer, lifecycle, runLog, validationService, snapshots, gate);
+        return new ConsumerHarness(consumer, lifecycle, runLog, validationService, snapshots, marginRegistry, gate);
     }
 
     private sealed record ConsumerHarness(
@@ -533,5 +629,6 @@ public sealed class DocumentReceivedConsumerTests
         FakeRunLogStore RunLog,
         FakeValidationService Validation,
         FakeVentilationSnapshotStore Snapshots,
+        FakeMarginRegistryStore MarginRegistry,
         FakeSelfBilledGate SelfBilledGate);
 }

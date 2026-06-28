@@ -9,6 +9,7 @@ using System.Threading;
 using Liakont.Agent.Core;
 using Liakont.Agent.Core.Logging;
 using Liakont.Agent.Core.Net;
+using Liakont.Agent.Core.Storage;
 using Liakont.Agent.Core.Time;
 
 /// <summary>
@@ -79,15 +80,51 @@ internal static class Program
             installArgs.Add(exePath);
             ManagedInstallerClass.InstallHelper(installArgs.ToArray());
 
-            Console.WriteLine(uninstall
-                ? $"Service « {instance.ServiceName} » désinstallé."
-                : $"Service « {instance.ServiceName} » installé. Démarrez-le via les Services Windows ou « sc start {instance.ServiceName} ».");
+            if (uninstall)
+            {
+                Console.WriteLine($"Service « {instance.ServiceName} » désinstallé.");
+                return PurgeLocalQueueAfterUninstall();
+            }
+
+            Console.WriteLine($"Service « {instance.ServiceName} » installé. Démarrez-le via les Services Windows ou « sc start {instance.ServiceName} ».");
             return 0;
         }
         catch (Exception ex)
         {
             string action = uninstall ? "Échec de la désinstallation du service" : "Échec de l'installation du service";
             Console.Error.WriteLine($"{action} : {ex.Message}. Relancez une console en tant qu'administrateur.");
+            return 1;
+        }
+    }
+
+    /// <summary>
+    /// BUG-2 : purge de l'état LOCAL de l'agent (file SQLite <c>agent-queue.db</c> + annexes WAL
+    /// <c>-wal</c>/<c>-shm</c>) APRÈS la désinstallation du service. Sans cette purge, le filigrane
+    /// d'extraction (<c>agent_state.extraction.watermark.utc</c>) survit et une réinstallation reprend
+    /// l'ancien filigrane au lieu de repartir d'un état vierge. La purge ne touche QUE le dossier de
+    /// données local (<see cref="AgentPaths.DatabasePath"/>), JAMAIS la base SOURCE du client
+    /// (CLAUDE.md n°5, lecture seule stricte).
+    /// <para>
+    /// Le service est déjà retiré : un échec de purge (fichier encore verrouillé) n'annule PAS la
+    /// désinstallation mais est signalé EXPLICITEMENT (exit non nul), pour que l'opérateur supprime
+    /// <c>agent-queue.db*</c> à la main plutôt que de croire l'état vierge.
+    /// </para>
+    /// </summary>
+    private static int PurgeLocalQueueAfterUninstall()
+    {
+        try
+        {
+            int purged = LocalQueueFiles.Purge(AgentPaths.DatabasePath);
+            Console.WriteLine(purged > 0
+                ? $"File locale purgée ({purged} fichier(s) : agent-queue.db + annexes WAL) — la réinstallation repartira d'un état vierge."
+                : "File locale déjà absente — rien à purger.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"Service désinstallé, mais la file locale n'a pas pu être purgée : {ex.Message}. " +
+                $"Supprimez manuellement « {AgentPaths.DatabasePath} » (+ « -wal »/« -shm ») avant toute réinstallation.");
             return 1;
         }
     }

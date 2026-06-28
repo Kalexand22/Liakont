@@ -117,6 +117,117 @@ public sealed class DocumentRecheckServiceTests
         harness.Lifecycle.RecheckStillBlockedId.Should().Be(documentId);
     }
 
+    /// <summary>
+    /// Re-vérification d'un document REJETÉ par la PA dont la cause est corrigée : il repart ReadyToSend (le rejet
+    /// n'est plus un cul-de-sac). La transition RejectedByPa → ReadyToSend passe par la même branche « prêt » que
+    /// le déblocage d'un Blocked (MarkReadyToSendByRecheck), aucun re-blocage.
+    /// </summary>
+    [Fact]
+    public async Task RejectedByPa_Document_Reevaluated_Ready_Becomes_ReadyToSend()
+    {
+        var documentId = Guid.NewGuid();
+        var harness = Build(
+            documentId: documentId,
+            gate: FakeSelfBilledGate.Allowing(),
+            mapping: CheckTestData.MappedResult(version: "cmp-v1"),
+            validation: ValidOk,
+            state: "RejectedByPa");
+
+        var result = await harness.Service.RecheckAsync(documentId, "op-1", "Opérateur Test");
+
+        result.Outcome.Should().Be(DocumentRecheckOutcome.ReadyToSend, "cause du rejet corrigée ⇒ RejectedByPa → ReadyToSend");
+        harness.Lifecycle.RecheckReadyToSendId.Should().Be(documentId);
+        harness.Lifecycle.RecheckBlockedFromRejectedId.Should().BeNull("la branche prêt ne re-bloque pas");
+        harness.Lifecycle.RecheckStillBlockedId.Should().BeNull("RecordRecheckStillBlocked ne concerne que les Blocked");
+    }
+
+    /// <summary>
+    /// Re-vérification d'un document REJETÉ par la PA dont la cause N'EST PAS corrigée : il est TRANSITIONNÉ vers
+    /// Blocked (MarkBlockedByRecheck) avec le motif réévalué — il quitte le cul-de-sac pour montrer la cause à
+    /// corriger (« bloquer plutôt qu'envoyer faux », CLAUDE.md n°3). Surtout PAS RecordRecheckStillBlocked (qui ne
+    /// transitionne pas, réservé aux Blocked).
+    /// </summary>
+    [Fact]
+    public async Task RejectedByPa_Document_Reevaluated_Not_Ready_Is_Transitioned_To_Blocked_With_Reason()
+    {
+        var documentId = Guid.NewGuid();
+        var harness = Build(
+            documentId: documentId,
+            gate: FakeSelfBilledGate.Allowing(),
+            mapping: CheckTestData.MappedResult(version: "cmp-v1"),
+            validation: ValidOk,
+            pivot: CheckTestData.EmitterlessPivot(),
+            profile: CheckTestData.EmitterProfile(),
+            fiscal: null,
+            state: "RejectedByPa");
+
+        var result = await harness.Service.RecheckAsync(documentId, "op-1", "Opérateur Test");
+
+        result.Outcome.Should().Be(DocumentRecheckOutcome.StillBlocked, "cause non corrigée ⇒ RejectedByPa → Blocked");
+        result.State.Should().Be("Blocked");
+        result.BlockingReason.Should().Contain("nature d'opération");
+        harness.Lifecycle.RecheckBlockedFromRejectedId.Should().Be(documentId, "la branche pas-prêt d'un rejeté transitionne vers Blocked");
+        harness.Lifecycle.RecheckBlockedFromRejectedReason.Should().Contain("nature d'opération");
+        harness.Lifecycle.RecheckStillBlockedId.Should().BeNull("RecordRecheckStillBlocked (sans transition) ne s'applique pas à un rejeté");
+        harness.Lifecycle.RecheckReadyToSendId.Should().BeNull("le document n'est pas prêt");
+    }
+
+    /// <summary>
+    /// Non-régression : un document déjà BLOQUÉ réévalué « pas prêt » garde le comportement actuel — aucune
+    /// transition (RecordRecheckStillBlocked), JAMAIS la transition d'un rejeté (MarkBlockedByRecheck).
+    /// </summary>
+    [Fact]
+    public async Task Blocked_Document_Reevaluated_Not_Ready_Still_Uses_RecordRecheckStillBlocked()
+    {
+        var documentId = Guid.NewGuid();
+        var harness = Build(
+            documentId: documentId,
+            gate: FakeSelfBilledGate.Allowing(),
+            mapping: CheckTestData.MappedResult(version: "cmp-v1"),
+            validation: ValidOk,
+            pivot: CheckTestData.EmitterlessPivot(),
+            profile: CheckTestData.EmitterProfile(),
+            fiscal: null,
+            state: "Blocked");
+
+        var result = await harness.Service.RecheckAsync(documentId, "op-1", "Opérateur Test");
+
+        result.Outcome.Should().Be(DocumentRecheckOutcome.StillBlocked);
+        harness.Lifecycle.RecheckStillBlockedId.Should().Be(documentId, "un Blocked reste sur RecordRecheckStillBlocked (pas de transition)");
+        harness.Lifecycle.RecheckBlockedFromRejectedId.Should().BeNull("MarkBlockedByRecheck est réservé à un document rejeté");
+    }
+
+    /// <summary>
+    /// Re-vérification d'un document REJETÉ par la PA dont le pivot stagé est INDISPONIBLE (purgé/altéré) : aucune
+    /// re-vérification n'est possible. Le résultat reporte l'ÉTAT D'ENTRÉE réel (RejectedByPa), JAMAIS « Blocked »
+    /// codé en dur, et AUCUNE transition de cycle de vie n'est tentée (le document garde son état).
+    /// </summary>
+    [Theory]
+    [InlineData("Blocked")]
+    [InlineData("RejectedByPa")]
+    public async Task Content_Unavailable_Reports_The_Entry_State_And_Performs_No_Transition(string state)
+    {
+        var documentId = Guid.NewGuid();
+        var harness = Build(
+            documentId: documentId,
+            gate: FakeSelfBilledGate.Allowing(),
+            mapping: CheckTestData.MappedResult(version: "cmp-v1"),
+            validation: ValidOk,
+            state: state,
+            staging: FakeStagingStore.Throwing(
+                StagedPayloadNotFoundException.ForKey(new StagedPayloadKey(CheckTestData.TenantSlug, documentId, "hash-0007"))));
+
+        var result = await harness.Service.RecheckAsync(documentId, "op-1", "Opérateur Test");
+
+        result.Outcome.Should().Be(DocumentRecheckOutcome.ContentUnavailable);
+        result.State.Should().Be(state, "l'état d'entrée est reporté tel quel, jamais « Blocked » en dur");
+
+        // Aucune transition de cycle de vie : le document garde son état (pas de re-vérification possible).
+        harness.Lifecycle.RecheckReadyToSendId.Should().BeNull();
+        harness.Lifecycle.RecheckStillBlockedId.Should().BeNull();
+        harness.Lifecycle.RecheckBlockedFromRejectedId.Should().BeNull();
+    }
+
     private static RecheckHarness Build(
         Guid documentId,
         FakeSelfBilledGate gate,
@@ -124,22 +235,26 @@ public sealed class DocumentRecheckServiceTests
         ValidationResult validation,
         PivotDocumentDto? pivot = null,
         TenantProfileDto? profile = null,
-        FiscalSettingsDto? fiscal = null)
+        FiscalSettingsDto? fiscal = null,
+        string state = "Blocked",
+        IPayloadStagingStore? staging = null)
     {
         var lifecycle = new FakeDocumentLifecycle();
         var snapshots = new FakeVentilationSnapshotStore();
+        var marginRegistry = new FakeMarginRegistryStore();
         var companyId = Guid.NewGuid();
         var canonicalJson = CanonicalJson.Serialize(pivot ?? CheckTestData.SelfBilledSingleLinePivot());
 
         var services = new Dictionary<Type, object>
         {
-            [typeof(IDocumentQueries)] = new FakeDocumentQueries(CheckTestData.Document(documentId, "Blocked")),
+            [typeof(IDocumentQueries)] = new FakeDocumentQueries(CheckTestData.Document(documentId, state)),
             [typeof(ITenantSettingsQueries)] = new FakeTenantSettingsQueries(companyId, profile: profile, fiscal: fiscal),
-            [typeof(IPayloadStagingStore)] = FakeStagingStore.Returning(canonicalJson),
+            [typeof(IPayloadStagingStore)] = staging ?? FakeStagingStore.Returning(canonicalJson),
             [typeof(ITvaMappingService)] = new FakeTvaMappingService(mapping),
             [typeof(IValidationService)] = new FakeValidationService(validation),
             [typeof(IDocumentLifecycle)] = lifecycle,
             [typeof(IVentilationSnapshotStore)] = snapshots,
+            [typeof(IMarginRegistryStore)] = marginRegistry,
             [typeof(ISelfBilledGate)] = gate,
         };
 
@@ -149,12 +264,13 @@ public sealed class DocumentRecheckServiceTests
             tenantContext,
             new FixedTimeProvider(CheckTestData.Now));
 
-        return new RecheckHarness(service, lifecycle, snapshots, gate);
+        return new RecheckHarness(service, lifecycle, snapshots, marginRegistry, gate);
     }
 
     private sealed record RecheckHarness(
         DocumentRecheckService Service,
         FakeDocumentLifecycle Lifecycle,
         FakeVentilationSnapshotStore Snapshots,
+        FakeMarginRegistryStore MarginRegistry,
         FakeSelfBilledGate Gate);
 }

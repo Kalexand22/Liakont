@@ -25,6 +25,13 @@ public sealed class PaPublicationState
     /// <summary>L'état du réglage a pu être relu auprès de la PA. <c>false</c> = état indisponible (affichage dégradé).</summary>
     public required bool StateAvailable { get; init; }
 
+    /// <summary>
+    /// La PA active CONSOMME les champs « type d'opération » / « taille d'entreprise » (capacité
+    /// <c>SupportsTaxReportSettingWritable</c>) — donc ces champs sont REQUIS à la publication. <c>false</c>
+    /// (défaut) pour une PA qui les ignore (ex. Super PDP) : la saisie devient facultative (BUG-13, CLAUDE.md n°8).
+    /// </summary>
+    public bool RequiresTaxReportSettingFields { get; init; }
+
     /// <summary>Le réglage est publié (une date de début est déclarée côté PA). Pertinent seulement si <see cref="StateAvailable"/>.</summary>
     public bool IsPublished { get; init; }
 

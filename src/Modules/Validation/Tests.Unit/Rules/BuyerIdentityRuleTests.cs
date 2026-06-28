@@ -78,6 +78,22 @@ public sealed class BuyerIdentityRuleTests
     }
 
     [Fact]
+    public async Task Sandbox_test_buyer_siren_is_blocking_in_production_but_allowed_in_sandbox()
+    {
+        // BUG-23 : un SIREN de test sandbox PA (000000001, Luhn invalide) côté acheteur est BLOQUANT en production
+        // (contexte par défaut, strict) et TOLÉRÉ hors production (contexte PA Sandbox) — gating par l'environnement
+        // PA, jamais affaiblissement silencieux (CLAUDE.md n°3).
+        var customer = new PivotPartyDto("TRICATEL", siren: "000000001");
+
+        var blockedInProduction = await new BuyerIdentityRule().ValidateAsync(Context(customer));
+        blockedInProduction.Should().ContainSingle(issue => issue.Code == BuyerIdentityRule.BuyerSirenInvalid)
+            .Which.Severity.Should().Be(ValidationSeverity.Blocking);
+
+        var allowedInSandbox = await new BuyerIdentityRule().ValidateAsync(Context(customer, allowSandboxTestIdentifiers: true));
+        allowedInSandbox.Should().BeEmpty("hors production, le SIREN de test sandbox PA est toléré (recette e-invoicing B2B).");
+    }
+
+    [Fact]
     public async Task Null_context_is_rejected()
     {
         var act = async () => await new BuyerIdentityRule().ValidateAsync(null!);
@@ -85,7 +101,7 @@ public sealed class BuyerIdentityRuleTests
         await act.Should().ThrowAsync<ArgumentNullException>();
     }
 
-    private static DocumentValidationContext Context(PivotPartyDto? customer)
+    private static DocumentValidationContext Context(PivotPartyDto? customer, bool allowSandboxTestIdentifiers = false)
     {
         var document = new PivotDocumentDto(
             sourceDocumentKind: "BORDEREAU",
@@ -96,6 +112,6 @@ public sealed class BuyerIdentityRuleTests
             totals: new PivotTotalsDto(1160.00m, 0m, 1160.00m),
             operationCategory: OperationCategory.LivraisonBiens,
             customer: customer);
-        return new DocumentValidationContext(document, Guid.NewGuid());
+        return new DocumentValidationContext(document, Guid.NewGuid(), allowSandboxTestIdentifiers: allowSandboxTestIdentifiers);
     }
 }

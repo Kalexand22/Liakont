@@ -28,6 +28,16 @@
                         <dt>Type</dt>
                         <dd data-testid="document-detail-type">@DocumentTypeDisplay.For(Model.Document.DocumentType)</dd>
                     </div>
+                    @* Famille de pièce (BUG-20) : bordereau acheteur/vendeur, facture client, note d'honoraires —
+                     * dérivée de la référence source, distinction que la colonne « Type » ne porte pas. Affichée
+                     * seulement quand la famille est reconnue (jamais devinée). *@
+                    @if (DocumentFamily is { } family)
+                    {
+                        <div class="liakont-doc-detail__row">
+                            <dt>Famille de pièce</dt>
+                            <dd data-testid="document-detail-family">@family</dd>
+                        </div>
+                    }
                     <div class="liakont-doc-detail__row">
                         <dt>Date d'émission</dt>
                         <dd>@Model.Document.IssueDate.ToString("dd/MM/yyyy", Fr)</dd>
@@ -38,11 +48,27 @@
                     </div>
                     <div class="liakont-doc-detail__row">
                         <dt>SIREN émetteur</dt>
-                        <dd>@(string.IsNullOrWhiteSpace(Model.Document.SupplierSiren) ? "non renseigné" : Model.Document.SupplierSiren)</dd>
+                        <dd data-testid="document-detail-supplier-siren">@EffectiveSupplierSiren</dd>
                     </div>
                     <div class="liakont-doc-detail__row">
                         <dt>État</dt>
-                        <dd><DocumentStateBadge State="@Model.Document.State" TestId="document-detail-state" /></dd>
+                        <dd>
+                            @* E-reporté (BUG-24) : le document a été RÉELLEMENT déclaré via la transmission AGRÉGÉE
+                             * (flux 10.3) ; il n'est plus « à envoyer » par la voie document (garde D1). On affiche
+                             * « E-reporté » + le lien vers sa déclaration au lieu du badge d'état brut. Pure
+                             * RÉFLEXION en lecture (lien doc ↔ lot), aucune transition d'état côté domaine. *@
+                            @if (Model.B2cReportedBatchId is { } reportedBatchId)
+                            {
+                                <StatusBadge Label="E-reporté" Severity="Severity.Success" TestId="document-detail-state" />
+                                <a class="liakont-doc-detail__ereported-link"
+                                   href="@($"/emissions-marge-b2c/{reportedBatchId}")"
+                                   data-testid="document-detail-ereported-link">Voir la déclaration e-reporting</a>
+                            }
+                            else
+                            {
+                                <DocumentStateBadge State="@Model.Document.State" TestId="document-detail-state" />
+                            }
+                        </dd>
                     </div>
                 </dl>
 
@@ -99,7 +125,11 @@
                                     <td class="liakont-doc-detail__num">@FormatQuantity(line.Quantity)</td>
                                     <td class="liakont-doc-detail__num">@FormatMoney(line.NetAmount)</td>
                                     <td>@line.SourceRegime</td>
-                                    <td>@line.Category</td>
+                                    @* Ligne au régime de la marge : mention EXPLICITE (« Régime de la marge – … »)
+                                     * au lieu du sec « E — Exonéré » qui prête à confusion (TVA 0 = marge, pas
+                                     * exonération classique). Présentation pure (MarginRegimeDisplay) ; l'explication
+                                     * 297 E + le détail HT/TVA vivent dans le récap de marge ci-dessous. *@
+                                    <td>@(line.MarginMention ?? line.Category)</td>
                                     <td>@line.Vatex</td>
                                     <td class="liakont-doc-detail__num">@(line.TaxAmount is { } tax ? FormatMoney(tax) : "—")</td>
                                     <td class="liakont-doc-detail__num">@FormatRate(line.Rate)</td>
@@ -107,6 +137,18 @@
                             }
                         </tbody>
                     </table>
+
+                    @* Note 297 E de REPLI : la clarification (TVA due par l'opérateur, non récupérable) vit normalement
+                     * dans le récap de marge chiffré ci-dessous — on n'affiche cette note QUE si le récap est absent
+                     * (échec/fail-closed) pour qu'un document marge garde toujours son explication 297 E, sans doublon
+                     * quand le récap s'affiche. Texte sourcé (297 E / F03 §2.3-§2.4), aucun montant ni règle inventés. *@
+                    @if (Content.HasMarginLines && Model.MarginRecap is null)
+                    {
+                        <p class="liakont-doc-detail__hint" data-testid="document-detail-margin-note">
+                            Régime de la marge (art. 297 E) : la TVA ne figure pas sur le document et n'est pas
+                            récupérable par l'acheteur. La TVA sur la marge est due par l'opérateur dans sa déclaration de TVA.
+                        </p>
+                    }
 
                     @* Charges et remises de NIVEAU DOCUMENT (BG-20/BG-21 : éco-contribution, remise globale…) : affichées
                      * à part des lignes pour que le rapprochement avec le Total HT soit complet et lisible. *@
@@ -166,13 +208,82 @@
                 }
                 else
                 {
-                    @* Document pas encore transmis : aucun pivot mappé n'est exposé — on n'affiche AUCUNE ligne
-                     * inventée. L'en-tête et les totaux résument le document tel que lu ; le détail complet
-                     * apparaîtra ici une fois le document transmis (et reste dans le dossier d'export, onglet Archive). *@
+                    @* Aucune ligne RÉELLEMENT disponible (contenu source indisponible ET aucun pivot transmis) :
+                     * on n'affiche AUCUNE ligne inventée. Le détail ligne à ligne s'affiche normalement dès que le
+                     * document est lu/contrôlé (BUG-5 : rejeu read-time du pivot source) — états Bloqué / Prêt-à-
+                     * envoyer inclus. L'en-tête et les totaux résument le document tel que lu ; le contenu complet
+                     * reste dans le dossier d'export, onglet Archive. *@
                     <p class="liakont-doc-detail__hint" data-testid="document-detail-lines-empty">
-                        Le détail ligne à ligne s'affichera ici une fois le document transmis à la Plateforme Agréée.
-                        En attendant, l'en-tête et les totaux ci-dessus résument le document tel que lu ; le contenu
-                        complet est inclus dans le dossier d'export pour contrôle fiscal (onglet Archive).
+                        Le détail ligne à ligne s'affiche dès que le document est lu et contrôlé. Il n'est pas
+                        disponible pour ce document pour le moment ; l'en-tête et les totaux ci-dessus résument le
+                        document tel que lu, et le contenu complet est inclus dans le dossier d'export pour contrôle
+                        fiscal (onglet Archive).
+                    </p>
+                }
+            </SectionCard>
+
+            @* Récapitulatif de marge (aide à la déclaration de TVA) : pour un document au régime de la marge (art. 297 E),
+             * la TVA sur la marge n'apparaît PAS sur la facture mais est DUE par l'opérateur dans sa déclaration (CA3).
+             * Ce bloc rend visibles la marge (commission acheteur + vendeur, F03 §2.4/§270) ramenée HT et la TVA sur marge.
+             * Calculé par le module Pipeline (cœurs e-reporting réutilisés) ; rendu PUR ici. Absent hors régime de la marge. *@
+            @if (Model.MarginRecap is { } margin)
+            {
+                <SectionCard Title="Récapitulatif de marge — aide à la déclaration de TVA" TestId="document-detail-margin-recap">
+                    <p class="liakont-doc-detail__hint">
+                        Régime de la marge (art. 297 E) : la TVA ci-dessous ne figure pas sur la facture et n'est pas
+                        récupérable par l'acheteur — elle est due par l'opérateur sur sa marge (commission), à reporter
+                        en déclaration de TVA.
+                    </p>
+                    <dl class="liakont-doc-detail__defs">
+                        <div class="liakont-doc-detail__row">
+                            <dt>Commission acheteur TTC</dt>
+                            <dd data-testid="document-detail-margin-buyer">@FormatMoney(margin.BuyerFeesTtc)</dd>
+                        </div>
+                        <div class="liakont-doc-detail__row">
+                            <dt>Commission vendeur TTC</dt>
+                            <dd data-testid="document-detail-margin-seller">@FormatMoney(margin.SellerFeesTtc)</dd>
+                        </div>
+                        <div class="liakont-doc-detail__row">
+                            <dt>Marge TTC</dt>
+                            <dd data-testid="document-detail-margin-ttc">@FormatMoney(margin.MarginTtc)</dd>
+                        </div>
+                        <div class="liakont-doc-detail__row">
+                            <dt>Base de marge HT</dt>
+                            <dd data-testid="document-detail-margin-base-ht">@FormatMoney(margin.BaseHt)</dd>
+                        </div>
+                        <div class="liakont-doc-detail__row">
+                            <dt>TVA sur marge (@FormatRate(margin.RatePercent))</dt>
+                            <dd data-testid="document-detail-margin-vat">@FormatMoney(margin.Tva)</dd>
+                        </div>
+                    </dl>
+                </SectionCard>
+            }
+
+            @* Mentions de facturation EFFECTIVES portées par CE document (BUG-26, F12-A §3.4) : termes de paiement
+             * (BT-20) + mentions légales FR (BR-FR-05 : pénalités de retard PMD, indemnité forfaitaire de recouvrement
+             * PMT, escompte ou son absence AAB). Restitution LISIBLE (jamais de JSON, F10 §1) : le libellé FR du code
+             * sujet précède son texte. Valeur du document si portée, sinon défaut tenant (injecté au read-time). *@
+            <SectionCard Title="Mentions de facturation" TestId="document-detail-mentions">
+                @if (Content.HasMentions)
+                {
+                    <dl class="liakont-doc-detail__defs">
+                        <div class="liakont-doc-detail__row">
+                            <dt>Termes de paiement</dt>
+                            <dd data-testid="document-detail-payment-terms">@(string.IsNullOrWhiteSpace(Content.PaymentTerms) ? "non renseigné" : Content.PaymentTerms)</dd>
+                        </div>
+                        @foreach (var note in Content.Notes)
+                        {
+                            <div class="liakont-doc-detail__row" data-testid="document-detail-mention">
+                                <dt>@MentionLabel(note.SubjectCode)</dt>
+                                <dd>@note.Content</dd>
+                            </div>
+                        }
+                    </dl>
+                }
+                else
+                {
+                    <p class="liakont-doc-detail__hint" data-testid="document-detail-mentions-empty">
+                        Aucune mention de facturation paramétrée pour ce document.
                     </p>
                 }
             </SectionCard>
@@ -182,7 +293,15 @@
         <StratumTab Title="Contrôles">
             <SectionCard Title="Contrôles avant envoi" TestId="document-detail-controls">
                 <p class="liakont-doc-detail__controls-state">
-                    État courant : <DocumentStateBadge State="@Model.Document.State" TestId="document-detail-controls-state" />
+                    État courant :
+                    @if (Model.B2cReportedBatchId is not null)
+                    {
+                        <StatusBadge Label="E-reporté" Severity="Severity.Success" TestId="document-detail-controls-state" />
+                    }
+                    else
+                    {
+                        <DocumentStateBadge State="@Model.Document.State" TestId="document-detail-controls-state" />
+                    }
                 </p>
 
                 @if (IsBlocked)
@@ -195,11 +314,35 @@
                 }
                 else if (IsRejected)
                 {
-                    @* Sévérité Error : alignée sur le badge « Rejeté » (F10 §2.2 : rouge). *@
+                    @* Sévérité Error : alignée sur le badge « Rejeté » (F10 §2.2 : rouge). Le motif PA (BUG-27) est
+                     * affiché DIRECTEMENT ici quand il est disponible (codes + messages lisibles, jamais de JSON
+                     * brut, F10 §1) — l'opérateur n'a plus à fouiller l'Historique pour comprendre le rejet. *@
                     <LiakontAlert TestId="document-detail-controls-rejected">
                         <span class="liakont-doc-detail__alert-title">Refusé par la Plateforme Agréée</span>
-                        <span>Le motif de rejet figure dans l'onglet Historique. Corrigez puis renvoyez le document.</span>
+                        @if (RejectionMotif.Count > 0)
+                        {
+                            <ul class="liakont-doc-detail__pa-motif" data-testid="document-detail-controls-rejected-motif">
+                                @foreach (var motifLine in RejectionMotif)
+                                {
+                                    <li>@motifLine</li>
+                                }
+                            </ul>
+                            <span>Corrigez le motif ci-dessus, puis renvoyez le document. L'historique complet est dans l'onglet Historique.</span>
+                        }
+                        else
+                        {
+                            <span>Le motif de rejet figure dans l'onglet Historique. Corrigez puis renvoyez le document.</span>
+                        }
                     </LiakontAlert>
+                }
+                else if (Model.B2cReportedBatchId is { } reportedBatchId)
+                {
+                    @* E-reporté (BUG-24) : déclaré via la transmission AGRÉGÉE — la voie document ne le concerne
+                     * plus (garde D1). On l'indique explicitement au lieu d'un « Aucun contrôle en échec » trompeur. *@
+                    <p data-testid="document-detail-controls-ereported">
+                        Ce document a été e-reporté (transmission agrégée e-reporting B2C). Il n'est pas à envoyer par la voie document.
+                        <a href="@($"/emissions-marge-b2c/{reportedBatchId}")">Voir la déclaration</a>
+                    </p>
                 }
                 else
                 {
@@ -231,6 +374,21 @@
                                 @if (!string.IsNullOrWhiteSpace(entry.Detail))
                                 {
                                     <span class="liakont-doc-detail__event-detail">@entry.Detail</span>
+                                }
+                                @* Motif PA lisible (BUG-27) : la réponse de la Plateforme Agréée (codes + messages)
+                                 * portée par l'événement, restituée en français sans JSON brut (F10 §1). Absente
+                                 * pour les événements qui n'en portent pas. *@
+                                @{
+                                    var paMotif = PaResponseSnapshotFormatter.Format(entry.PaResponseSnapshot);
+                                }
+                                @if (paMotif.Count > 0)
+                                {
+                                    <ul class="liakont-doc-detail__event-pa" data-testid="document-detail-event-pa-response">
+                                        @foreach (var motifLine in paMotif)
+                                        {
+                                            <li>@motifLine</li>
+                                        }
+                                    </ul>
                                 }
                                 @{
                                     // FIX305 — acteur restitué par son NOM (persisté avec l'événement) ; le GUID
@@ -323,6 +481,35 @@
     private string AuditExportUrl => $"/api/v1/documents/{Model.Document.Id}/audit-export";
 
     /// <summary>
+    /// Motif de rejet PA le plus récent (BUG-27), restitué en lignes lisibles pour l'onglet Contrôles : le
+    /// snapshot de réponse PA (codes + messages) du dernier événement qui en porte un. Vide si aucun snapshot
+    /// PA n'est présent (le bandeau retombe alors sur le renvoi vers l'Historique). Jamais de JSON brut (F10 §1).
+    /// </summary>
+    private IReadOnlyList<string> RejectionMotif
+    {
+        get
+        {
+            string? latestSnapshot = null;
+            var latestWhen = default(DateTimeOffset);
+            foreach (var entry in Model.Events)
+            {
+                if (string.IsNullOrWhiteSpace(entry.PaResponseSnapshot))
+                {
+                    continue;
+                }
+
+                if (latestSnapshot is null || entry.TimestampUtc >= latestWhen)
+                {
+                    latestSnapshot = entry.PaResponseSnapshot;
+                    latestWhen = entry.TimestampUtc;
+                }
+            }
+
+            return PaResponseSnapshotFormatter.Format(latestSnapshot);
+        }
+    }
+
+    /// <summary>
     /// Montant en français, 2 décimales, devise affichée (« 1 080,00 € », espace insécable) — cohérent
     /// avec la colonne « Montant » de la liste (WEB02) et le récapitulatif d'envoi (qui affiche déjà
     /// l'euro). Limite assumée : le read-model console n'expose pas BT-5 (F01-F02 : CurrencyCode,
@@ -334,11 +521,43 @@
     /// <summary>Contenu projeté du document (lignes, charges, contrôle de cohérence) — onglet Contenu (FIX205).</summary>
     private DocumentContentView Content => Model.Content;
 
+    /// <summary>Famille de pièce (BUG-20) dérivée de la référence source, ou <c>null</c> si non reconnue (la ligne est alors masquée).</summary>
+    private string? DocumentFamily => DocumentFamilyDisplay.For(Model.Document.SourceReference);
+
+    /// <summary>
+    /// SIREN émetteur EFFECTIF (BUG-28) : celui réellement transmis (porté par le contenu/snapshot, ADR-0031),
+    /// repli sur l'entité persistée. « non renseigné » seulement si l'émetteur n'est réellement pas résolu —
+    /// jamais une valeur inventée. Affichage seul (la facture transmise porte bien l'émetteur).
+    /// </summary>
+    private string EffectiveSupplierSiren
+    {
+        get
+        {
+            var siren = Content.SupplierSiren ?? Model.Document.SupplierSiren;
+            return string.IsNullOrWhiteSpace(siren) ? "non renseigné" : siren;
+        }
+    }
+
     /// <summary>Quantité en français, décimales significatives seulement (« 1 », « 2,5 »).</summary>
     private static string FormatQuantity(decimal value) => value.ToString("0.###", Fr);
 
     /// <summary>Taux en pourcentage français (« 20 % »), ou « — » si inconnu / non uniforme sur la ligne.</summary>
     private static string FormatRate(decimal? rate) => rate is { } value ? $"{value.ToString("0.##", Fr)} %" : "—";
+
+    /// <summary>
+    /// Libellé FRANÇAIS d'une mention de facturation (BUG-26) dérivé de son code sujet UNTDID 4451 (BT-21). Pure
+    /// PRÉSENTATION : aucun texte fiscal inventé (seul le libellé du code est traduit, le CONTENU vient du tenant —
+    /// CLAUDE.md n°2). Un code inconnu retombe sur sa valeur brute (jamais d'exception, jamais de mention masquée) ;
+    /// une note sans code → libellé générique « Mention ».
+    /// </summary>
+    private static string MentionLabel(string? subjectCode) => subjectCode switch
+    {
+        "PMD" => "Pénalités de retard",
+        "PMT" => "Indemnité forfaitaire de recouvrement",
+        "AAB" => "Escompte / absence d'escompte",
+        null or "" => "Mention",
+        _ => subjectCode,
+    };
 
     // Piste d'audit et archive : horodatage affiché en UTC EXPLICITE, pour s'aligner sur le dossier d'export
     // pour contrôle fiscal (rendu en UTC ISO-8601) — un vérificateur recoupe écran et export sans ambiguïté de

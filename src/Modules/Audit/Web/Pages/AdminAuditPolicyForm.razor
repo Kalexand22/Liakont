@@ -381,7 +381,9 @@ else
         });
     }
 
-    private void MapError(string message)
+    // Retourne null si l'erreur est mappée à un champ ; sinon le message à afficher en bannière globale
+    // (le socle possède l'affichage global — BUG-4 volet A).
+    private string? MapError(string message)
     {
         var lower = message.ToLowerInvariant();
         if (lower.Contains("entity") || lower.Contains("entité"))
@@ -391,7 +393,9 @@ else
         else if (lower.Contains("field") || lower.Contains("champ"))
             _trackedFieldsError = message;
         else
-            _globalError = message;
+            return message;
+
+        return null;
     }
 
     private void HandleEntityTypeInput(ChangeEventArgs e)

@@ -1,0 +1,114 @@
+// Table de mapping TVA de DÉMO — tenant JUDICIAIRE (SCP, ventes judiciaires / criée, dossier 1).
+//
+// Même contrat que la variante volontaire (voir ../volontaire/mapping-tva.json pour le détail des
+// ancrages) : codes régime RÉELS de EncheresV6_Demo, mappés en part « Autre » (CheckTvaMapping.LinePart
+// constante). La criée est un flux B2B (acheteurs assujettis identifiés) : l'aiguillage est
+// DOCUMENT-DRIVEN (un acheteur à SIREN part en facture électronique B2B), la table TVA ne fait que
+// classer la catégorie de l'adjudication — elle ne décide PAS du canal.
+//
+// Périmètre minimal fail-closed (CLAUDE.md n°2/3) : seuls les deux régimes tranchés sont mappés —
+//   « 5 » Assujetti 20 %      -> S, 20 %                 F03 §2.1 « 20→S »
+//   « 6 » Non assujetti 20 %  -> régime de la marge      F03 §2.3 / §3 (décision Karl)
+// Les autres régimes (1, 2) restent NON mappés -> CHECK BLOQUE (defaultBehavior=Block), à trancher par
+// l'expert-comptable en console. Données FICTIVES (CLAUDE.md n°7), table NON VALIDÉE (PIP01 suspend les
+// envois réels). Import idempotent.
+//
+// EXONÉRÉ INTERNATIONAL (clés par ZONE « EXP_{zone} », F03 §2.8) : un lot livré hors France est détaxé quel
+// que soit le régime domestique (l'exonération prime) — l'agent dérive la clé de code_export + mode_livraison
+// (une clé par ZONE). Classification validée PO (2026-06-26) : « EXP_HORSUE » -> G/VATEX-EU-G (export 262 I,
+// -> TT-81 TLB1) ; « EXP_CEE » -> K/VATEX-EU-IC (intracom 262 ter / 258 A, -> TNT1, non soumis en France) ;
+// « EXP_FR » -> G/VATEX-EU-G (franchise export 275, -> TLB1). E-reporting B2C UNITAIRE (B2cExportReportingTenantJob).
+// Défauts défendables, refinables (la classification vient d'ici, jamais devinée — CLAUDE.md n°2).
+{
+  "mappingVersion": "encheres-demo-judiciaire-v1",
+  "validatedBy": "Table de DÉMO (codes régime EncheresV6_Demo) — variante ventes judiciaires — usage démo uniquement",
+  "validatedDate": null,
+  "defaultBehavior": "Block",
+  "rules": [
+    {
+      "sourceRegimeCode": "5",
+      "label": "Régime 5 « Assujetti 20 % » — adjudication taxable (vente normale)",
+      "part": "Autre",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 20,
+      "note": "Assujetti à taux normal -> catégorie S (F03 §2.1 « 20→S »)."
+    },
+    {
+      "sourceRegimeCode": "6",
+      "label": "Régime 6 « Non assujetti 20 % » — régime de la marge",
+      "part": "Autre",
+      "category": "E",
+      "vatex": "VATEX-EU-J",
+      "rateMode": "Fixed",
+      "rateValue": 0,
+      "note": "Régime de la marge (décision Karl, F03 §2.3/§3) : adjudication exonérée, TVA sur la marge, jamais distincte (art. 297 E)."
+    },
+    {
+      "sourceRegimeCode": "EXP_HORSUE",
+      "label": "Livré HORS CEE — export hors UE détaxé (art. 262 I)",
+      "part": "Autre",
+      "category": "G",
+      "vatex": "VATEX-EU-G",
+      "rateMode": "Fixed",
+      "rateValue": 0,
+      "note": "Export hors UE (clé par zone, F03 §2.8) : exonéré art. 262 I quel que soit le régime domestique. E-reporting B2C UNITAIRE, catégorie G -> TT-81 TLB1, taux 0."
+    },
+    {
+      "sourceRegimeCode": "EXP_CEE",
+      "label": "Livré en CEE — livraison intracommunautaire (art. 262 ter / 258 A)",
+      "part": "Autre",
+      "category": "K",
+      "vatex": "VATEX-EU-IC",
+      "rateMode": "Fixed",
+      "rateValue": 0,
+      "note": "Intracom B2C (clé par zone, F03 §2.8, validé PO) : non soumis en France, catégorie K -> TT-81 TNT1, taux 0 (la taxe à destination OSS est un autre flux). E-reporting B2C UNITAIRE."
+    },
+    {
+      "sourceRegimeCode": "EXP_FR",
+      "label": "Mode FRANCE + code_export — achat en franchise pour export (art. 275)",
+      "part": "Autre",
+      "category": "G",
+      "vatex": "VATEX-EU-G",
+      "rateMode": "Fixed",
+      "rateValue": 0,
+      "note": "Franchise export (clé par zone, F03 §2.8, validé PO) : livraison détaxée export-bound, catégorie G -> TT-81 TLB1, taux 0. Défaut défendable, refinable."
+    },
+    {
+      "sourceRegimeCode": "20",
+      "label": "Taux 20 % — document ORDINAIRE (facture client / note d'honoraires) taxable au taux normal",
+      "part": "Autre",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 20,
+      "note": "Documents B2C ORDINAIRES hors enchères (F03 §2.9). La clé de régime est le TAUX effectif (taux_tva des factures ; montant_tva/montant_ht recouvré des notes) -> clé UNIFIÉE factures + notes. 20 % -> catégorie S. TT-81 dérivé de l'operationCategory du tenant (PrestationServices -> TPS1 / LivraisonBiens -> TLB1)."
+    },
+    {
+      "sourceRegimeCode": "5.5",
+      "label": "Taux 5,5 % — document ORDINAIRE taxable au taux réduit",
+      "part": "Autre",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 5.5,
+      "note": "Documents B2C ordinaires (F03 §2.9), taux réduit 5,5 % -> catégorie S (le taux porte la distinction). Clé = taux effectif unifié factures/notes. Un document à taux MIXTES (p. ex. honoraires 20 % + frais 0 %) reste fail-closed (0 % non mappé)."
+    },
+    {
+      "sourceRegimeCode": "6",
+      "label": "Régime 6 — part FRAIS (commission/honoraire de la marge) taxable au taux normal",
+      "part": "Frais",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 20,
+      "note": "REQUIS pour l'e-reporting de la MARGE : le job B4 marge mappe la COMMISSION (honoraire acheteur+vendeur) en Part.Frais pour obtenir le TAUX de la marge (20 %, F03 §2.5) ; sans cette règle la marge BLOQUE (UnmappedRate). L'adjudication, elle, reste exonérée (règle « 6 » en Part.Autre/« Adjudication et factures » -> E+VATEX-EU-J). Même code régime, deux composantes."
+    },
+    {
+      "sourceRegimeCode": "5",
+      "label": "Régime 5 — part FRAIS (commission acheteur) taxable au taux normal",
+      "part": "Frais",
+      "category": "S",
+      "rateMode": "Fixed",
+      "rateValue": 20,
+      "note": "REQUIS pour l'e-reporting du PRIX TOTAL TAXABLE : le job B4 taxable mappe la commission acheteur en Part.Frais (20 %, F03 §2.7) ; sans cette règle le taxable BLOQUE (UnmappedRate). L'adjudication taxable est mappée par la règle « 5 » en Part.Autre/« Adjudication et factures »."
+    }
+  ]
+}

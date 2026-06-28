@@ -26,12 +26,13 @@ public sealed record FakePaClientOptions
         SupportsB2cReporting = true,
         SupportsDomesticPaymentReporting = true,
         SupportsInternationalPaymentReporting = false,
-        SupportsB2bInvoicing = false,
+        SupportsB2bInvoicing = true,    // facturation B2B = Lot 1 (PA factice généreuse — « toutes capacités V1 »)
         SupportsCreditNotes = true,
         SupportsTaxReportRetrieval = true,
         SupportsDocumentRetrieval = true,
         SupportsReportRectification = true,
         SupportsSelfBilling = true,
+        SupportsMarginAmountReporting = true, // PA généreuse pour la démo : reporte le montant de marge (cas n°33, B2C09a).
         MaxDocumentsPerRequest = null,
     };
 

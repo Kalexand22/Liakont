@@ -244,6 +244,66 @@ public sealed class PipelineSendHarness : IAsyncLifetime
         await job.ExecuteAsync(new Stratum.Common.Abstractions.Jobs.TenantJobContext(TenantSlug, scope.ServiceProvider));
     }
 
+    /// <summary>Exécute le job e-reporting B2C de la marge (B4) pour le tenant (agrégation + transmission).</summary>
+    public async Task RunB2cMarginAsync()
+    {
+        await using var scope = _provider!.CreateAsyncScope();
+        var job = new Liakont.Modules.Pipeline.Infrastructure.B2cReporting.B2cMarginAggregatorTenantJob(PipelineRunTrigger.Scheduled);
+        await job.ExecuteAsync(new Stratum.Common.Abstractions.Jobs.TenantJobContext(TenantSlug, scope.ServiceProvider));
+    }
+
+    /// <summary>Exécute le job e-reporting B2C au régime du prix total taxable (TLB1, BUG-8) pour le tenant.</summary>
+    public async Task RunB2cTaxableAsync()
+    {
+        await using var scope = _provider!.CreateAsyncScope();
+        var job = new Liakont.Modules.Pipeline.Infrastructure.B2cReporting.B2cTaxableAggregatorTenantJob(PipelineRunTrigger.Scheduled);
+        await job.ExecuteAsync(new Stratum.Common.Abstractions.Jobs.TenantJobContext(TenantSlug, scope.ServiceProvider));
+    }
+
+    /// <summary>Exécute le job e-reporting B2C d'export hors UE (TLB1 unitaire, BUG-11) pour le tenant.</summary>
+    public async Task RunB2cExportAsync()
+    {
+        await using var scope = _provider!.CreateAsyncScope();
+        var job = new Liakont.Modules.Pipeline.Infrastructure.B2cReporting.B2cExportReportingTenantJob(PipelineRunTrigger.Scheduled);
+        await job.ExecuteAsync(new Stratum.Common.Abstractions.Jobs.TenantJobContext(TenantSlug, scope.ServiceProvider));
+    }
+
+    /// <summary>Exécute le job e-reporting B2C des documents ORDINAIRES taxables (TLB1/TPS1, #7) pour le tenant.</summary>
+    public async Task RunB2cPlainAsync()
+    {
+        await using var scope = _provider!.CreateAsyncScope();
+        var job = new Liakont.Modules.Pipeline.Infrastructure.B2cReporting.B2cPlainTaxableReportingTenantJob(PipelineRunTrigger.Scheduled);
+        await job.ExecuteAsync(new Stratum.Common.Abstractions.Jobs.TenantJobContext(TenantSlug, scope.ServiceProvider));
+    }
+
+    /// <summary>
+    /// Entrées du journal d'émission B2C marge (<c>pipeline.b2c_margin_emissions</c>) pour un document, dans
+    /// l'ordre d'insertion (seq). Prouve l'attempt-once (Pending écrit avant le POST) et l'issue (Issued + id PA).
+    /// </summary>
+    public async Task<IReadOnlyList<(string Status, string? PaEmissionId)>> GetB2cMarginEmissionsAsync(Guid documentId)
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync();
+        var rows = await connection.QueryAsync(
+            "SELECT status, pa_emission_id FROM pipeline.b2c_margin_emissions WHERE document_id = @Id ORDER BY seq",
+            new { Id = documentId });
+        return rows.Select(r => ((string)r.status, (string?)r.pa_emission_id)).ToList();
+    }
+
+    /// <summary>
+    /// Lit le journal d'émission B2C marge via la VRAIE query console (<c>PostgresB2cMarginEmissionQueries</c>),
+    /// REGROUPÉ par lot d'émission (<c>emission_batch_id</c> : une transmission = un POST) avec l'état courant —
+    /// exerce le SQL réel (CTE + fenêtre + COUNT DISTINCT) sur le conteneur. La query est construite sur
+    /// l'<c>IConnectionFactory</c> tenant-scopé du harnais (parité avec la résolution DI en production).
+    /// </summary>
+    public async Task<IReadOnlyList<Liakont.Modules.Pipeline.Contracts.B2cMarginEmissionAggregateDto>> ReadMarginEmissionAggregatesAsync(string? period = null)
+    {
+        await using var scope = _provider!.CreateAsyncScope();
+        var queries = new Liakont.Modules.Pipeline.Infrastructure.Queries.PostgresB2cMarginEmissionQueries(
+            scope.ServiceProvider.GetRequiredService<IConnectionFactory>());
+        return await queries.GetEmissionsAsync(period);
+    }
+
     /// <summary>Nombre d'entrées de coffre (paquet initial + addenda) scellées pour un document.</summary>
     public async Task<int> ArchiveEntryCountAsync(Guid documentId)
     {
@@ -261,6 +321,17 @@ public sealed class PipelineSendHarness : IAsyncLifetime
         var queries = scope.ServiceProvider.GetRequiredService<IDocumentQueries>();
         var document = await queries.GetByIdAsync(documentId);
         return document?.State;
+    }
+
+    /// <summary>
+    /// Liens reporting↔pièces (B2C03) gelés pour une transmission donnée, dans le sens transmission → pièces
+    /// (tenant courant). Permet de prouver que la voie d'envoi gèle bien le lien d'une déclaration 10.3 émise (B2C04).
+    /// </summary>
+    public async Task<IReadOnlyList<Liakont.Modules.Archive.Contracts.ReportingPieceLink>> GetReportingPieceLinksAsync(Guid documentId)
+    {
+        await using var scope = _provider!.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<Liakont.Modules.Archive.Contracts.IReportingPieceLinkStore>();
+        return await store.GetByDocumentAsync(CompanyId, documentId);
     }
 
     /// <summary>Indique si le contenu pivot est encore présent dans le staging.</summary>
@@ -419,13 +490,94 @@ public sealed class PipelineSendHarness : IAsyncLifetime
             RateValue = 20m,
         };
 
+        // Règle PART FRAIS (B4) : le job e-reporting B2C de la marge mappe les honoraires acheteur/vendeur avec
+        // Part.Frais (F03 §2.4). Le CHECK générique ne consulte QUE Part.Autre (ConsultedMappingParts) — cette
+        // règle additive n'affecte donc PAS le mapping des lignes des tests SEND. Clé (code, part) distincte → INV-TVAMAPPING-003 respectée.
+        var feeRule = new MappingRule
+        {
+            SourceRegimeCode = "NORMAL",
+            Label = "Frais 20 %",
+            Part = MappingPart.Frais,
+            Category = VatCategory.S,
+            RateMode = RateMode.Fixed,
+            RateValue = 20m,
+        };
+
+        // Règle PART AUTRE pour le RÉGIME DE LA MARGE (B4 — marquage 10.3) : l'adjudication exonérée d'un
+        // bordereau d'enchères est mappée E + VATEX-EU-J (objets de collection, art. 297 A / F03 §2.2/§2.3).
+        // C'est le signal VALIDÉ qui permet à la plateforme de DÉRIVER IsB2cReportingDeclaration au read-time
+        // (B2cMarginMarking) — la marge n'est jamais déduite mécaniquement (F03 §3). Clé (MARGE, Autre) distincte.
+        var marginAdjudicationRule = new MappingRule
+        {
+            SourceRegimeCode = "MARGE",
+            Label = "Régime de la marge — objets de collection (art. 297 A)",
+            Part = MappingPart.Autre,
+            Category = VatCategory.E,
+            Vatex = "VATEX-EU-J",
+            RateMode = RateMode.Fixed,
+            RateValue = 0m,
+        };
+
+        // Règle PART FRAIS pour le RÉGIME DE LA MARGE (B4 — taux de l'honoraire ACHETEUR) : depuis BUG-17 volet b,
+        // l'honoraire acheteur est une LIGNE qui porte le MÊME régime que son adjudication (« MARGE »). Le job B4
+        // mappe cette ligne en Part.Frais pour résoudre le taux (la jambe vendeur, régime « NORMAL », mappe déjà
+        // (NORMAL, Frais) → 20). Un frais est toujours taxable (S, F03 §2.3) ; taux 20 IDENTIQUE à (NORMAL, Frais)
+        // → buyer + seller au même taux (pas de MixedRates). Clé (MARGE, Frais) distincte de (MARGE, Autre) → INV-TVAMAPPING-003 respectée.
+        var marginFeeRule = new MappingRule
+        {
+            SourceRegimeCode = "MARGE",
+            Label = "Frais acheteur d'une vente au régime de la marge (20 %)",
+            Part = MappingPart.Frais,
+            Category = VatCategory.S,
+            RateMode = RateMode.Fixed,
+            RateValue = 20m,
+        };
+
+        // Règles PART AUTRE pour l'EXONÉRÉ INTERNATIONAL (BUG-11 — marquage 10.3) : l'adjudication d'un lot livré
+        // hors France est détaxée, mappée sur la clé par ZONE « EXP_{zone} » produite par l'agent (F03 §2.8). Le
+        // signal VALIDÉ permet à la plateforme de DÉRIVER l'exonéré international (B2cExportMarking) et de l'émettre
+        // en e-reporting B2C UNITAIRE, TT-81 par catégorie : EXP_HORSUE/EXP_FR -> G -> TLB1 (export 262 I / franchise
+        // 275) ; EXP_CEE -> K -> TNT1 (intracom 262 ter / 258 A).
+        var exportHorsUeRule = new MappingRule
+        {
+            SourceRegimeCode = "EXP_HORSUE",
+            Label = "Export hors UE détaxé (art. 262 I)",
+            Part = MappingPart.Autre,
+            Category = VatCategory.G,
+            Vatex = "VATEX-EU-G",
+            RateMode = RateMode.Fixed,
+            RateValue = 0m,
+        };
+
+        var intracomRule = new MappingRule
+        {
+            SourceRegimeCode = "EXP_CEE",
+            Label = "Livraison intracommunautaire (art. 262 ter / 258 A)",
+            Part = MappingPart.Autre,
+            Category = VatCategory.K,
+            Vatex = "VATEX-EU-IC",
+            RateMode = RateMode.Fixed,
+            RateValue = 0m,
+        };
+
+        var franchiseRule = new MappingRule
+        {
+            SourceRegimeCode = "EXP_FR",
+            Label = "Achat en franchise pour export (art. 275)",
+            Part = MappingPart.Autre,
+            Category = VatCategory.G,
+            Vatex = "VATEX-EU-G",
+            RateMode = RateMode.Fixed,
+            RateValue = 0m,
+        };
+
         var table = MappingTable.Create(
             CompanyId,
             MappingVersion,
             "Expert-comptable CMP",
             new DateOnly(2026, 7, 15),
             MappingDefaultBehavior.Block,
-            new[] { rule });
+            new[] { rule, feeRule, marginAdjudicationRule, marginFeeRule, exportHorsUeRule, intracomRule, franchiseRule });
 
         await using var scope = _provider!.CreateAsyncScope();
         var factory = scope.ServiceProvider.GetRequiredService<ITvaMappingUnitOfWorkFactory>();

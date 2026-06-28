@@ -74,7 +74,31 @@ public static class PivotCanonicalReader
             prepaidAmount: DecimalOrNull(map, "PrepaidAmount"),
             sourceData: TextOrNull(map, "SourceData"),
             paymentDueDate: DateOrNull(map, "PaymentDueDate"),
+            isB2cReportingDeclaration: BooleanOrFalse(map, "IsB2cReportingDeclaration"),
+            sellerFees: BuildListOrNull(map, "SellerFees", BuildSellerFee),
+            buyerFees: BuildListOrNull(map, "BuyerFees", BuildBuyerFee),
             invoicePeriod: ObjectOrNull(map, "InvoicePeriod") is { } invoicePeriod ? BuildInvoicePeriod(invoicePeriod) : null);
+    }
+
+    private static PivotSellerFeeDto BuildSellerFee(IDictionary<string, object?> map)
+    {
+        return new PivotSellerFeeDto(
+            lotReference: Text(map, "LotReference"),
+            netAmount: Number(map, "NetAmount"),
+            sourceRegimeCode: TextOrNull(map, "SourceRegimeCode"),
+            sourceLineRef: TextOrNull(map, "SourceLineRef"),
+            description: TextOrNull(map, "Description"));
+    }
+
+    private static PivotBuyerFeeDto BuildBuyerFee(IDictionary<string, object?> map)
+    {
+        return new PivotBuyerFeeDto(
+            lotReference: Text(map, "LotReference"),
+            netAmount: Number(map, "NetAmount"),
+            sourceRegimeCode: TextOrNull(map, "SourceRegimeCode"),
+            sourceLineRef: TextOrNull(map, "SourceLineRef"),
+            description: TextOrNull(map, "Description"),
+            sourceTaxAmount: DecimalOrNull(map, "SourceTaxAmount"));
     }
 
     private static PivotInvoicePeriodDto BuildInvoicePeriod(IDictionary<string, object?> map)
@@ -117,6 +141,12 @@ public static class PivotCanonicalReader
 
     private static PivotLineDto BuildLine(IDictionary<string, object?> map)
     {
+        // Rôle (F03 §2.3 amendement) : clé absente → Standard (le writer omet le rôle par défaut) ;
+        // SourceTaxAmount : clé absente → null. Miroir exact du writer pour le round-trip sans perte.
+        PivotLineRole role = map.TryGetValue("Role", out var rawRole)
+            ? (PivotLineRole)Enum.Parse(typeof(PivotLineRole), (string)rawRole!)
+            : PivotLineRole.Standard;
+
         return new PivotLineDto(
             description: Text(map, "Description"),
             netAmount: Number(map, "NetAmount"),
@@ -126,7 +156,9 @@ public static class PivotCanonicalReader
             taxes: BuildList(map, "Taxes", BuildLineTax),
             sourceLineRef: TextOrNull(map, "SourceLineRef"),
             sourceData: TextOrNull(map, "SourceData"),
-            unitCode: TextOrNull(map, "UnitCode"));
+            unitCode: TextOrNull(map, "UnitCode"),
+            role: role,
+            sourceTaxAmount: DecimalOrNull(map, "SourceTaxAmount"));
     }
 
     private static PivotLineTaxDto BuildLineTax(IDictionary<string, object?> map)
@@ -179,6 +211,15 @@ public static class PivotCanonicalReader
         return items.Select(item => build((IDictionary<string, object?>)item!)).ToList();
     }
 
+    // Collection OPTIONNELLE (frais vendeur B2C-08) : clé absente → null (le writer omet la clé quand le champ
+    // n'est pas porté). Round-trip sans perte d'un document sans frais vendeur — la collection n'est jamais
+    // coalescée en vide (seul un champ ABSENT est hash-neutre).
+    private static List<T>? BuildListOrNull<T>(
+        IDictionary<string, object?> map,
+        string key,
+        Func<IDictionary<string, object?>, T> build) =>
+        map.ContainsKey(key) ? BuildList(map, key, build) : null;
+
     private static List<string> TextList(IDictionary<string, object?> map, string key)
     {
         var items = (List<object?>)map[key]!;
@@ -196,6 +237,9 @@ public static class PivotCanonicalReader
         map.TryGetValue(key, out var value) ? (decimal?)(decimal)value! : null;
 
     private static bool Boolean(IDictionary<string, object?> map, string key) => (bool)map[key]!;
+
+    private static bool BooleanOrFalse(IDictionary<string, object?> map, string key) =>
+        map.ContainsKey(key) && (bool)map[key]!;
 
     private static DateTime Date(IDictionary<string, object?> map, string key) =>
         DateTime.ParseExact((string)map[key]!, "yyyy-MM-dd", CultureInfo.InvariantCulture);

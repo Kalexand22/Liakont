@@ -56,7 +56,20 @@ public static class PivotCanonicalJsonReader
         prepaidAmount: DecimalOrNull(element, "PrepaidAmount"),
         sourceData: StrOrNull(element, "SourceData"),
         paymentDueDate: DateOrNull(element, "PaymentDueDate"),
-        invoicePeriod: TryObject(element, "InvoicePeriod", out JsonElement invoicePeriod) ? ReadInvoicePeriod(invoicePeriod) : null);
+        isB2cReportingDeclaration: BoolOrFalse(element, "IsB2cReportingDeclaration"),
+        sellerFees: ReadListOrNull(element, "SellerFees", ReadSellerFee),
+        buyerFees: ReadListOrNull(element, "BuyerFees", ReadBuyerFee),
+        invoicePeriod: TryObject(element, "InvoicePeriod", out JsonElement invoicePeriod) ? ReadInvoicePeriod(invoicePeriod) : null,
+        paymentTerms: StrOrNull(element, "PaymentTerms"),
+        notes: ReadListOrNull(element, "Notes", ReadNote),
+        deliveryDate: DateOrNull(element, "DeliveryDate"));
+
+    // Note de document (EN 16931 BG-1, BUG-26) : miroir exact de CanonicalJson.WriteNote — Content (BT-22)
+    // requis, SubjectCode (BT-21) optionnel omis du JSON quand absent. La collection est lue par ReadListOrNull
+    // (absente → null, comme l'omet le writer) : un document sans note traverse le staging octet par octet inchangé.
+    private static PivotDocumentNoteDto ReadNote(JsonElement element) => new(
+        content: Str(element, "Content"),
+        subjectCode: StrOrNull(element, "SubjectCode"));
 
     // EN 16931 BG-14 (RD406, slot abonnement) : objet additif optionnel, miroir exact de
     // CanonicalJson.WriteInvoicePeriod (StartDate=BT-73 puis EndDate=BT-74, dates yyyy-MM-dd). Absent du
@@ -87,6 +100,8 @@ public static class PivotCanonicalJsonReader
         totalGross: Dec(element, "TotalGross"),
         sourceTotalGross: DecimalOrNull(element, "SourceTotalGross"));
 
+    // Rôle (F03 §2.3 amendement) : optionnel ABSENT → Standard (le writer omet le rôle par défaut, hash-neutre) ;
+    // SourceTaxAmount : optionnel ABSENT → null (omis par le writer). Miroir EXACT du writer pour le round-trip.
     private static PivotLineDto ReadLine(JsonElement element) => new(
         description: Str(element, "Description"),
         netAmount: Dec(element, "NetAmount"),
@@ -96,7 +111,9 @@ public static class PivotCanonicalJsonReader
         taxes: ReadList(element, "Taxes", ReadLineTax),
         sourceLineRef: StrOrNull(element, "SourceLineRef"),
         sourceData: StrOrNull(element, "SourceData"),
-        unitCode: StrOrNull(element, "UnitCode"));
+        unitCode: StrOrNull(element, "UnitCode"),
+        role: TryString(element, "Role", out string role) ? EnumByName<PivotLineRole>(role) : PivotLineRole.Standard,
+        sourceTaxAmount: DecimalOrNull(element, "SourceTaxAmount"));
 
     private static PivotLineTaxDto ReadLineTax(JsonElement element) => new(
         taxAmount: Dec(element, "TaxAmount"),
@@ -123,6 +140,25 @@ public static class PivotCanonicalJsonReader
         reasonCode: StrOrNull(element, "ReasonCode"),
         sourceRegimeCodes: StrList(element, "SourceRegimeCodes"));
 
+    private static PivotSellerFeeDto ReadSellerFee(JsonElement element) => new(
+        lotReference: Str(element, "LotReference"),
+        netAmount: Dec(element, "NetAmount"),
+        sourceRegimeCode: StrOrNull(element, "SourceRegimeCode"),
+        sourceLineRef: StrOrNull(element, "SourceLineRef"),
+        description: StrOrNull(element, "Description"));
+
+    // Frais acheteur (B2C-08c) : miroir exact de WriteBuyerFee — collection additive optionnelle lue par
+    // ReadListOrNull (absente du JSON → null, comme l'omet le writer). SourceTaxAmount (TVA de frais source,
+    // F03 §2.8) est un optionnel additif lu par DecimalOrNull : absent du JSON → null (frais détaxé/marge), comme
+    // l'omet le writer — sa lecture est REQUISE au SEND pour que la base HT d'export soit recouvrée à la relecture.
+    private static PivotBuyerFeeDto ReadBuyerFee(JsonElement element) => new(
+        lotReference: Str(element, "LotReference"),
+        netAmount: Dec(element, "NetAmount"),
+        sourceRegimeCode: StrOrNull(element, "SourceRegimeCode"),
+        sourceLineRef: StrOrNull(element, "SourceLineRef"),
+        description: StrOrNull(element, "Description"),
+        sourceTaxAmount: DecimalOrNull(element, "SourceTaxAmount"));
+
     // ── Primitives de lecture (par NOM de membre : l'ordre est sans incidence sur la lecture) ──
     private static string Str(JsonElement element, string name) => element.GetProperty(name).GetString()!;
 
@@ -142,6 +178,12 @@ public static class PivotCanonicalJsonReader
     }
 
     private static bool Bool(JsonElement element, string name) => element.GetProperty(name).GetBoolean();
+
+    // Booléen optionnel ABSENT du JSON → false : miroir EXACT du writer, qui OMET le marqueur 10.3 (B2C01)
+    // quand il est faux (champ additif hash-neutre). Un document qui ne porte pas la clé n'est jamais une
+    // déclaration B2C 10.3 ; le round-trip d'un tel document reste octet par octet identique.
+    private static bool BoolOrFalse(JsonElement element, string name) =>
+        element.TryGetProperty(name, out JsonElement value) && value.GetBoolean();
 
     private static DateTime Date(JsonElement element, string name) =>
         DateTime.ParseExact(Str(element, name), "yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -195,6 +237,12 @@ public static class PivotCanonicalJsonReader
 
         return list;
     }
+
+    // Collection OPTIONNELLE (frais vendeur B2C-08) : absente du JSON → null (le writer omet la clé quand le
+    // champ n'est pas porté, champ additif hash-neutre). Miroir exact du writer — le round-trip d'un document
+    // sans frais vendeur reste octet par octet identique (la collection n'est jamais coalescée en vide).
+    private static List<T>? ReadListOrNull<T>(JsonElement element, string name, Func<JsonElement, T> read) =>
+        element.TryGetProperty(name, out _) ? ReadList(element, name, read) : null;
 
     private static bool TryObject(JsonElement element, string name, out JsonElement value) =>
         element.TryGetProperty(name, out value);

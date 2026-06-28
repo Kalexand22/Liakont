@@ -31,6 +31,10 @@ public sealed class ParametrageViewTests : BunitContext
         cut.Find("[data-testid='parametrage-profil-siren']").TextContent.Should().Contain("123456782");
         cut.Find("[data-testid='parametrage-profil-raison']").TextContent.Should().Contain("Étude des Enchères");
         cut.Find("[data-testid='parametrage-profil-contact']").TextContent.Should().Contain("alerte@exemple.fr");
+
+        // BUG-15 : l'édition post-création du profil légal est offerte (bouton vers /parametrage/profil)
+        // dès qu'un profil existe.
+        cut.FindAll("[data-testid='parametrage-profil-link']").Should().ContainSingle();
     }
 
     [Fact]
@@ -40,6 +44,9 @@ public sealed class ParametrageViewTests : BunitContext
 
         cut.FindAll("[data-testid='parametrage-profil-absent']").Should().ContainSingle();
         cut.FindAll("[data-testid='parametrage-profil-content']").Should().BeEmpty();
+
+        // Pas de profil : pas de lien d'édition (rien à modifier — création via le wizard).
+        cut.FindAll("[data-testid='parametrage-profil-link']").Should().BeEmpty();
     }
 
     [Fact]
@@ -194,6 +201,17 @@ public sealed class ParametrageViewTests : BunitContext
         // StratumButton(Href) navigue au clic : on vérifie la CIBLE réelle.
         cut.Find("[data-testid='parametrage-fiscal-link']").Click();
         cut.Services.GetRequiredService<NavigationManager>().Uri.Should().EndWith("/parametrage/fiscal");
+    }
+
+    [Fact]
+    public void Should_Not_Render_A_Separate_Billing_Mentions_Card()
+    {
+        // BUG-26 (ajustement PO) : les mentions de facturation vivent DANS la page « Paramètres fiscaux »,
+        // plus comme carte séparée du hub. La vue d'ensemble revient à 9 cartes.
+        var cut = Render<ParametrageView>(p => p.Add(v => v.Model, BuildModel()));
+
+        cut.FindAll("[data-testid='parametrage-mentions']").Should().BeEmpty();
+        cut.FindAll("[data-testid='parametrage-mentions-link']").Should().BeEmpty();
     }
 
     [Fact]

@@ -12,7 +12,9 @@ using Liakont.Agent.Contracts.Pivot;
 /// champ s'AJOUTE en fin, ne se renomme/supprime jamais — <c>ADR-0007</c>, AgentContractVersion) ;</item>
 /// <item>les noms de membres sont les noms de propriété C# (PascalCase) ;</item>
 /// <item>un champ optionnel <c>null</c> est OMIS (jamais émis à <c>null</c>) ; une collection est
-/// toujours émise, même vide (<c>[]</c>) ;</item>
+/// toujours émise, même vide (<c>[]</c>) — SAUF une collection additive NULLABLE (ex. <c>SellerFees</c>,
+/// B2C-08) qui est OMISE quand elle est <c>null</c>, exactement comme un optionnel scalaire (son lecteur
+/// doit utiliser <c>ReadListOrNull</c> / <c>BuildListOrNull</c> pour refléter ce comportement) ;</item>
 /// <item>les énumérations sont émises par leur NOM (ex. catégorie UNCL5305 <c>"E"</c>,
 /// <c>OperationCategory</c> <c>"Mixte"</c>), pas par leur valeur numérique.</item>
 /// </list>
@@ -120,6 +122,36 @@ public static class CanonicalJson
             writer.WriteDate(document.PaymentDueDate.Value);
         }
 
+        // Marqueur de flux 10.3 (e-reporting B2C / B2C01) : champ ADDITIF en FIN (ADR-0007), émis SEULEMENT
+        // quand il est VRAI — contrairement à IsSelfBilled (toujours émis), ce booléen est OMIS s'il est faux
+        // pour que le hash canonique d'un document qui n'est PAS une déclaration 10.3 reste INCHANGÉ (pattern
+        // EXT01, hash identique octet par octet).
+        if (document.IsB2cReportingDeclaration)
+        {
+            writer.WritePropertyName("IsB2cReportingDeclaration");
+            writer.WriteBoolean(document.IsB2cReportingDeclaration);
+        }
+
+        // Frais vendeur (BV, B2C-08) : champ ADDITIF en FIN (ADR-0007), donnée de calcul de la marge — émis
+        // SEULEMENT quand il est porté (collection nullable OMISE quand null, comme un optionnel : seul un champ
+        // ABSENT est hash-neutre). Un document sans frais vendeur produit le JSON canonique INCHANGÉ (octet par
+        // octet, pattern EXT01). Aucune ventilation de TVA n'y figure (art. 297 E) : ce n'est pas une ligne.
+        if (document.SellerFees != null)
+        {
+            writer.WritePropertyName("SellerFees");
+            WriteArray(writer, document.SellerFees, WriteSellerFee);
+        }
+
+        // Frais acheteur (B2C-08c, 2e jambe de la marge) : champ ADDITIF en FIN (ADR-0007), symétrique strict
+        // de SellerFees — collection nullable OMISE quand null (seul un champ ABSENT est hash-neutre). Un
+        // document sans frais acheteur produit le JSON canonique INCHANGÉ (octet par octet, pattern EXT01).
+        // Aucune ventilation de TVA (art. 297 E) : ce n'est pas une ligne.
+        if (document.BuyerFees != null)
+        {
+            writer.WritePropertyName("BuyerFees");
+            WriteArray(writer, document.BuyerFees, WriteBuyerFee);
+        }
+
         // EN 16931 BG-14 (slot réservé abonnement — RD406) : champ ADDITIF en FIN (ADR-0007), émis
         // SEULEMENT s'il est porté — un document sans période produit le JSON canonique INCHANGÉ.
         if (document.InvoicePeriod != null)
@@ -128,6 +160,67 @@ public static class CanonicalJson
             WriteInvoicePeriod(writer, document.InvoicePeriod);
         }
 
+        // EN 16931 BT-20 (termes de paiement, BUG-26 / F16 §3.5) : champ ADDITIF en FIN (ADR-0007), émis
+        // SEULEMENT s'il est porté — un document sans termes de paiement produit le JSON canonique INCHANGÉ.
+        WriteOptionalString(writer, "PaymentTerms", document.PaymentTerms);
+
+        // EN 16931 BG-1 (notes / mentions légales FR — BUG-26) : collection nullable OMISE quand null (comme
+        // SellerFees) — un document sans note produit le JSON canonique INCHANGÉ octet par octet (pattern EXT01).
+        if (document.Notes != null)
+        {
+            writer.WritePropertyName("Notes");
+            WriteArray(writer, document.Notes, WriteNote);
+        }
+
+        // EN 16931 BT-72 (date de livraison effective — BUG-26 / R008) : champ ADDITIF en FIN (ADR-0007),
+        // émis SEULEMENT s'il est porté — un document sans date de livraison produit le JSON canonique INCHANGÉ.
+        if (document.DeliveryDate.HasValue)
+        {
+            writer.WritePropertyName("DeliveryDate");
+            writer.WriteDate(document.DeliveryDate.Value);
+        }
+
+        writer.EndObject();
+    }
+
+    private static void WriteNote(CanonicalJsonWriter writer, PivotDocumentNoteDto note)
+    {
+        writer.BeginObject();
+        writer.WritePropertyName("Content");
+        writer.WriteString(note.Content);
+        WriteOptionalString(writer, "SubjectCode", note.SubjectCode);
+        writer.EndObject();
+    }
+
+    private static void WriteSellerFee(CanonicalJsonWriter writer, PivotSellerFeeDto fee)
+    {
+        writer.BeginObject();
+        writer.WritePropertyName("LotReference");
+        writer.WriteString(fee.LotReference);
+        writer.WritePropertyName("NetAmount");
+        writer.WriteDecimal(fee.NetAmount);
+        WriteOptionalString(writer, "SourceRegimeCode", fee.SourceRegimeCode);
+        WriteOptionalString(writer, "SourceLineRef", fee.SourceLineRef);
+        WriteOptionalString(writer, "Description", fee.Description);
+        writer.EndObject();
+    }
+
+    private static void WriteBuyerFee(CanonicalJsonWriter writer, PivotBuyerFeeDto fee)
+    {
+        writer.BeginObject();
+        writer.WritePropertyName("LotReference");
+        writer.WriteString(fee.LotReference);
+        writer.WritePropertyName("NetAmount");
+        writer.WriteDecimal(fee.NetAmount);
+        WriteOptionalString(writer, "SourceRegimeCode", fee.SourceRegimeCode);
+        WriteOptionalString(writer, "SourceLineRef", fee.SourceLineRef);
+        WriteOptionalString(writer, "Description", fee.Description);
+
+        // TVA de frais source (F03 §2.8) : champ ADDITIF en FIN du frais acheteur (ADR-0007, ordre de
+        // déclaration), émis SEULEMENT s'il est porté — un frais SANS TVA source (export détaxé, marge) produit
+        // le JSON canonique INCHANGÉ octet par octet (pattern EXT01). Ce n'est pas une ventilation de TVA du flux
+        // 10.3 : c'est le terme brut qui permet à la plateforme de recouvrer la base HT (NetAmount − SourceTaxAmount).
+        WriteOptionalDecimal(writer, "SourceTaxAmount", fee.SourceTaxAmount);
         writer.EndObject();
     }
 
@@ -209,6 +302,20 @@ public static class CanonicalJson
         // s'il est porté — une ligne sans unité produit le JSON canonique INCHANGÉ (hash identique
         // octet par octet ; l'unité neutre C62 est appliquée par l'émetteur, pas par le pivot).
         WriteOptionalString(writer, "UnitCode", line.UnitCode);
+
+        // Rôle de ligne (F03 §2.3 amendement, BUG-17 volet b) : champ ADDITIF en FIN (ADR-0007), émis SEULEMENT
+        // quand NON-défaut (≠ Standard) — une ligne ordinaire / d'adjudication produit le JSON canonique INCHANGÉ
+        // (hash identique octet par octet, pattern EXT01). Émis par son NOM (WriteEnum, garde RDL01).
+        if (line.Role != PivotLineRole.Standard)
+        {
+            writer.WritePropertyName("Role");
+            writer.WriteEnum(line.Role);
+        }
+
+        // TVA de frais source (F03 §2.8) d'une ligne d'honoraire acheteur : champ ADDITIF en FIN (ADR-0007),
+        // émis SEULEMENT s'il est porté — une ligne ordinaire (sans TVA de frais source) produit le JSON canonique
+        // INCHANGÉ octet par octet. Terme BRUT (recouvrement base HT / dé-pliage taxable), pas une ventilation 10.3.
+        WriteOptionalDecimal(writer, "SourceTaxAmount", line.SourceTaxAmount);
         writer.EndObject();
     }
 

@@ -19,8 +19,8 @@ using Liakont.Agent.Contracts.Transport;
 /// <para>On enregistre un convertisseur PAR énumération du contrat (et non un
 /// <see cref="JsonStringEnumConverter"/> global) pour ne pas changer le format des autres enums des
 /// endpoints console — la liaison agent et la liaison console partagent les mêmes
-/// <c>Http.Json.JsonOptions</c>. Les trois enums du contrat (deux en requête, un en réponse) sont
-/// couverts. Les deux convertisseurs de REQUÊTE (modèle pivot) posent <c>allowIntegerValues:false</c>
+/// <c>Http.Json.JsonOptions</c>. Les quatre enums du contrat (trois en requête, un en réponse) sont
+/// couverts. Les trois convertisseurs de REQUÊTE (modèle pivot) posent <c>allowIntegerValues:false</c>
 /// (RDL01) : un entier hors plage est rejeté au model-binding, jamais accepté comme valeur d'enum non
 /// définie (qui finirait hashée/archivée en nombre muet) ; le convertisseur de RÉPONSE
 /// (<see cref="DocumentPushStatus"/>) garde le défaut (la plateforme ne produit que des valeurs définies).</para>
@@ -58,6 +58,11 @@ internal static class AgentApiJson
         // « bloquer plutôt qu'envoyer faux », CLAUDE.md n°3 — symétrique de la garde WriteEnum du writer).
         options.Converters.Add(new JsonStringEnumConverter<OperationCategory>(namingPolicy: null, allowIntegerValues: false));
         options.Converters.Add(new JsonStringEnumConverter<VatCategory>(namingPolicy: null, allowIntegerValues: false));
+
+        // Rôle de ligne (F03 §2.3 amendement, BUG-17 volet b) : enum de REQUÊTE du modèle pivot, émis par son NOM
+        // (« BuyerFee ») par le writer canonique — sans ce convertisseur un push agent portant une ligne d'honoraire
+        // acheteur serait rejeté en 400. Binding STRICT (allowIntegerValues:false, RDL01) comme les autres enums de requête.
+        options.Converters.Add(new JsonStringEnumConverter<PivotLineRole>(namingPolicy: null, allowIntegerValues: false));
 
         // Réponse (statut d'ingestion par document) : émis par nom, symétrique de la requête
         // (contrat-agent-v1.md §3 — Status "Accepted"/"Duplicate"/"Rejected").

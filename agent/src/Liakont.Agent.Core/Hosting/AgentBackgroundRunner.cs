@@ -17,12 +17,21 @@ public sealed class AgentBackgroundRunner : IDisposable
     private readonly TimeSpan _pollInterval;
     private readonly IAgentLog _log;
     private readonly GracefulRunGate _gate;
+    private readonly string _threadName;
     private readonly CancellationTokenSource _cts = new CancellationTokenSource();
     private Thread? _thread;
     private int _started;
     private int _disposed;
 
-    public AgentBackgroundRunner(Action<CancellationToken> runCycle, TimeSpan pollInterval, IAgentLog log, GracefulRunGate? gate = null)
+    /// <param name="runCycle">Le cycle exécuté à chaque tick.</param>
+    /// <param name="pollInterval">L'intervalle entre deux ticks (strictement positif).</param>
+    /// <param name="log">Journal de l'agent.</param>
+    /// <param name="gate">Barrière d'arrêt partagée (optionnelle).</param>
+    /// <param name="threadName">
+    /// Nom du thread de fond, pour distinguer plusieurs hôtes dans un dump de production (ex. extraction
+    /// vs heartbeat). Défaut : <c>LiakontAgentRunner</c> (comportement historique).
+    /// </param>
+    public AgentBackgroundRunner(Action<CancellationToken> runCycle, TimeSpan pollInterval, IAgentLog log, GracefulRunGate? gate = null, string threadName = "LiakontAgentRunner")
     {
         _runCycle = runCycle ?? throw new ArgumentNullException(nameof(runCycle));
         if (pollInterval <= TimeSpan.Zero)
@@ -33,6 +42,7 @@ public sealed class AgentBackgroundRunner : IDisposable
         _pollInterval = pollInterval;
         _log = log ?? throw new ArgumentNullException(nameof(log));
         _gate = gate ?? new GracefulRunGate();
+        _threadName = string.IsNullOrWhiteSpace(threadName) ? "LiakontAgentRunner" : threadName;
     }
 
     /// <summary>Barrière d'arrêt partagée (le run réel, câblé plus tard, l'utilise pour s'enregistrer).</summary>
@@ -49,7 +59,7 @@ public sealed class AgentBackgroundRunner : IDisposable
         _thread = new Thread(Loop)
         {
             IsBackground = true,
-            Name = "LiakontAgentRunner",
+            Name = _threadName,
         };
         _thread.Start();
     }

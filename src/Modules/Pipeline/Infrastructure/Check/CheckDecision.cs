@@ -2,6 +2,7 @@ namespace Liakont.Modules.Pipeline.Infrastructure.Check;
 
 using System.Collections.Generic;
 using Liakont.Agent.Contracts.Pivot;
+using Liakont.Modules.Pipeline.Domain.B2cReporting;
 using Liakont.Modules.Pipeline.Domain.Ventilation;
 
 /// <summary>
@@ -29,20 +30,33 @@ internal sealed record CheckDecision
     /// <summary>Nature de l'opération du document (déterminée à l'émission) ; <c>null</c> si bloqué.</summary>
     public OperationCategory? OperationCategory { get; private init; }
 
+    /// <summary>
+    /// Entrée du registre de la marge à déclarer (L2) résolue au CHECK quand le document est au régime de la marge
+    /// (lecture seule, fail-closed) ; <c>null</c> si le document n'est pas une marge, si la marge est bloquée, ou
+    /// si la décision est bloquée. L'appelant l'écrit (upsert) à côté du snapshot de ventilation ; un document prêt
+    /// SANS entrée fait SUPPRIMER une entrée périmée (re-mapping marge → taxable).
+    /// </summary>
+    public MarginRegistryEntry? MarginRegistryEntry { get; private init; }
+
     /// <summary>Vrai si le document est prêt à l'envoi (aucun motif de blocage).</summary>
     public bool IsReady => BlockReason is null;
 
     /// <summary>Crée une décision « bloqué » avec son motif opérateur.</summary>
     public static CheckDecision Blocked(string reason) => new() { BlockReason = reason };
 
-    /// <summary>Crée une décision « prêt » avec la version de table, la ventilation sourcée et la nature d'opération.</summary>
+    /// <summary>
+    /// Crée une décision « prêt » avec la version de table, la ventilation sourcée, la nature d'opération et,
+    /// le cas échéant, l'entrée de registre de marge à déclarer (<c>null</c> si le document n'est pas une marge).
+    /// </summary>
     public static CheckDecision Ready(
         string? mappingVersion,
         IReadOnlyList<VentilationLine> ventilation,
-        OperationCategory operationCategory) => new()
+        OperationCategory operationCategory,
+        MarginRegistryEntry? marginRegistryEntry = null) => new()
     {
         MappingVersion = mappingVersion,
         Ventilation = ventilation,
         OperationCategory = operationCategory,
+        MarginRegistryEntry = marginRegistryEntry,
     };
 }

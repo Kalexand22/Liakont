@@ -44,6 +44,13 @@ public static class SuperPdpDefaults
     public const string InvoicesPath = "invoices";
 
     /// <summary>
+    /// Chemin relatif d'envoi des transactions e-reporting B2C (✅ POST confirmé sandbox 2026-06-22 :
+    /// <c>POST /v1.beta/b2c_transactions</c>, body JSON <c>{ data: [ b2c_transaction ] }</c>, id serveur
+    /// assigné). Relatif au préfixe de version.
+    /// </summary>
+    public const string B2cTransactionsPath = "b2c_transactions";
+
+    /// <summary>
     /// Chemin relatif de l'entreprise liée au compte OAuth (✅ endpoint confirmé sandbox 2026-06-12 :
     /// <c>GET /v1.beta/companies/me</c> → <c>{ number, formal_name, … }</c> — F14 §3.2,
     /// <c>SuperPdpSandboxTests</c>). Sert à LIRE l'état de publication du SIREN : Super PDP n'expose pas de

@@ -2,13 +2,12 @@ namespace Liakont.Modules.TenantSettings.Contracts.DTOs;
 
 /// <summary>
 /// Résultat d'un import de seed <c>deployments/&lt;client&gt;/</c> (F12-A §8). Idempotent
-/// (crée ou met à jour). <see cref="Warnings"/> trace notamment les clés API laissées vides
+/// (crée ou met à jour). N'importe QUE du paramétrage : l'identité légale n'est jamais seedée (BUG-14),
+/// donc aucun drapeau « profil ». <see cref="Warnings"/> trace notamment les clés API laissées vides
 /// (placeholders) à compléter via la console — jamais de secret écrit en clair.
 /// </summary>
 public record ImportTenantSeedResult
 {
-    public required bool ProfileImported { get; init; }
-
     public required bool FiscalImported { get; init; }
 
     public required int PaAccountsImported { get; init; }
