@@ -335,6 +335,69 @@ public sealed class DocumentReceivedConsumerTests
     }
 
     [Fact]
+    public async Task Without_Any_Active_Pa_Account_Sandbox_Test_Identifiers_Are_Not_Tolerated()
+    {
+        // BUG-23 (durcissement) : la dérogation aux SIREN de TEST sandbox exige une PREUVE POSITIVE de contexte hors
+        // production. Aucun compte PA actif ⇒ fail-closed : la validation reçoit allowSandboxTestIdentifiers = false
+        // (sinon un SIREN de test resterait toléré sur un tenant non configuré, alors qu'il doit échouer au Luhn).
+        var documentId = Guid.NewGuid();
+        var harness = Build(
+            document: CheckTestData.Document(documentId, "Detected"),
+            companyId: Guid.NewGuid(),
+            staging: Staging(CheckTestData.SingleLinePivot()),
+            mapping: CheckTestData.MappedResult(),
+            validation: ValidOk);
+
+        await harness.Consumer.HandleAsync(CheckTestData.Event(documentId));
+
+        harness.Validation.WasCalled.Should().BeTrue();
+        harness.Validation.LastAllowSandboxTestIdentifiers.Should().BeFalse(
+            "sans compte PA actif, aucune dérogation aux SIREN de test (fail-closed)");
+    }
+
+    [Fact]
+    public async Task Active_Sandbox_Account_Tolerates_Sandbox_Test_Identifiers()
+    {
+        // Contexte sandbox réellement câblé (compte PA actif, aucun en production) ⇒ la validation reçoit
+        // allowSandboxTestIdentifiers = true : le flux recette SuperPDP reste préservé.
+        var documentId = Guid.NewGuid();
+        var harness = Build(
+            document: CheckTestData.Document(documentId, "Detected"),
+            companyId: Guid.NewGuid(),
+            staging: Staging(CheckTestData.SingleLinePivot()),
+            mapping: CheckTestData.MappedResult(),
+            validation: ValidOk,
+            paAccounts: new[] { CheckTestData.PaAccount("Sandbox", isActive: true) });
+
+        await harness.Consumer.HandleAsync(CheckTestData.Event(documentId));
+
+        harness.Validation.WasCalled.Should().BeTrue();
+        harness.Validation.LastAllowSandboxTestIdentifiers.Should().BeTrue(
+            "un compte sandbox actif (aucun en production) tolère les SIREN de test");
+    }
+
+    [Fact]
+    public async Task Active_Production_Account_Never_Tolerates_Sandbox_Test_Identifiers()
+    {
+        // Même avec une table validée (le garde-fou production ne bloque pas), un compte production actif INTERDIT la
+        // dérogation : la clé de Luhn reste stricte en production (CLAUDE.md n°3).
+        var documentId = Guid.NewGuid();
+        var harness = Build(
+            document: CheckTestData.Document(documentId, "Detected"),
+            companyId: Guid.NewGuid(),
+            staging: Staging(CheckTestData.SingleLinePivot()),
+            mapping: CheckTestData.MappedResult(),
+            validation: ValidOk,
+            paAccounts: new[] { CheckTestData.PaAccount("Production", isActive: true) });
+
+        await harness.Consumer.HandleAsync(CheckTestData.Event(documentId));
+
+        harness.Validation.WasCalled.Should().BeTrue();
+        harness.Validation.LastAllowSandboxTestIdentifiers.Should().BeFalse(
+            "un compte production actif interdit la dérogation aux SIREN de test");
+    }
+
+    [Fact]
     public async Task Absent_Mapping_Table_Blocks_With_Create_Table_Reason()
     {
         var documentId = Guid.NewGuid();

@@ -76,7 +76,8 @@
                 </div>
                 <div class="liakont-doc-detail__row">
                     <dt>Dernière activité</dt>
-                    <dd>@_model.LastActivityUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr)</dd>
+                    @* Affiché au fuseau du NAVIGATEUR de l'opérateur (RB6), comme la liste sœur — jamais l'heure SERVEUR. *@
+                    <dd data-testid="emission-detail-last-activity"><LiakontDate Value="_model.LastActivityUtc" /></dd>
                 </div>
             </dl>
         </SectionCard>

@@ -9,6 +9,8 @@ using FluentAssertions;
 using Liakont.Host.B2cReporting;
 using Liakont.Host.Components.Pages;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.JSInterop;
+using Stratum.Common.UI.Time;
 using Xunit;
 
 /// <summary>
@@ -76,6 +78,24 @@ public sealed class B2cMarginEmissionDetailTests : BunitContext
     }
 
     [Fact]
+    public void Last_Activity_Renders_In_The_Browser_Timezone()
+    {
+        // BUG-22 (suivi review) : « Dernière activité » au fuseau du NAVIGATEUR (RB6), pas du serveur — cohérent avec
+        // la liste sœur. Fuseau résolu (Europe/Paris, UTC+2 en juin) ⇒ 09:30 UTC → 11:30 local, jamais de suffixe UTC.
+        var paris = TimeZoneInfo.FindSystemTimeZoneById(OperatingSystem.IsWindows() ? "Romance Standard Time" : "Europe/Paris");
+        Services.AddScoped<IBrowserTimeZone>(_ => new ResolvedBrowserTimeZone(paris));
+        var batchId = Guid.NewGuid();
+        Services.AddScoped<IB2cMarginEmissionsConsoleQueries>(_ => FakeQueries.Returning(
+            Detail(batchId, status: "Issued", paEmissionId: "591")));
+
+        var cut = Render<B2cMarginEmissionDetail>(p => p.Add(v => v.EmissionBatchId, batchId));
+
+        var cell = cut.Find("[data-testid='emission-detail-last-activity']").TextContent;
+        cell.Should().Contain("23/06/2026 11:30", "09:30 UTC est rendu au fuseau navigateur (UTC+2 en juin)");
+        cell.Should().NotContain("UTC", "la dernière activité n'est plus rendue en UTC ni en heure serveur");
+    }
+
+    [Fact]
     public void Shows_A_Not_Found_Banner_When_The_Batch_Is_Unknown()
     {
         Services.AddScoped<IB2cMarginEmissionsConsoleQueries>(_ => FakeQueries.Returning(null));
@@ -118,6 +138,24 @@ public sealed class B2cMarginEmissionDetailTests : BunitContext
             LastActivityUtc = new DateTimeOffset(2026, 6, 23, 9, 30, 0, TimeSpan.Zero),
             Documents = documents ?? [],
         };
+
+    // Fuseau navigateur DÉJÀ résolu (LiakontDate rend alors en heure locale, sans suffixe UTC).
+    private sealed class ResolvedBrowserTimeZone : IBrowserTimeZone
+    {
+        public ResolvedBrowserTimeZone(TimeZoneInfo zone) => Zone = zone;
+
+        public event Action? Resolved
+        {
+            add { }
+            remove { }
+        }
+
+        public TimeZoneInfo? Zone { get; }
+
+        public bool IsResolved => true;
+
+        public Task EnsureResolvedAsync(IJSRuntime js, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
 
     private sealed class FakeQueries : IB2cMarginEmissionsConsoleQueries
     {

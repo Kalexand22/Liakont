@@ -150,9 +150,13 @@ internal static class CheckTestDoubles
         /// <summary>Vrai si la validation des seules règles INDÉPENDANTES du mapping (FIX06) a été appelée.</summary>
         public bool MappingIndependentWasCalled { get; private set; }
 
+        /// <summary>Valeur du flag de dérogation aux SIREN de test sandbox reçue au dernier appel de validation (BUG-23).</summary>
+        public bool? LastAllowSandboxTestIdentifiers { get; private set; }
+
         public Task<ValidationResult> ValidateAsync(DocumentValidationContext context, CancellationToken cancellationToken = default)
         {
             WasCalled = true;
+            LastAllowSandboxTestIdentifiers = context.AllowSandboxTestIdentifiers;
             return Task.FromResult(_result);
         }
 

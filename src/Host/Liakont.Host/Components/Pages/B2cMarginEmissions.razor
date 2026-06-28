@@ -92,7 +92,10 @@ else
             },
             [nameof(B2cMarginEmissionRow.LastActivityUtc)] = item => __builder =>
             {
-                __builder.AddContent(0, item.LastActivityUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Fr));
+                // Fuseau du NAVIGATEUR de l'opérateur (RB6), cohérent avec la fiche détail — jamais l'heure SERVEUR.
+                __builder.OpenComponent<LiakontDate>(0);
+                __builder.AddAttribute(1, "Value", item.LastActivityUtc);
+                __builder.CloseComponent();
             },
             [nameof(B2cMarginEmissionRow.Status)] = item => __builder =>
             {

@@ -119,10 +119,12 @@ internal static class DocumentCheckEvaluator
                 services, companyId, documentNumber, TableAbsentReason, pivot, buyerConfirmedB2C, cancellationToken);
         }
 
-        // Contexte d'environnement PA (compte ACTIF), calculé une fois : sert au garde-fou production (table non
-        // validée) ET au gating de la dérogation SIREN de test sandbox (BUG-23) — hors production, les règles
-        // d'identité tolèrent les SIREN de test sandbox ; en production la clé de Luhn reste stricte (CLAUDE.md n°3).
-        var isProductionPaContext = await IsProductionContextAsync(tenantSettings, companyId, cancellationToken);
+        // Comptes PA ACTIFS du tenant, lus une fois : pilotent le garde-fou production (table non validée) ET le
+        // gating de la dérogation aux SIREN de TEST sandbox (BUG-23). La dérogation exige une PREUVE POSITIVE de
+        // contexte hors production (cf. AllowsSandboxTestIdentifiers) — jamais la simple absence de compte (CLAUDE.md n°3).
+        var paAccounts = await tenantSettings.GetPaAccounts(companyId, cancellationToken);
+        var isProductionPaContext = HasActiveProductionAccount(paAccounts);
+        var allowSandboxTestIdentifiers = AllowsSandboxTestIdentifiers(paAccounts);
 
         if (!mapping.IsValidated && isProductionPaContext)
         {
@@ -157,7 +159,7 @@ internal static class DocumentCheckEvaluator
 
         var validation = services.GetRequiredService<IValidationService>();
         var validationResult = await validation.ValidateAsync(
-            new DocumentValidationContext(evaluation.EnrichedDocument!, companyId, buyerConfirmedB2C, allowSandboxTestIdentifiers: !isProductionPaContext), cancellationToken);
+            new DocumentValidationContext(evaluation.EnrichedDocument!, companyId, buyerConfirmedB2C, allowSandboxTestIdentifiers), cancellationToken);
 
         if (validationResult.HasBlockingIssue)
         {
@@ -483,16 +485,19 @@ internal static class DocumentCheckEvaluator
     /// Vrai si le tenant a au moins un compte Plateforme Agréée ACTIF en environnement « Production ». Le
     /// comportement est piloté par l'environnement déclaré du compte, jamais par un plug-in PA concret.
     /// </summary>
-    private static async Task<bool> IsProductionContextAsync(
-        ITenantSettingsQueries tenantSettings,
-        Guid companyId,
-        CancellationToken cancellationToken)
-    {
-        IReadOnlyList<PaAccountDto> accounts = await tenantSettings.GetPaAccounts(companyId, cancellationToken);
-        return accounts.Any(account =>
+    private static bool HasActiveProductionAccount(IReadOnlyList<PaAccountDto> accounts) =>
+        accounts.Any(account =>
             account.IsActive
             && string.Equals(account.Environment, ProductionEnvironmentName, StringComparison.OrdinalIgnoreCase));
-    }
+
+    /// <summary>
+    /// Dérogation aux SIREN de TEST sandbox (BUG-23) accordée UNIQUEMENT sur PREUVE POSITIVE d'un contexte hors
+    /// production : au moins un compte PA ACTIF et AUCUN en production. L'absence totale de compte actif NE déroge
+    /// PAS (fail-closed) — sinon un SIREN de test resterait toléré sur un tenant non configuré, alors qu'il doit
+    /// être rejeté par la clé de Luhn. On ne tolère que là où un sandbox/staging est réellement câblé (CLAUDE.md n°3).
+    /// </summary>
+    private static bool AllowsSandboxTestIdentifiers(IReadOnlyList<PaAccountDto> accounts) =>
+        accounts.Any(account => account.IsActive) && !HasActiveProductionAccount(accounts);
 
     /// <summary>Agrège les messages opérateur des anomalies BLOQUANTES de la validation en un motif unique.</summary>
     private static string AggregateBlockingIssues(ValidationResult validationResult)
@@ -526,9 +531,11 @@ internal static class DocumentCheckEvaluator
         var reasons = new List<string> { WithDocumentNumber(documentNumber, mappingReason) };
 
         // Même gating sandbox que la voie nominale (BUG-23) : dans l'agrégation des motifs bloquants, une identité
-        // de test sandbox PA ne doit pas ajouter un motif Luhn parasite hors production (le compte PA actif tranche).
+        // de test sandbox PA ne doit pas ajouter un motif Luhn parasite hors production. Dérogation accordée
+        // seulement sur preuve positive de contexte hors production (cf. AllowsSandboxTestIdentifiers).
         var tenantSettings = services.GetRequiredService<ITenantSettingsQueries>();
-        var allowSandboxTestIdentifiers = !await IsProductionContextAsync(tenantSettings, companyId, cancellationToken);
+        var paAccounts = await tenantSettings.GetPaAccounts(companyId, cancellationToken);
+        var allowSandboxTestIdentifiers = AllowsSandboxTestIdentifiers(paAccounts);
 
         var validation = services.GetRequiredService<IValidationService>();
         var validationResult = await validation.ValidateMappingIndependentAsync(

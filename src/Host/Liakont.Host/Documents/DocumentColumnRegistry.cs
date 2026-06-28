@@ -22,8 +22,12 @@ internal sealed class DocumentColumnRegistry : ColumnRegistryBase<DocumentSummar
 
         // Famille de pièce (BUG-20) : bordereau acheteur/vendeur, facture client, note d'honoraires — dérivée
         // de la référence source par le ColumnTemplate de la page (DocumentFamilyDisplay). La clé porte la
-        // référence source brute (un BA et un BV de même numéro ont des références distinctes → tri/recherche
-        // fiables) ; l'affichage écran montre le libellé FR de la famille, distinction absente du « Type ».
+        // référence source BRUTE : l'AFFICHAGE montre le libellé FR de la famille, mais le TRI et la RECHERCHE
+        // opèrent sur la référence source (le tri groupe BA/BV, et l'on filtre en saisissant le segment
+        // famille brut « ba »/« bv »/« fc »/« nh », pas le libellé FR affiché). Même compromis que la colonne
+        // « État » (filtrée par le sélecteur FR dédié de la page). Unifier tri/recherche sur le libellé FR
+        // exigerait de descendre la dérivation de famille (logique d'affichage Host) dans le DTO Contracts —
+        // franchissement de frontière non justifié par ce besoin. Distinction absente du « Type ».
         Column("SourceReference", "Famille de pièce", "Document", ColumnDataType.Text, defaultVisible: true, sortOrder: 5);
 
         // État : colonne Texte (PAS Enum). Un Enum exposerait les CLÉS BRUTES anglaises (Issued,
