@@ -45,8 +45,8 @@ vert + revue Claude **clean** au round 3). Détail + commit sous chaque bug.
 | BUG-18 | `9cb6d3d6` | BUG-23 | `9cf206f5` | BUG-25 | `c3e08589` |
 | BUG-19 | `84ed063b` | revue P2 | `517d247c` | | |
 
-**Hors lot (toujours ouverts)** : BUG-21 (P1 numérotation — bloqué spec F06/F14, ne pas deviner), BUG-5 (lignes avant
-transmission — décision A/B en attente).
+**Hors lot (toujours ouvert)** : BUG-21 (P1 — collision d'identifiant transmis à la PA, voir section dédiée).
+*(BUG-5 « lignes avant transmission » ✅ RÉSOLU — commit `bca433fd`, voir sa section.)*
 
 ---
 
@@ -148,6 +148,11 @@ revue Claude **clean** au round 3). Détail + commit sous chaque bug.
   totaux↔lignes) s'affichent **dès que le document est lu/contrôlé** (états Bloqué / Prêt-à-envoyer inclus), pas
   uniquement après transmission. Le placeholder ne subsiste qu'en l'absence réelle de lignes. Test bUnit sur un
   document Bloqué qui montre ses lignes.
+- **✅ RÉSOLU (2026-06-28, commit `bca433fd`)** : `DocumentDetailView` rejoue le pivot **au read-time** (rejeu du
+  mapping) → lignes + catégorie/VATEX/taux + contrôle de cohérence totaux↔lignes affichés **dès que le document est
+  lu/contrôlé** (états Bloqué / Prêt-à-envoyer inclus). Le placeholder ne subsiste qu'en l'absence RÉELLE de lignes.
+  Test bUnit sur un document non transmis qui montre ses lignes. (Option (a) du critère retenue ; pas de décision A/B
+  en attente — le tracker était périmé.)
 
 ## BUG-6 — Les messages opérateur invoquent « l'expert-comptable » (à bannir)
 
@@ -588,10 +593,21 @@ revue Claude **clean** au round 3). Détail + commit sous chaque bug.
   **interne** OK. Mais `Number` = numéro **brut** (`no_ba`/`no_bv`/`no_fact`/`no_note_hono`, `EncheresV6RowMapper`)
   → **non unique entre familles**. Touche surtout la **voie document / e-invoicing** (où le numéro part à la PA) ;
   l'e-reporting B2C agrégé est moins exposé (pas de numéro de pièce par opération).
-- **À NE PAS inventer** : la numérotation de pièce est **réglementée** (numérotation par mandant/séquence, F06/F14,
-  BOI) → ne pas fabriquer un schéma `BA-xxx`. À trancher avec la spec : (a) désambiguïser la **référence transmise**
-  par famille sans toucher au numéro légal affiché, (b) confirmer la **clé d'anti-doublon SuperPDP** (champ exact)
-  et si un identifiant composite est permis, (c) la règle de numérotation par la spec.
+- **Faits VÉRIFIÉS (28/06)** : (1) SuperPDP dédoublonne bien **par numéro** (`SuperPdpClient.cs:152` « facture déjà
+  existante (id N) ») ⇒ collision réelle sur la voie document ; (2) on transmet `Number` = **entier source brut**
+  (`no_ba`/`no_bv`/`no_fact`/`no_note_hono`, `EncheresV6RowMapper`), aucune souche/série ⇒ BA et BV de même entier
+  → même `Number`. `SourceReference` (`encheresv6:ba:…`) est déjà unique mais n'est PAS la clé d'anti-doublon PA.
+- **Ce n'est PAS bloqué sur la numérotation (F06/F14)** : F06/F14 traitent de la **génération** d'un numéro pour des
+  pièces que *Liakont émet* (numérotation par mandant, autofacturation 389). Ici les numéros **préexistent dans la
+  source** — Liakont les transmet, ne les fabrique pas. Le bug est une **unicité d'identifiant transmis**, pas une
+  règle fiscale à inventer. On ne colle pas `BA-` devant un numéro légal de facture, mais ça n'est qu'un garde-fou,
+  pas un verrou de spec.
+- **Vraie question restante (1 fait source à confirmer avec Karl, expert criées)** : dans Enchères/Zen, le numéro
+  **légal réellement imprimé** sur un bordereau acheteur vs un bordereau vendeur — est-ce le même entier (deux séries
+  distinctes qui se recoupent) ou y a-t-il une **souche/série** qui les distingue ? Si une souche existe → la
+  transmettre fidèlement (le vrai numéro légal, distinct par construction). Sinon → confirmer que BV (décompte
+  vendeur / autofacturation) et BA (facture acheteur) relèvent de séries légales distinctes et porter ce
+  discriminant dans `Number` (BT-1) de façon **sourcée** (pas un préfixe inventé).
 - **Fichiers (pistes)** : `EncheresV6RowMapper` (`Number`/`SourceReference`), la voie document / plug-in SuperPDP
   (clé d'envoi + anti-doublon), `docs/conception/F06`/`F14`. Lié à BUG-20.
 - **Critère d'acceptation** : deux pièces de familles différentes au même numéro ne collisionnent PAS à la PA ;
