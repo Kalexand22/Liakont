@@ -33,6 +33,24 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
 
 ---
 
+## ÉTAT — lot recette « 9 bugs » (run 2026-06-27 → 28/06)
+
+Lot scopé par Karl : **Observabilité** (22, 27, 28) + **Robustesse** (18, 23, 24) + **UX recette** (19, 20, 25).
+**Les 9 ✅ RÉSOLUS** et poussés sur `feat/ereporting-b2c` (verify-fast **Release** vert + run-tests Testcontainers
+vert + revue Claude **clean** au round 3). Détail + commit sous chaque bug.
+
+| Bug | Commit | Bug | Commit | Bug | Commit |
+|---|---|---|---|---|---|
+| BUG-20 / 27 / 28 | `5abbf1aa` | BUG-22 | `8cc08e6a` | BUG-24 | `39174c9e` |
+| BUG-18 | `9cb6d3d6` | BUG-23 | `9cf206f5` | BUG-25 | `c3e08589` |
+| BUG-19 | `84ed063b` | revue P2 | `517d247c` | | |
+
+**Hors lot (toujours ouverts)** : BUG-21 (P1 numérotation — bloqué spec F06/F14, ne pas deviner), BUG-5 (lignes avant
+transmission — décision A/B en attente), BUG-12 à 16 (UX éditeur TVA / publication SIREN / seed identité / profil
+éditable / densité — relevés « pas pour maintenant »).
+
+---
+
 ## BUG-1 — Heartbeat agent figé
 
 - **Symptôme** : sur la console (Flotte / agents), « Dernier contact » ne change **jamais** après le tout premier
@@ -461,6 +479,9 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
   `src/Modules/Validation/Domain/Identity/CountryCodeValidator.cs` (inchangé — reste la garde finale ISO).
 - **Critère d'acceptation** : `JAP→JP` débloque 2000020 ; la normalisation est une table extensible (pas une liste
   en dur) ; un code inconnu reste **bloqué** (fail-closed) ; test sur `JAP→JP` + un code inconnu laissé bloqué.
+- **✅ RÉSOLU (2026-06-28, commit `9cb6d3d6`)** — table de correspondance extensible `NonIsoCountryCodeMap`
+  (ENG/SCO/WAL/NIR→GB + JAP→JP) côté agent (`EncheresV6RowMapper`), fail-closed sur code non mappé ; tests
+  JAP→JP + code inconnu laissé brut. Voie (b) paramétrage plateforme par tenant = suivi (non requis par le critère).
 
 ## BUG-19 (P2 UX — transverse) — Pas de navigation document-à-document (préc./suiv.) sur les vues détail (relevé Karl 26/06)
 
@@ -479,6 +500,10 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
 - **Critère d'acceptation** : depuis une vue détail, préc./suiv. parcourt la **liste filtrée** sans repasser par la
   grille ; bornes gérées (1er/dernier) ; contexte (filtre/tri) préservé ; **transverse** (≥ documents + une 2ᵉ
   entité) ; test bUnit (règle review 19) ; provenance socle consignée si `Stratum.*` modifié.
+- **✅ RÉSOLU (2026-06-28, commit `84ed063b`)** — contexte de navigation de liste scopé (clé = URL de détail →
+  transverse) capturé au clic de ligne dans le gabarit `DeclaredListPage` (modif socle consignée provenance §4.42)
+  + composant socle `RecordNavigator` posé sur la fiche document ET la fiche émission B2C (≥ 2 entités) ; bornes
+  désactivées au 1er/dernier ; rien hors d'une liste parcourue ; 12 tests (7 logique pure + 5 bUnit).
 
 ## BUG-20 (P2) — Type de pièce (famille BA/BV/facture client/note hono) absent comme champ affichable (relevé Karl 27/06)
 
@@ -496,6 +521,10 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
   / liste documents (l'afficher). UI Liakont — règle review 19.
 - **Critère d'acceptation** : chaque document affiche sa famille ; un BA et un BV de même numéro sont distinguables à
   l'œil ; test.
+- **✅ RÉSOLU (2026-06-28, commit `5abbf1aa`)** — colonne « Famille de pièce » (Bordereau acheteur/vendeur, Facture
+  client, Note d'honoraires) dérivée du préfixe `SourceReference` via `DocumentFamilyDisplay` (fonction TOTALE,
+  fail-closed sur préfixe inconnu) ; affichée en liste + en-tête détail ; tests. Compromis tri/recherche (opère sur
+  la référence source brute, comme la colonne « État ») documenté (commit `517d247c`).
 
 ## BUG-21 (P1 probable — intégrité PA) — Numéro de pièce non unique entre familles → collision anti-doublon PA (relevé Karl 27/06)
 
@@ -534,6 +563,9 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
   au read-time) et BUG-19 (navigation préc./suiv.).
 - **Critère d'acceptation** : depuis une émission, l'opérateur voit le motif de rejet PA **et** les documents qui la
   composent, sans ouvrir la base ; test bUnit.
+- **✅ RÉSOLU (2026-06-28, commit `8cc08e6a`)** — fiche `/emissions-marge-b2c/{id}` : synthèse + motif PA LISIBLE
+  (`PaResponseSnapshotFormatter`, jamais de JSON brut — F10 §1) + pièces de l'agrégat (par `emission_batch_id`) avec
+  lien par document ; tenant-scopée par la connexion (database-per-tenant) ; tests bUnit + intégration Postgres réelle.
 
 ## BUG-23 (P2 — à border avant prod) — Dérogation Luhn des SIREN de test sandbox PA non gâtée par l'environnement (relevé Karl 27/06)
 
@@ -552,6 +584,11 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
   du compte PA (TenantSettings / Transmission) — nécessite de passer le contexte env à la règle (aujourd'hui pure).
 - **Critère d'acceptation** : `000000001` accepté quand la PA active est Sandbox ; **refusé** (Luhn) quand elle est
   Production ; tests des deux cas.
+- **✅ RÉSOLU (2026-06-28, commits `9cf206f5` + durcissement `517d247c`)** — la dérogation `PaSandboxTestSirens` est
+  gâtée par l'environnement du compte PA actif : tolérée seulement sur PREUVE POSITIVE de contexte hors production
+  (au moins un compte actif, AUCUN en production), **fail-closed** sinon (`AllowsSandboxTestIdentifiers`). Le flag
+  (`DocumentValidationContext.AllowSandboxTestIdentifiers`) est propagé aux deux seuls appelants prod
+  (`BuyerIdentityRule`, `PartyRoleConsistencyRule`) ; tests sandbox accepté / production refusé / sans-compte refusé.
 
 ## BUG-24 (P2 — cohérence d'état) — Un document e-reporté (B2C) reste « À envoyer » (ReadyToSend) indéfiniment (relevé Karl 27/06)
 
@@ -574,6 +611,10 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
   document (Pipeline.Domain), `DocumentActionBar.razor` / `DocumentDetailView.razor` (libellé + action). UI — règle 19.
 - **Critère d'acceptation** : un doc e-reporté n'apparaît plus « À envoyer » ni ne propose « Envoyer » ; il montre
   « e-reporté » avec lien vers sa déclaration ; tests (job : pas de double-POST ; UI : libellé/action).
+- **✅ RÉSOLU (2026-06-28, commit `39174c9e`)** — voie (b) read-time, AUCUNE modif de la machine à états : lien doc ↔
+  lot d'émission **Issued** (`GetIssuedEmissionBatchForDocumentAsync`) → en-tête + onglet Contrôles affichent
+  « E-reporté » + lien vers la déclaration, et la barre d'actions masque « Envoyer » (`CanSend = IsReadyToSend &&
+  !IsB2cReported`) ; tests bUnit + intégration (lecture du lot Issued).
 
 ## BUG-25 (P3 cosmétique — fuseau) — Admin des planifications : « Prochaine exécution » en UTC, « Dernière exécution » en heure locale (relevé Karl 27/06)
 
@@ -589,6 +630,9 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
   ([[socle-stratum-modifiable]] ; règle review 19/20 — page socle MODIFIÉE entre dans le périmètre test).
 - **Critère d'acceptation** : « prochaine » et « dernière » dans le même fuseau (navigateur) ; la prochaine n'est
   jamais affichée avant la dernière pour un job qui vient de tourner ; test.
+- **✅ RÉSOLU (2026-06-28, commit `c3e08589`)** — « Prochaine exécution » rendue via `<LiakontDate>` (fuseau
+  navigateur), comme « Dernière » ; page socle `AdminJobSchedules` modifiée (provenance §4.41) ; test du rendu des
+  deux colonnes au même fuseau navigateur résolu.
 
 ## BUG-26 (P1 — e-invoicing B2B) — Le Factur-X généré échoue la validation EN16931/CTC-FR de la PA (champs obligatoires manquants) (relevé Karl 27/06)
 
@@ -636,6 +680,9 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
   `IDocumentEventQueries` (exposer `pa_response_snapshot`). UI Liakont — règle review 19.
 - **Critère d'acceptation** : depuis un document rejeté, l'opérateur voit les motifs PA (codes + messages) sans ouvrir
   la base ; test bUnit.
+- **✅ RÉSOLU (2026-06-28, commit `5abbf1aa`)** — motif PA LISIBLE (codes + messages FR via
+  `PaResponseSnapshotFormatter`, jamais de JSON brut — F10 §1) affiché dans l'Historique/Contrôles du document depuis
+  `pa_response_snapshot` ; tests bUnit. Jumeau de [[BUG-22]] (même formateur partagé).
 
 ## BUG-28 (P2 affichage) — En-tête du document : « SIREN émetteur : non renseigné » alors que la facture transmise le porte (relevé Karl 27/06)
 
@@ -665,3 +712,6 @@ Un bug = une tâche agent. Format : symptôme → repro → diagnostic → fichi
 - **Critère d'acceptation** : un document transmis affiche le SIREN émetteur **réellement transmis** ; « non renseigné »
   n'apparaît que si l'émetteur n'est réellement pas résolu ; test bUnit. ⚠️ Affichage uniquement — la facture transmise
   est correcte (aucune correction fiscale/données requise).
+- **✅ RÉSOLU (2026-06-28, commit `5abbf1aa`)** — l'en-tête lit le SIREN émetteur EFFECTIF (celui du contenu transmis
+  via la projection, repli sur l'entité) ; « non renseigné » seulement si réellement non résolu ; affichage uniquement
+  (snapshot transmis inchangé) ; tests bUnit.
