@@ -104,8 +104,8 @@
                                data-testid="pa-publication-startdate" />
                     </FormField>
 
-                    <FormField Label="Type d'opération" FieldId="pa-publication-typeoperation" Required="true"
-                               HelpText="Valeur attendue par votre Plateforme Agréée (F05). Jamais devinée par le produit.">
+                    <FormField Label="Type d'opération" FieldId="pa-publication-typeoperation" Required="@State.RequiresTaxReportSettingFields"
+                               HelpText="@TaxReportFieldHelp">
                         <input id="pa-publication-typeoperation"
                                class="form-control"
                                type="text"
@@ -115,8 +115,8 @@
                                data-testid="pa-publication-typeoperation" />
                     </FormField>
 
-                    <FormField Label="Taille d'entreprise" FieldId="pa-publication-enterprisesize" Required="true"
-                               HelpText="Valeur attendue par votre Plateforme Agréée (F05). Jamais devinée par le produit.">
+                    <FormField Label="Taille d'entreprise" FieldId="pa-publication-enterprisesize" Required="@State.RequiresTaxReportSettingFields"
+                               HelpText="@TaxReportFieldHelp">
                         <input id="pa-publication-enterprisesize"
                                class="form-control"
                                type="text"
@@ -206,13 +206,24 @@
     public EventCallback OnCancel { get; set; }
 
     /// <summary>
-    /// Validation de PRÉSENCE uniquement (type d'opération + taille d'entreprise). Le SIREN vient du profil ;
-    /// la conformité fine des valeurs est validée par la Plateforme Agréée, dont l'erreur est affichée.
+    /// Aide contextuelle des champs type d'opération / taille d'entreprise : requise et attendue par la PA, ou
+    /// facultative quand la PA active ne consomme PAS ces champs (BUG-13, CLAUDE.md n°8).
+    /// </summary>
+    private string TaxReportFieldHelp =>
+        State.RequiresTaxReportSettingFields
+            ? "Valeur attendue par votre Plateforme Agréée (F05). Jamais devinée par le produit."
+            : "Cette Plateforme Agréée n'utilise pas ce champ — laissez-le vide.";
+
+    /// <summary>
+    /// Validation de PRÉSENCE des champs type d'opération + taille d'entreprise UNIQUEMENT quand la PA active
+    /// les consomme (<see cref="PaPublicationState.RequiresTaxReportSettingFields"/>, BUG-13) ; sinon ils sont
+    /// facultatifs. Le SIREN vient du profil ; la conformité fine est validée par la PA (son erreur est affichée).
     /// </summary>
     private bool CanSubmit =>
         !Busy
-        && !string.IsNullOrWhiteSpace(Form.TypeOperation)
-        && !string.IsNullOrWhiteSpace(Form.EnterpriseSize);
+        && (!State.RequiresTaxReportSettingFields
+            || (!string.IsNullOrWhiteSpace(Form.TypeOperation)
+                && !string.IsNullOrWhiteSpace(Form.EnterpriseSize)));
 
     private void OnStartDateChange(ChangeEventArgs e)
     {

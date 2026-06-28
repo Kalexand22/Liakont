@@ -98,9 +98,13 @@ internal sealed partial class PaPublicationConsoleService : IPaPublicationConsol
             };
         }
 
+        // Best-effort : la capacité est STATIQUE (déclarée par le plug-in, indépendante de la clé/du réseau) ;
+        // on la conserve même si la lecture d'état réseau échoue ensuite, pour piloter le « requis » des champs.
+        var requiresFields = false;
         try
         {
             var client = _registry.Resolve(new PaAccountDescriptor(active.PluginType, actor.TenantId!));
+            requiresFields = client.Capabilities.SupportsTaxReportSettingWritable;
             var setting = await client.GetTaxReportSettingAsync(cancellationToken).ConfigureAwait(false);
             return new PaPublicationState
             {
@@ -109,6 +113,7 @@ internal sealed partial class PaPublicationConsoleService : IPaPublicationConsol
                 Environment = active.Environment,
                 Siren = siren,
                 StateAvailable = true,
+                RequiresTaxReportSettingFields = requiresFields,
 
                 // « Publié » = ACTIF MAINTENANT, via la SOURCE UNIQUE de la règle d'activation
                 // (PaTaxReportSetting.IsActiveOn) — la MÊME que le gating d'envoi (SendTenantJob), donc
@@ -128,6 +133,7 @@ internal sealed partial class PaPublicationConsoleService : IPaPublicationConsol
                 Environment = active.Environment,
                 Siren = siren,
                 StateAvailable = false,
+                RequiresTaxReportSettingFields = requiresFields,
             };
         }
     }
@@ -157,12 +163,6 @@ internal sealed partial class PaPublicationConsoleService : IPaPublicationConsol
                 "Profil tenant incomplet : renseignez le SIREN (Paramétrage) avant de publier la transmission.");
         }
 
-        if (string.IsNullOrWhiteSpace(form.TypeOperation) || string.IsNullOrWhiteSpace(form.EnterpriseSize))
-        {
-            return PaPublicationResult.Failure(
-                "Renseignez le type d'opération et la taille d'entreprise attendus par votre Plateforme Agréée.");
-        }
-
         var active = await ResolveActiveAccountAsync(_settings, companyId, cancellationToken).ConfigureAwait(false);
         if (active is null)
         {
@@ -175,12 +175,22 @@ internal sealed partial class PaPublicationConsoleService : IPaPublicationConsol
             return PaPublicationResult.Failure(string.Create(Fr, $"Le plug-in « {active.PluginType} » n'est pas câblé sur cette instance : publication impossible. Câblez le plug-in (déploiement) avant de publier."));
         }
 
-        var request = TaxReportSettingRequestBuilder.Build(
-            form.StartDate, form.TypeOperation.Trim(), form.EnterpriseSize.Trim(), form.NafCode);
-
         try
         {
             var client = _registry.Resolve(new PaAccountDescriptor(active.PluginType, actor.TenantId!));
+
+            // BUG-13 : « type d'opération » / « taille d'entreprise » ne sont REQUIS que si la PA active les
+            // CONSOMME (capacité déclarée — CLAUDE.md n°8). Une PA qui les ignore (ex. Super PDP, KYC dans son
+            // espace) n'impose pas une saisie sans effet ; B2Brouter, qui les transmet, les exige.
+            if (client.Capabilities.SupportsTaxReportSettingWritable
+                && (string.IsNullOrWhiteSpace(form.TypeOperation) || string.IsNullOrWhiteSpace(form.EnterpriseSize)))
+            {
+                return PaPublicationResult.Failure(
+                    "Renseignez le type d'opération et la taille d'entreprise attendus par votre Plateforme Agréée.");
+            }
+
+            var request = TaxReportSettingRequestBuilder.Build(
+                form.StartDate, form.TypeOperation.Trim(), form.EnterpriseSize.Trim(), form.NafCode);
             await client.EnsureTaxReportSettingAsync(request, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)

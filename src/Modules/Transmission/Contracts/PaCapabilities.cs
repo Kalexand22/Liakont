@@ -36,6 +36,14 @@ public sealed record PaCapabilities
     /// <summary>Récupération des tax reports (lecture).</summary>
     public bool SupportsTaxReportRetrieval { get; init; }
 
+    /// <summary>
+    /// ÉCRITURE du <c>tax_report_setting</c> (type d'opération, taille d'entreprise — F05). Pilote si la
+    /// publication du SIREN exige ces champs : une PA qui ne les consomme pas (ex. Super PDP, dont la KYC se
+    /// fait dans son espace) ne doit pas imposer une saisie sans effet (CLAUDE.md n°8 — jamais un
+    /// <c>if (pa is …)</c>). Une PA qui les transmet réellement (ex. B2Brouter) déclare <c>true</c>.
+    /// </summary>
+    public bool SupportsTaxReportSettingWritable { get; init; }
+
     /// <summary>Téléchargement de la facture électronique générée par la PA (Factur-X/UBL/CII) → archivage TRK05.</summary>
     public bool SupportsDocumentRetrieval { get; init; }
 

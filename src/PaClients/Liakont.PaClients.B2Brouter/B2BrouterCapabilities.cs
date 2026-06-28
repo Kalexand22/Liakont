@@ -23,6 +23,7 @@ internal static class B2BrouterCapabilities
 
         // Livré par PAB03 (List/Get tax reports + réglage idempotent) :
         SupportsTaxReportRetrieval = true,  // PAB03 §1-§3 (lectures + EnsureTaxReportSetting).
+        SupportsTaxReportSettingWritable = true, // B2Brouter TRANSMET type d'opération + taille d'entreprise (ToWire, PAB03) → champs requis à la publication.
 
         // Capacités dont l'endpoint/flux n'est PAS confirmé en staging (déclaration honnête = false tant
         // que ce n'est pas vérifié — CLAUDE.md n°2/3 ; vérification portée par la suite staging PAB04) :
