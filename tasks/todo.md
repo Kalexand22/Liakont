@@ -65,5 +65,5 @@ intégration ✅ (7245 tests, round-trip `documents_deferred`/`documents_held` e
 
 ## Clôture (état)
 - [x] verify-fast / Release / run-tests / review CLEAN
-- [ ] Commit + push de `feat/recette-bucodi-ux-gaps`
-- [ ] Suppression `origin/feat/recette-bucodi-RBF02` + `origin/feat/recette-bucodi` (après push)
+- [x] Commit + push de `feat/recette-bucodi-ux-gaps` (e6040d7d) — PR à ouvrir / merge humain
+- [x] Suppression `origin/feat/recette-bucodi-RBF02` (déjà supprimée par un tiers) + `origin/feat/recette-bucodi`
