@@ -1,0 +1,140 @@
+@namespace Liakont.Host.Components.Settings
+
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.Extensions.Logging
+@using Microsoft.JSInterop
+@using Stratum.Modules.Identity.Application.Preferences
+
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IUserPreferencesService PreferencesService
+@inject ILogger<UserPreferencesHydrator> Logger
+
+@* UserPreferencesHydrator — hydrate la couche client (thème / densité / taille de page de grille)
+ * depuis la BASE dès le rendu du shell (donc dès le login), pour que la préférence persistée
+ * s'applique quel que soit le navigateur (RBF08 — RB24/RB25).
+ *
+ * Avant RBF08, l'application live reposait sur localStorage et la base n'était ré-appliquée que
+ * lors de l'ouverture du panneau de préférences → préférence perdue en changeant de navigateur.
+ * Ce composant invisible, monté dans ErpShellLayout, comble ce trou : il lit la base une fois par
+ * circuit et pousse les valeurs explicites vers stratumUI (qui les persiste en localStorage pour
+ * les chargements suivants).
+ *
+ * La base est la source de vérité (IUserPreferencesService). On n'écrit JAMAIS dans la couche
+ * client une valeur implicite : thème == "system" ou densité absente → on laisse la couche JS
+ * (préférence OS + localStorage + défaut Host « standard ») décider, comme le panneau.
+ *@
+
+@code {
+    private bool _isDark;
+    private bool _themeFromDb;
+    private string? _densityFromDb;
+    private int? _gridPageSizeFromDb;
+
+    // _loaded : passe à true quand OnInitializedAsync a TERMINÉ de lire la base. _applied : l'application
+    // JS a été faite une fois. On ne peut PAS conditionner l'application JS au seul firstRender : la
+    // lecture base de OnInitializedAsync est asynchrone et cède la main, donc OnAfterRenderAsync(firstRender:
+    // true) se déclenche AVANT que _densityFromDb/_themeFromDb soient posés → l'application serait ratée
+    // sous la moindre latence (course du cycle de vie Blazor). On applique donc au premier rendu QUI SUIT
+    // la fin du chargement, quel que soit firstRender.
+    private bool _loaded;
+    private bool _applied;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            Guid userId;
+            try
+            {
+                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                userId = UserPreferencesSupport.ResolveUserId(authState.User);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or OperationCanceledException)
+            {
+                Logger.LogDebug(ex, "Impossible de résoudre l'état d'authentification pour l'hydratation des préférences.");
+                return;
+            }
+
+            if (userId == Guid.Empty)
+            {
+                return;
+            }
+
+            try
+            {
+                // GetAsync (et non GetOrDefaultAsync) : pour un nouvel utilisateur sans ligne, on ne
+                // force AUCUNE valeur dans la couche client (sinon on écraserait le mode sombre OS et la
+                // densité par défaut Host « standard »).
+                var preferences = await PreferencesService.GetAsync(userId);
+                if (preferences is null)
+                {
+                    return;
+                }
+
+                if (string.Equals(preferences.Theme, UserPreferences.ThemeDark, StringComparison.Ordinal))
+                {
+                    _isDark = true;
+                    _themeFromDb = true;
+                }
+                else if (string.Equals(preferences.Theme, UserPreferences.ThemeLight, StringComparison.Ordinal))
+                {
+                    _isDark = false;
+                    _themeFromDb = true;
+                }
+
+                if (preferences.Density is UserPreferences.DensityCompact or UserPreferences.DensityStandard)
+                {
+                    _densityFromDb = preferences.Density;
+                }
+
+                if (UserPreferencesSupport.HasExplicitGridPageSize(preferences))
+                {
+                    _gridPageSizeFromDb = UserPreferencesSupport.GetGridPageSize(preferences);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Échec du chargement des préférences depuis la base pour l'utilisateur {UserId}.", userId);
+            }
+        }
+        finally
+        {
+            _loaded = true;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Appliquer une seule fois, au premier rendu survenant APRÈS la fin du chargement base.
+        if (_applied || !_loaded)
+        {
+            return;
+        }
+
+        _applied = true;
+
+        try
+        {
+            if (_themeFromDb)
+            {
+                await JS.InvokeVoidAsync("stratumUI.setTheme", _isDark ? "dark" : "light");
+            }
+
+            if (_densityFromDb is not null)
+            {
+                await JS.InvokeVoidAsync("stratumUI.setDensity", _densityFromDb);
+            }
+
+            if (_gridPageSizeFromDb is int size)
+            {
+                await JS.InvokeVoidAsync("stratumUI.setGridPageSize", size);
+            }
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
+        {
+            // Sûr : prérendu ou circuit déconnecté.
+        }
+    }
+}

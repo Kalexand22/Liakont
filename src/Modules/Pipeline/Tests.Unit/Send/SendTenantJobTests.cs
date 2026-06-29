@@ -132,6 +132,12 @@ public sealed class SendTenantJobTests
         fake.IssuedDocumentNumbers.Should().BeEmpty();
         fake.Calls.Should().NotContain(c => c.Method == nameof(IPaClient.SendDocumentAsync), "on ne transmet jamais un document sans émetteur.");
         archive.Requests.Should().BeEmpty("aucune archive d'un document non transmis.");
+
+        // Émetteur non résolu = HOLD (action opérateur : publier le SIREN), jamais un différé transitoire :
+        // consigné en attente de paramétrage, pas « en cours d'émission » (RBF07, review P2).
+        runLogs.Saved.Should().ContainSingle();
+        runLogs.Saved[^1].DocumentsHeld.Should().Be(1, "émetteur non résolu = HOLD en attente de paramétrage.");
+        runLogs.Saved[^1].DocumentsDeferred.Should().Be(0, "un HOLD (action opérateur) n'est PAS un différé transitoire.");
     }
 
     [Fact]
@@ -366,10 +372,13 @@ public sealed class SendTenantJobTests
         archive.Requests.Should().BeEmpty("aucune archive d'un document non transmis.");
         purge.Calls.Should().BeEmpty();
 
-        // Run DÉFÉRÉ : le document est compté mais ni succès ni échec (Deferred), jamais Failed.
+        // Run en ATTENTE DE PARAMÉTRAGE : le document est compté en HOLD (action opérateur — table TVA à
+        // revalider), ni succès ni échec, et SURTOUT pas en différé transitoire (il ne partira pas sans correction).
         runLogs.Saved.Should().ContainSingle();
         runLogs.Saved[^1].DocumentsSucceeded.Should().Be(0);
-        runLogs.Saved[^1].DocumentsFailed.Should().Be(0, "un HOLD différé n'est pas un échec.");
+        runLogs.Saved[^1].DocumentsFailed.Should().Be(0, "un HOLD n'est pas un échec.");
+        runLogs.Saved[^1].DocumentsHeld.Should().Be(1, "le HOLD est consigné en attente de paramétrage, jamais « en cours d'émission » (RBF07, review P2).");
+        runLogs.Saved[^1].DocumentsDeferred.Should().Be(0, "un HOLD (action opérateur) n'est PAS un différé transitoire.");
     }
 
     [Fact]
@@ -412,6 +421,7 @@ public sealed class SendTenantJobTests
         runLogs.Saved.Should().ContainSingle();
         runLogs.Saved[^1].DocumentsSucceeded.Should().Be(0);
         runLogs.Saved[^1].DocumentsFailed.Should().Be(0, "un Sending asynchrone est différé, pas en échec.");
+        runLogs.Saved[^1].DocumentsDeferred.Should().Be(1, "un Sending asynchrone est consigné « en cours d'émission » (RBF07).");
     }
 
     [Fact]

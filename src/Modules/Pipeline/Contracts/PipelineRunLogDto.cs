@@ -34,6 +34,16 @@ public sealed record PipelineRunLogDto
     /// <summary>Nombre de documents en échec.</summary>
     public required int DocumentsFailed { get; init; }
 
+    /// <summary>Nombre de documents DIFFÉRÉS — en cours d'émission (contenu pas encore stagé / dépôt asynchrone,
+    /// transitoire). Distinct des ignorés : un différé partira au prochain cycle. Défaut 0 (additif — RBF07 ;
+    /// seul SEND le renseigne).</summary>
+    public int DocumentsDeferred { get; init; }
+
+    /// <summary>Nombre de documents en attente d'une ACTION OPÉRATEUR (émetteur non publié / table TVA non reposée).
+    /// Distinct du différé transitoire : un HOLD ne partira qu'après correction du paramétrage — jamais présenté
+    /// comme « en cours d'émission » (CLAUDE.md n°3). Défaut 0 (additif — RBF07 ; seul SEND le renseigne).</summary>
+    public int DocumentsHeld { get; init; }
+
     /// <summary>Détail libre (compteurs additionnels, motif d'arrêt…), <c>null</c> si absent.</summary>
     public string? Detail { get; init; }
 }

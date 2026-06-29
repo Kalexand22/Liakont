@@ -209,7 +209,7 @@ public sealed partial class SendTenantJob : ITenantJob
             ? string.Create(CultureInfo.InvariantCulture, $"{tally.Describe()} {unblockedCreditNotes.Count} avoir(s) débloqué(s) (facture d'origine émise — réordonnancement F07 §B.5).")
             : tally.Describe();
         await WriteRunLogAsync(services, timeProvider, _trigger, startedAt, tally, detail, cancellationToken);
-        LogSendCompleted(logger, tenantId, tally.Succeeded, tally.Failed, tally.Deferred, tally.Skipped);
+        LogSendCompleted(logger, tenantId, tally.Succeeded, tally.Failed, tally.Deferred, tally.Held, tally.Skipped);
     }
 
     /// <summary>Une passe d'envoi des <c>ReadyToSend</c> du tenant (snapshot d'IDs → envoi un par un, isolé).</summary>
@@ -291,9 +291,11 @@ public sealed partial class SendTenantJob : ITenantJob
         if (staged.Status is StagedReadStatus.EmitterUnresolved or StagedReadStatus.TvaUnresolved)
         {
             // Émetteur non résolu (profil vidé entre CHECK et SEND, RB9) OU catégorie TVA non reposée (table de
-            // mapping modifiée depuis le CHECK) : HOLD — aucune transmission ni archive. Différé : repris dès que
-            // le profil / la table sont rétablis (la cause précise est déjà journalisée dans ReadStagedPivotAsync).
-            return SendOutcome.Deferred;
+            // mapping modifiée depuis le CHECK) : HOLD exigeant une ACTION OPÉRATEUR (publier le SIREN / revalider
+            // la table TVA) — aucune transmission ni archive. Repris dès que le profil / la table sont rétablis
+            // (la cause précise est déjà journalisée dans ReadStagedPivotAsync). PAS un différé transitoire : ne
+            // jamais le présenter « en cours d'émission » (succès silencieux, CLAUDE.md n°3) — résultat signalé.
+            return SendOutcome.Held;
         }
 
         // Anti double-dépôt ASYNCHRONE (item PIPE01, D7) : si le document porte DÉJÀ une référence PA (flux
@@ -407,9 +409,11 @@ public sealed partial class SendTenantJob : ITenantJob
         if (staged.Status is StagedReadStatus.EmitterUnresolved or StagedReadStatus.TvaUnresolved)
         {
             // Émetteur non résolu (profil vidé entre CHECK et SEND, RB9) OU catégorie TVA non reposée (table de
-            // mapping modifiée depuis le CHECK) : HOLD — aucune transmission ni archive. Différé : repris dès que
-            // le profil / la table sont rétablis (la cause précise est déjà journalisée dans ReadStagedPivotAsync).
-            return SendOutcome.Deferred;
+            // mapping modifiée depuis le CHECK) : HOLD exigeant une ACTION OPÉRATEUR (publier le SIREN / revalider
+            // la table TVA) — aucune transmission ni archive. Repris dès que le profil / la table sont rétablis
+            // (la cause précise est déjà journalisée dans ReadStagedPivotAsync). PAS un différé transitoire : ne
+            // jamais le présenter « en cours d'émission » (succès silencieux, CLAUDE.md n°3) — résultat signalé.
+            return SendOutcome.Held;
         }
 
         if (IsUnsendableCreditNote(staged.Pivot!, paClient))
@@ -523,9 +527,11 @@ public sealed partial class SendTenantJob : ITenantJob
         if (staged.Status is StagedReadStatus.EmitterUnresolved or StagedReadStatus.TvaUnresolved)
         {
             // Émetteur non résolu (profil vidé entre CHECK et SEND, RB9) OU catégorie TVA non reposée (table de
-            // mapping modifiée depuis le CHECK) : HOLD — aucune transmission ni archive. Différé : repris dès que
-            // le profil / la table sont rétablis (la cause précise est déjà journalisée dans ReadStagedPivotAsync).
-            return SendOutcome.Deferred;
+            // mapping modifiée depuis le CHECK) : HOLD exigeant une ACTION OPÉRATEUR (publier le SIREN / revalider
+            // la table TVA) — aucune transmission ni archive. Repris dès que le profil / la table sont rétablis
+            // (la cause précise est déjà journalisée dans ReadStagedPivotAsync). PAS un différé transitoire : ne
+            // jamais le présenter « en cours d'émission » (succès silencieux, CLAUDE.md n°3) — résultat signalé.
+            return SendOutcome.Held;
         }
 
         // Garde-fou avoirs : un avoir vers une PA sans capacité avoirs reste ReadyToSend (traité par PIP02),
@@ -1232,7 +1238,9 @@ public sealed partial class SendTenantJob : ITenantJob
             documentsProcessed: tally.Processed,
             documentsSucceeded: tally.Succeeded,
             documentsFailed: tally.Failed,
-            detail: detail);
+            detail: detail,
+            documentsDeferred: tally.Deferred,
+            documentsHeld: tally.Held);
         await services.GetRequiredService<IPipelineRunLogStore>().SaveAsync(runLog, cancellationToken);
     }
 
@@ -1245,8 +1253,8 @@ public sealed partial class SendTenantJob : ITenantJob
     private static partial void LogTransportNotAvailable(ILogger logger, string tenantId);
 
     [LoggerMessage(EventId = 7202, Level = LogLevel.Information,
-        Message = "SEND terminé pour le tenant « {TenantId} » : {Succeeded} émis, {Failed} en échec, {Deferred} différés, {Skipped} ignorés.")]
-    private static partial void LogSendCompleted(ILogger logger, string tenantId, int succeeded, int failed, int deferred, int skipped);
+        Message = "SEND terminé pour le tenant « {TenantId} » : {Succeeded} émis, {Failed} en échec, {Deferred} différés, {Held} en attente de paramétrage, {Skipped} ignorés.")]
+    private static partial void LogSendCompleted(ILogger logger, string tenantId, int succeeded, int failed, int deferred, int held, int skipped);
 
     [LoggerMessage(EventId = 7203, Level = LogLevel.Information,
         Message = "SEND : contenu pas encore stagé pour le document {DocumentId} (tenant « {TenantId} ») — différé (transitoire, ADR-0014).")]

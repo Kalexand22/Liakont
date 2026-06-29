@@ -1,13 +1,16 @@
 namespace Liakont.Host.Tests.Unit.Pages;
 
 using System;
+using System.Linq;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Bunit;
 using FluentAssertions;
+using Liakont.Host.Components.Settings;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.DependencyInjection;
+using Stratum.Common.UI.Components;
 using Stratum.Modules.Identity.Application.Preferences;
 using Xunit;
 using PreferencesPage = Liakont.Host.Components.Pages.Settings.UserPreferences;
@@ -62,6 +65,65 @@ public sealed class UserPreferencesPageTests : BunitContext
             cut.Find("[data-testid='pref-theme-dark']").GetAttribute("aria-pressed").Should().Be("true");
             cut.Find("[data-testid='pref-density-compact']").GetAttribute("aria-pressed").Should().Be("true");
         });
+    }
+
+    [Fact]
+    public void Applies_persisted_grid_page_size_from_database_on_render()
+    {
+        // RBF08 : la taille de page de grille est désormais portée en base (ExtensionsJson) et
+        // poussée vers la couche client au rendu, pour qu'elle suive l'utilisateur entre navigateurs.
+        var userId = Guid.NewGuid();
+        UseUser(AuthenticatedUser(userId));
+        _preferencesService.Stored = UserPreferences.Default with
+        {
+            ExtensionsJson = "{\"gridPageSize\":50}",
+        };
+
+        var cut = Render<PreferencesPage>();
+
+        cut.WaitForAssertion(() =>
+        {
+            var setSize = JSInterop.Invocations
+                .Where(i => i.Identifier == "stratumUI.setGridPageSize")
+                .ToList();
+            setSize.Should().ContainSingle();
+            setSize[0].Arguments[0].Should().Be(50);
+        });
+    }
+
+    [Fact]
+    public async Task Selecting_a_grid_page_size_persists_it_to_the_database()
+    {
+        // RBF08 : changer la taille de page écrit en base (ExtensionsJson) — c'est ce qui la fait
+        // suivre l'utilisateur entre navigateurs. Couvre HandleGridPageSizeChanged → TryPersistAsync.
+        var userId = Guid.NewGuid();
+        UseUser(AuthenticatedUser(userId));
+        _preferencesService.Stored = UserPreferences.Default;
+
+        var cut = Render<PreferencesPage>();
+
+        var dropdown = cut.FindComponent<StratumDropdown<int>>();
+        await cut.InvokeAsync(() => dropdown.Instance.ValueChanged.InvokeAsync(50));
+
+        cut.WaitForAssertion(() =>
+        {
+            _preferencesService.Stored!.ExtensionsJson.Should().Contain("gridPageSize");
+            UserPreferencesSupport.GetGridPageSize(_preferencesService.Stored!).Should().Be(50);
+        });
+    }
+
+    [Fact]
+    public async Task Does_not_persist_grid_page_size_for_an_anonymous_user()
+    {
+        // Garde-fou _userId != Guid.Empty : aucun écrit en base sans utilisateur résolu.
+        UseUser(new ClaimsPrincipal(new ClaimsIdentity()));
+        _preferencesService.Stored = null;
+
+        var cut = Render<PreferencesPage>();
+        var dropdown = cut.FindComponent<StratumDropdown<int>>();
+        await cut.InvokeAsync(() => dropdown.Instance.ValueChanged.InvokeAsync(50));
+
+        _preferencesService.Stored.Should().BeNull("aucune écriture en base sans utilisateur authentifié");
     }
 
     [Fact]

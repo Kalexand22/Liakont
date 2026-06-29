@@ -281,9 +281,9 @@ public sealed class DocumentSendActionsServiceTests
     [Fact]
     public async Task TriggerRun_Mentions_Pending_Documents_When_The_Batch_Is_Not_Fully_Sent()
     {
-        // FIX05 (review P2) : un run qui émet 3 documents mais en diffère 2 (staging absent) ne doit pas passer
+        // FIX05 (review P2) : un run qui émet 3 documents mais en diffère 2 (en cours d'émission) ne doit pas passer
         // pour intégralement envoyé — les documents restants sont signalés (renvoi au journal).
-        var run = SendRun(succeeded: 3, failed: 0, detail: "SEND : 3 émis, 0 en échec, 2 différés (staging absent), 0 ignorés.", processed: 5);
+        var run = SendRun(succeeded: 3, failed: 0, detail: "SEND : 3 émis, 0 en échec, 2 différés (en cours d'émission), 0 ignorés.", processed: 5);
         var (service, _, _) = Build(new FakeDocumentQueries(), runs: new[] { run });
 
         var result = await service.TriggerRunAsync();
@@ -392,6 +392,134 @@ public sealed class DocumentSendActionsServiceTests
         result.Message.Should().Contain("Ignoré").And.Contain("F-003", "les documents écartés sont restitués à côté du résultat");
     }
 
+    [Fact]
+    public void DescribeSendRunOutcome_Treats_All_Deferred_As_In_Progress_Not_An_Error()
+    {
+        // RBF07/RB26 : un run qui n'émet rien mais DIFFÈRE des documents (contenu pas encore stagé) n'est PAS un
+        // échec — il est restitué en INFO (Success == true) et nomme les documents « en cours d'émission », jamais
+        // le wording alarmant « staging absent ». Le détail du pipeline est conservé pour la transparence.
+        var run = SendRun(
+            succeeded: 0,
+            failed: 0,
+            detail: "SEND : 0 émis, 0 en échec, 2 différés (en cours d'émission), 0 ignorés.",
+            processed: 2,
+            deferred: 2);
+
+        var result = DocumentSendActionsService.DescribeSendRunOutcome(run);
+
+        result.Success.Should().BeTrue("des documents différés sont en cours d'émission, pas en échec");
+        result.Message.Should().Contain("en cours d'émission").And.NotContain("staging absent");
+        result.Message.Should().Contain("2 document(s)");
+    }
+
+    [Fact]
+    public void DescribeSendRunOutcome_Keeps_An_All_Skipped_Run_As_A_Signaled_Failure()
+    {
+        // RBF07 (constat review P2) : un run sans émission, sans échec et SANS différé, mais avec des documents
+        // IGNORÉS (avoir sans capacité PA, état changé) n'est PAS « en cours d'émission » — ces documents ne
+        // partiront pas. Il reste un ÉCHEC signalé (Success == false) avec le motif : pas de succès silencieux.
+        var run = SendRun(
+            succeeded: 0,
+            failed: 0,
+            detail: "SEND : 0 émis, 0 en échec, 0 différés (en cours d'émission), 1 ignoré.",
+            processed: 1,
+            deferred: 0);
+
+        var result = DocumentSendActionsService.DescribeSendRunOutcome(run);
+
+        result.Success.Should().BeFalse("un run tout-ignoré ne ressemble pas à un succès et n'est pas « en cours d'émission »");
+        result.Message.Should().Contain("aucun document émis");
+
+        // PAS la phrase de la branche INFO « en cours d'émission » (le motif peut, lui, mentionner « 0 différés
+        // (en cours d'émission) » — c'est exact : zéro différé ; ce qui est interdit, c'est de PRÉSENTER le run
+        // comme « N document(s) en cours d'émission (contenu en cours de préparation) » avec Success=true).
+        result.Message.Should().NotContain("contenu en cours de préparation");
+        result.Message.Should().Contain("1 ignoré", "le motif du pipeline est restitué");
+    }
+
+    [Fact]
+    public void DescribeSendRunOutcome_Does_Not_Mask_Skipped_Documents_When_Deferred_And_Skipped_Coexist()
+    {
+        // RBF07 (constat review P2 round 2) : un run avec des différés ET des ignorés (2 en cours + 1 avoir sans
+        // capacité PA) ne doit PAS être présenté comme un pur « en cours d'émission » en vert : l'ignoré ne
+        // partira pas et exige l'attention de l'opérateur. La branche INFO n'est prise que si TOUS les non-émis
+        // sont des différés (pending == DocumentsDeferred) ; sinon, échec signalé avec le motif (anti succès silencieux).
+        var run = SendRun(
+            succeeded: 0,
+            failed: 0,
+            detail: "SEND : 0 émis, 0 en échec, 2 différés (en cours d'émission), 1 ignoré.",
+            processed: 3,
+            deferred: 2);
+
+        var result = DocumentSendActionsService.DescribeSendRunOutcome(run);
+
+        result.Success.Should().BeFalse("un ignoré coexistant n'est pas « en cours d'émission » et ne doit pas passer en succès vert");
+        result.Message.Should().Contain("aucun document émis").And.NotContain("contenu en cours de préparation");
+        result.Message.Should().Contain("1 ignoré", "le motif (différés + ignorés) est restitué");
+    }
+
+    [Fact]
+    public void DescribeSendRunOutcome_Signals_All_Held_Documents_With_A_Corrective_Action_Not_As_In_Progress()
+    {
+        // RBF07 (review P2) : un run sans émission dont les SEULS non-émis sont des HOLD en attente d'une ACTION
+        // OPÉRATEUR (SIREN émetteur non publié / table TVA non revalidée) ne doit JAMAIS être présenté « en cours
+        // d'émission » en vert — sans correction du paramétrage ces documents restent bloqués indéfiniment. Il est
+        // SIGNALÉ (Success == false) avec son action corrective (CLAUDE.md n°3/12).
+        var run = SendRun(
+            succeeded: 0,
+            failed: 0,
+            detail: "SEND : 0 émis, 0 en échec, 0 différés (en cours d'émission), 2 en attente de paramétrage (SIREN publié / table TVA validée), 0 ignorés.",
+            processed: 2,
+            held: 2);
+
+        var result = DocumentSendActionsService.DescribeSendRunOutcome(run);
+
+        result.Success.Should().BeFalse("un HOLD exige une action opérateur, ce n'est pas un succès ni un « en cours d'émission »");
+        result.Message.Should().Contain("aucun document émis").And.NotContain("contenu en cours de préparation");
+        result.Message.Should().Contain("2 document(s) en attente de paramétrage");
+        result.Message.Should().Contain("publiez le SIREN").And.Contain("table de mapping TVA", "l'action corrective est nommée (n°12)");
+    }
+
+    [Fact]
+    public void DescribeSendRunOutcome_Does_Not_Go_Green_When_A_Held_Document_Coexists_With_Deferred_Ones()
+    {
+        // RBF07 (review P2) : différés transitoires (2 en cours) + 1 HOLD (action opérateur). Le HOLD ne partira
+        // pas tout seul → le run n'est pas un pur « en cours d'émission » : la branche INFO verte n'est PAS prise
+        // (DocumentsHeld != 0). Résultat signalé (Success == false), anti succès silencieux.
+        var run = SendRun(
+            succeeded: 0,
+            failed: 0,
+            detail: "SEND : 0 émis, 0 en échec, 2 différés (en cours d'émission), 1 en attente de paramétrage (SIREN publié / table TVA validée), 0 ignorés.",
+            processed: 3,
+            deferred: 2,
+            held: 1);
+
+        var result = DocumentSendActionsService.DescribeSendRunOutcome(run);
+
+        result.Success.Should().BeFalse("un HOLD coexistant interdit la branche verte « en cours d'émission »");
+        result.Message.Should().NotContain("contenu en cours de préparation");
+    }
+
+    [Fact]
+    public void DescribeSendRunOutcome_Names_The_Held_Corrective_Action_Even_On_A_Partial_Emission()
+    {
+        // RBF07 (review P2 round 2) : émission PARTIELLE (3 émis) avec 2 HOLD. Le run est un succès (des documents
+        // sont partis), mais l'action corrective des HOLD doit être nommée inline (n°12), pas seulement « voir le
+        // journal » — cohérent avec la branche « 0 émis + HOLD ».
+        var run = SendRun(
+            succeeded: 3,
+            failed: 0,
+            detail: "SEND : 3 émis, 0 en échec, 0 différés (en cours d'émission), 2 en attente de paramétrage (SIREN publié / table TVA validée), 0 ignorés.",
+            processed: 5,
+            held: 2);
+
+        var result = DocumentSendActionsService.DescribeSendRunOutcome(run);
+
+        result.Success.Should().BeTrue("des documents ont été émis");
+        result.Message.Should().Contain("3 document(s) émis");
+        result.Message.Should().Contain("2 en attente de paramétrage").And.Contain("publiez le SIREN", "l'action corrective HOLD est nommée inline (n°12)");
+    }
+
     [Theory]
     [InlineData(4, 0, true, "4 document(s) émis")]
     [InlineData(3, 1, true, "3 document(s) émis, 1 en échec")]
@@ -434,14 +562,18 @@ public sealed class DocumentSendActionsServiceTests
     }
 
     /// <summary>Construit une exécution SEND clôturée pour les tests de remontée du résultat (FIX05).
-    /// <paramref name="processed"/> par défaut = émis + en échec ; le surplus représente les différés/ignorés.</summary>
+    /// <paramref name="processed"/> par défaut = émis + en échec ; le surplus représente les différés/HOLD/ignorés.
+    /// <paramref name="deferred"/> = documents en cours d'émission (transitoire, RBF07) ; <paramref name="held"/> =
+    /// documents en attente d'une action opérateur (SIREN/TVA) — distinct du différé et des ignorés.</summary>
     private static PipelineRunLogDto SendRun(
         int succeeded,
         int failed,
         string? detail,
         PipelineRunTrigger trigger = PipelineRunTrigger.Manual,
         DateTimeOffset? startedAt = null,
-        int? processed = null) => new()
+        int? processed = null,
+        int deferred = 0,
+        int held = 0) => new()
     {
         Id = Guid.NewGuid(),
         RunType = PipelineRunType.Send,
@@ -451,6 +583,8 @@ public sealed class DocumentSendActionsServiceTests
         DocumentsProcessed = processed ?? (succeeded + failed),
         DocumentsSucceeded = succeeded,
         DocumentsFailed = failed,
+        DocumentsDeferred = deferred,
+        DocumentsHeld = held,
         Detail = detail,
     };
 

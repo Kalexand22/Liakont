@@ -40,6 +40,14 @@ public sealed class RunLog
     /// <summary>Nombre de documents en échec.</summary>
     public int DocumentsFailed { get; private set; }
 
+    /// <summary>Nombre de documents DIFFÉRÉS (contenu pas encore stagé / dépôt asynchrone — transitoire, en cours
+    /// d'émission). Distinct des ignorés : un différé sera émis au prochain cycle, alors qu'un ignoré ne partira pas (RBF07).</summary>
+    public int DocumentsDeferred { get; private set; }
+
+    /// <summary>Nombre de documents en attente d'une ACTION OPÉRATEUR (émetteur non publié / table TVA non reposée).
+    /// HOLD distinct du différé transitoire : repris seulement après correction du paramétrage (RBF07).</summary>
+    public int DocumentsHeld { get; private set; }
+
     /// <summary>Détail libre (compteurs additionnels, motif d'arrêt…), <c>null</c> si absent.</summary>
     public string? Detail { get; private set; }
 
@@ -63,6 +71,8 @@ public sealed class RunLog
             DocumentsProcessed = 0,
             DocumentsSucceeded = 0,
             DocumentsFailed = 0,
+            DocumentsDeferred = 0,
+            DocumentsHeld = 0,
             Detail = null,
         };
     }
@@ -76,12 +86,18 @@ public sealed class RunLog
     /// <param name="documentsSucceeded">Documents en succès (≥ 0).</param>
     /// <param name="documentsFailed">Documents en échec (≥ 0).</param>
     /// <param name="detail">Détail libre (facultatif).</param>
+    /// <param name="documentsDeferred">Documents différés — en cours d'émission (≥ 0). Facultatif : seul SEND
+    /// en produit ; les autres exécutions (CHECK/SYNC/agrégation) laissent 0 (RBF07).</param>
+    /// <param name="documentsHeld">Documents en attente d'une action opérateur (≥ 0). Facultatif : seul SEND
+    /// en produit (RBF07).</param>
     public void Complete(
         DateTimeOffset completedAt,
         int documentsProcessed,
         int documentsSucceeded,
         int documentsFailed,
-        string? detail = null)
+        string? detail = null,
+        int documentsDeferred = 0,
+        int documentsHeld = 0)
     {
         if (completedAt < StartedAt)
         {
@@ -92,11 +108,15 @@ public sealed class RunLog
         RequireNonNegative(documentsProcessed, nameof(documentsProcessed));
         RequireNonNegative(documentsSucceeded, nameof(documentsSucceeded));
         RequireNonNegative(documentsFailed, nameof(documentsFailed));
+        RequireNonNegative(documentsDeferred, nameof(documentsDeferred));
+        RequireNonNegative(documentsHeld, nameof(documentsHeld));
 
         CompletedAt = completedAt;
         DocumentsProcessed = documentsProcessed;
         DocumentsSucceeded = documentsSucceeded;
         DocumentsFailed = documentsFailed;
+        DocumentsDeferred = documentsDeferred;
+        DocumentsHeld = documentsHeld;
         Detail = string.IsNullOrWhiteSpace(detail) ? null : detail.Trim();
     }
 

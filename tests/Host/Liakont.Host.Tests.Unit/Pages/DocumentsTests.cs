@@ -179,6 +179,73 @@ public sealed class DocumentsTests : BunitContext
     }
 
     [Fact]
+    public void The_Grid_Refresh_Button_Re_Fetches_The_List_And_The_Counts()
+    {
+        // RBF07/RB26 : le bouton « Rafraîchir » de la grille RÉ-INTERROGE le serveur (il ne réaffichait que le
+        // cache déjà chargé). Switching renvoie un 2e périmètre au rechargement → la liste ET les compteurs
+        // reflètent les nouvelles données, sans recharger la page.
+        Services.AddScoped<IDocumentConsoleQueries>(_ => FakeDocumentConsoleQueries.Switching(
+            [Doc("2018", "invoice", "Issued", customer: "ALICE")],
+            [Doc("2019", "invoice", "Blocked", customer: "BOBBY")]));
+
+        var cut = Render<Documents>();
+        cut.Markup.Should().Contain("ALICE");
+
+        cut.Find("[data-testid='refresh-btn']").Click();
+
+        cut.Markup.Should().Contain("BOBBY", "le bouton Rafraîchir ré-interroge le serveur");
+        cut.Markup.Should().NotContain("ALICE");
+        cut.Find("[data-testid='doc-counts-Blocked']").TextContent.Should().Contain("1", "les compteurs sont recalculés au rafraîchissement");
+    }
+
+    [Fact]
+    public void Lancer_Un_Traitement_Refreshes_The_List_And_The_Counts_When_It_Finishes()
+    {
+        // RBF07/RB28 : à la fin d'un traitement, la liste et les compteurs se rafraîchissent sans recharger la
+        // page (les états ont pu changer — documents passés En cours/Émis). Switching fournit l'état d'après-run.
+        Services.AddScoped<IDocumentConsoleQueries>(_ => FakeDocumentConsoleQueries.Switching(
+            [Doc("2018", "invoice", "ReadyToSend", customer: "ALICE")],
+            [Doc("2019", "invoice", "Issued", customer: "BOBBY")]));
+        Services.AddScoped<IDocumentSendActions>(_ => new FakeSendActions());
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(canAct: true));
+
+        var cut = Render<Documents>();
+        cut.Markup.Should().Contain("ALICE");
+
+        cut.Find("[data-testid='documents-trigger-run']").Click();
+
+        cut.Markup.Should().Contain("BOBBY", "la fin du traitement recharge le périmètre");
+        cut.Markup.Should().NotContain("ALICE");
+    }
+
+    [Fact]
+    public void Tout_Envoyer_Refreshes_The_List_After_The_Real_Send()
+    {
+        // RBF07/RB28 : après l'envoi réel (« Tout envoyer » confirmé), la liste et les compteurs se rafraîchissent
+        // sans recharger la page (les documents émis changent d'état) — cohérent avec « Lancer un traitement ».
+        Services.AddScoped<IDocumentConsoleQueries>(_ => FakeDocumentConsoleQueries.Switching(
+            [Doc("2018", "invoice", "ReadyToSend", customer: "ALICE")],
+            [Doc("2019", "invoice", "Issued", customer: "BOBBY")]));
+        var send = new FakeSendActions
+        {
+            Summary = new DocumentSendSummary(1, 100m),
+            SendAllResult = DocumentSendActionResult.Ok("Envoi groupé déclenché."),
+        };
+        Services.AddScoped<IDocumentSendActions>(_ => send);
+        Services.AddScoped<IPermissionService>(_ => new FakePermissionService(canAct: true));
+
+        var cut = Render<Documents>();
+        cut.Markup.Should().Contain("ALICE");
+
+        cut.Find("[data-testid='documents-send-all']").Click();
+        cut.Find("[data-testid='documents-send-all-confirm-button']").Click();
+
+        send.SendAllCalls.Should().Be(1);
+        cut.Markup.Should().Contain("BOBBY", "l'envoi réel rafraîchit le périmètre");
+        cut.Markup.Should().NotContain("ALICE");
+    }
+
+    [Fact]
     public void Lancer_Un_Traitement_Qui_N_Envoie_Rien_Affiche_Le_Motif_En_Alerte()
     {
         // FIX05 : un run manuel terminé sans rien envoyer remonte le MOTIF (français) en bandeau d'ALERTE —

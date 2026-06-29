@@ -221,6 +221,14 @@ else
     private int _customFilterVersion;
     private int _activeCustomFilterCount;
 
+    // ── Re-fetch du bouton « Rafraîchir » de la grille (RBF07/RB26) ── La grille appelle LoadItems sur deux
+    // chemins : (1) sa (ré)initialisation après un re-key de période — où la PAGE a DÉJÀ pré-chargé _periodSet
+    // (ReloadPeriodAsync) et calculé compteurs/types AVANT de re-keyer (l'ordre rend la persistance des filtres
+    // correcte) ; (2) son bouton « Rafraîchir » (OnRefresh), action opérateur explicite qui DOIT re-interroger
+    // le serveur. Ce drapeau, posé par ReloadPeriodAsync et consommé par le 1er LoadItems qui suit, distingue
+    // les deux : le re-key réutilise le pré-chargement (pas de double requête), le « Rafraîchir » re-fetch.
+    private bool _suppressNextLoadFetch;
+
     // ── Suspension des envois (retour de recette lot 2) ── Quand la table TVA n'est pas validée, le job
     // d'envoi refuse de toute façon (garde SERVEUR, jamais affaiblie — CLAUDE.md n°3) : ce flag ne fait que
     // DÉSACTIVER « Tout envoyer » avec une explication (message partagé avec le bouton « Envoyer » de la
@@ -384,13 +392,34 @@ else
         _activeCustomFilterCount = (_selectedState is null ? 0 : 1) + (_selectedType is null ? 0 : 1);
     }
 
-    private Task<IReadOnlyList<DocumentSummaryDto>> LoadItemsAsync() => Task.FromResult(_periodSet);
+    /// <summary>
+    /// Source de la grille. Sur un re-key de période, le drapeau <see cref="_suppressNextLoadFetch"/> est posé et
+    /// l'on réutilise le périmètre déjà pré-chargé (pas de double requête). Sinon — bouton « Rafraîchir » de la
+    /// grille (OnRefresh) — on RE-INTERROGE le serveur et l'on recalcule compteurs/types, puis on redessine la
+    /// page (le bandeau de synthèse vit hors de la grille) : la liste ET les compteurs se rafraîchissent sans
+    /// recharger la page (RBF07/RB26).
+    /// </summary>
+    private async Task<IReadOnlyList<DocumentSummaryDto>> LoadItemsAsync()
+    {
+        if (_suppressNextLoadFetch)
+        {
+            _suppressNextLoadFetch = false;
+            return _periodSet;
+        }
+
+        await FetchPeriodSetAsync();
+        StateHasChanged();
+        return _periodSet;
+    }
 
     private async Task ReloadPeriodAsync()
     {
         if (await FetchPeriodSetAsync())
         {
-            // Re-key la liste (DeclaredListPage relit LoadItems) au changement de PÉRIMÈTRE serveur (période).
+            // Re-key la liste (DeclaredListPage relit LoadItems) au changement de PÉRIMÈTRE serveur (période). Le
+            // périmètre vient d'être pré-chargé : le LoadItems déclenché par le re-key réutilise _periodSet (pas
+            // de seconde requête) — voir _suppressNextLoadFetch.
+            _suppressNextLoadFetch = true;
             _periodEpoch++;
         }
     }
@@ -618,8 +647,15 @@ else
     /// sélection ; l'envoi RÉEL n'a lieu qu'après confirmation, comme « Tout envoyer »). Per ADR-0016, l'envoi
     /// dépasse la sélection (tout le tenant) — le récapitulatif et le texte de confirmation le disent explicitement.
     /// </summary>
-    private Task OpenSelectionConfirmAsync(IReadOnlyList<DocumentSummaryDto> selected) =>
-        OpenSendConfirmAsync(SendConfirmMode.Selection, selected.Select(d => d.Id).ToList());
+    private Task OpenSelectionConfirmAsync(IReadOnlyList<DocumentSummaryDto> selected)
+    {
+        // Action de la barre de sélection : DeclaredListPage rappelle LoadItems dans le finally de ExecuteBulkAsync
+        // juste après ce callback. OUVRIR la confirmation ne change PAS le périmètre serveur → on réserve ce
+        // LoadItems au cache (pas de requête superflue à l'ouverture du dialogue) ; l'envoi réel, lui, rafraîchit
+        // via ReloadPeriodAsync à la confirmation (RBF07, review round 3).
+        _suppressNextLoadFetch = true;
+        return OpenSendConfirmAsync(SendConfirmMode.Selection, selected.Select(d => d.Id).ToList());
+    }
 
     /// <summary>Ouvre la confirmation d'envoi (récapitulatif des documents prêts) dans le mode donné, sans rien déclencher.</summary>
     private async Task OpenSendConfirmAsync(SendConfirmMode mode, IReadOnlyList<Guid> selectionIds)
@@ -691,6 +727,10 @@ else
             _pendingSelectionIds = [];
             _sendAllSummary = null;
         }
+
+        // RBF07/RB28 : l'envoi réel a pu faire passer des documents En cours/Émis — rafraîchir la liste et les
+        // compteurs sans recharger la page, comme « Lancer un traitement » (best-effort, hors finally).
+        await ReloadPeriodAsync();
     }
 
     /// <summary>Déclenche manuellement un traitement du tenant (« Lancer un traitement ») et affiche le retour opérateur.</summary>
@@ -720,6 +760,12 @@ else
         {
             _sendInProgress = false;
         }
+
+        // RBF07/RB28 : à la fin du traitement, rafraîchir la liste ET les compteurs (les états ont pu changer —
+        // documents passés En cours/Émis) sans recharger la page. Re-key + pré-chargement, comme un changement de
+        // période. Hors du finally : si le déclenchement a échoué, le bandeau d'erreur est déjà posé, mais on
+        // tente quand même de refléter l'état courant (best-effort ; FetchPeriodSetAsync gère sa propre erreur).
+        await ReloadPeriodAsync();
     }
 
     // ── Re-vérification en masse (FIX207) ── Portées par la barre de sélection (gabarit DeclaredListPage). La page
@@ -730,9 +776,12 @@ else
 
     /// <summary>« Revérifier la sélection » : re-vérifie les documents BLOQUÉS de la sélection.</summary>
     private Task RecheckSelectionAsync(IReadOnlyList<DocumentSummaryDto> selected) =>
+        // gridReloadsAfter: true — action de la barre de sélection : DeclaredListPage rappelle LoadItems dans le
+        // finally de ExecuteBulkAsync après cette action ; on réutilise alors le périmètre déjà rechargé ici.
         RunBulkRecheckAsync(
             selected.Where(IsBlocked).Select(d => d.Id).ToList(),
-            "Aucun document bloqué dans la sélection à re-vérifier.");
+            "Aucun document bloqué dans la sélection à re-vérifier.",
+            gridReloadsAfter: true);
 
     /// <summary>
     /// Existe-t-il au moins un document BLOQUÉ dans le périmètre courant (période + filtres état/type) ? Pilote
@@ -747,8 +796,15 @@ else
             _periodSet.Where(MatchesCustomFilters).Where(IsBlocked).Select(d => d.Id).ToList(),
             "Aucun document bloqué dans ce périmètre à re-vérifier.");
 
-    /// <summary>Déclenche la re-vérification en masse côté serveur et affiche le retour opérateur (compteurs en français).</summary>
-    private async Task RunBulkRecheckAsync(IReadOnlyList<Guid> documentIds, string emptyMessage)
+    /// <summary>
+    /// Déclenche la re-vérification en masse côté serveur et affiche le retour opérateur (compteurs en français).
+    /// <paramref name="gridReloadsAfter"/> = la grille rappellera LoadItems juste après (action de la barre de
+    /// sélection, via le finally de ExecuteBulkAsync) : on pose alors <see cref="_suppressNextLoadFetch"/> pour que
+    /// ce LoadItems réutilise le périmètre rechargé ici (1 seule requête — invariant FIX207 préservé). Le chemin
+    /// « Revérifier tout » (barre d'outils) ne déclenche aucun LoadItems → on ne pose pas le drapeau (sinon il
+    /// fuiterait sur le prochain « Rafraîchir »).
+    /// </summary>
+    private async Task RunBulkRecheckAsync(IReadOnlyList<Guid> documentIds, string emptyMessage, bool gridReloadsAfter = false)
     {
         if (_recheckInProgress)
         {
@@ -772,8 +828,12 @@ else
             _recheckFeedback = result.Message;
             _recheckFailed = !result.Success;
             // Reflète immédiatement les nouveaux états (débloqués) dans la grille et les compteurs, SANS re-keyer la
-            // liste (la barre de sélection recharge déjà le gabarit après l'action) — évite un double rechargement.
-            await FetchPeriodSetAsync();
+            // liste. Quand la barre de sélection va recharger le gabarit (gridReloadsAfter), on réserve ce périmètre
+            // au LoadItems qui suit (pas de double requête) ; sinon (barre d'outils), aucun LoadItems ne suit.
+            if (await FetchPeriodSetAsync() && gridReloadsAfter)
+            {
+                _suppressNextLoadFetch = true;
+            }
         }
         catch (Exception ex)
         {

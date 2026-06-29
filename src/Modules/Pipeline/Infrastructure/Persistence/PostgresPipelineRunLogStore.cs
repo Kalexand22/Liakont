@@ -33,10 +33,10 @@ public sealed class PostgresPipelineRunLogStore : IPipelineRunLogStore
         const string sql = """
             INSERT INTO pipeline.run_logs
                 (id, run_type, run_trigger, started_at, completed_at,
-                 documents_processed, documents_succeeded, documents_failed, detail)
+                 documents_processed, documents_succeeded, documents_failed, documents_deferred, documents_held, detail)
             VALUES
                 (@Id, @RunType, @Trigger, @StartedAt, @CompletedAt,
-                 @DocumentsProcessed, @DocumentsSucceeded, @DocumentsFailed, @Detail)
+                 @DocumentsProcessed, @DocumentsSucceeded, @DocumentsFailed, @DocumentsDeferred, @DocumentsHeld, @Detail)
             """;
 
         await conn.ExecuteAsync(new CommandDefinition(
@@ -51,6 +51,8 @@ public sealed class PostgresPipelineRunLogStore : IPipelineRunLogStore
                 runLog.DocumentsProcessed,
                 runLog.DocumentsSucceeded,
                 runLog.DocumentsFailed,
+                runLog.DocumentsDeferred,
+                runLog.DocumentsHeld,
                 runLog.Detail,
             },
             cancellationToken: cancellationToken));
