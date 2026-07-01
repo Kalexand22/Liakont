@@ -169,16 +169,24 @@ public sealed class CanonicalJsonWriter
     /// <returns>Le document JSON canonique.</returns>
     public override string ToString() => _builder.ToString();
 
-    // Normalisation Unicode NFC (ADR-0007 règle 7). Une valeur de texte LIBRE issue de la source (raison
-    // sociale, libellé, SourceData…) peut arriver en NFC ou NFD selon le pilote ODBC ; « café » précomposé
-    // (U+00E9) et décomposé (U+0065 U+0301) sont la MÊME chaîne abstraite (équivalence canonique Unicode)
-    // mais produiraient deux empreintes — anti-doublon PIV04 rompu. On canonicalise la FORME d'encodage ici,
-    // au même titre que l'échappement ASCII : c'est une canonicalisation d'ENCODAGE de chaîne, distincte du
-    // déterminisme de CONTENU/structure (ordre des champs, absence d'horodatage) qui reste la responsabilité
-    // de l'adaptateur (ADR-0007 §traçabilité). La forme NFC est STABLE entre net48 (NLS) et .NET 10 (ICU) —
-    // Unicode Normalization Stability Policy : la décomposition canonique d'un caractère ASSIGNÉ ne change
-    // jamais — donc l'empreinte reste identique des deux côtés (prouvé par les golden cross-runtime).
-    private static string NormalizeToNfc(string value)
+    /// <summary>
+    /// Normalisation Unicode NFC (ADR-0007 règle 7). Une valeur de texte LIBRE issue de la source (raison
+    /// sociale, libellé, SourceData…) peut arriver en NFC ou NFD selon le pilote ODBC ; « café » précomposé
+    /// (U+00E9) et décomposé (U+0065 U+0301) sont la MÊME chaîne abstraite (équivalence canonique Unicode)
+    /// mais produiraient deux empreintes — anti-doublon PIV04 rompu. On canonicalise la FORME d'encodage ici,
+    /// au même titre que l'échappement ASCII : c'est une canonicalisation d'ENCODAGE de chaîne, distincte du
+    /// déterminisme de CONTENU/structure (ordre des champs, absence d'horodatage) qui reste la responsabilité
+    /// de l'adaptateur (ADR-0007 §traçabilité). La forme NFC est STABLE entre net48 (NLS) et .NET 10 (ICU) —
+    /// Unicode Normalization Stability Policy : la décomposition canonique d'un caractère ASSIGNÉ ne change
+    /// jamais — donc l'empreinte reste identique des deux côtés (prouvé par les golden cross-runtime).
+    /// Primitive PARTAGÉE : réutilisée telle quelle par <c>GedCanonicalJson</c> pour normaliser les NOMS de
+    /// membre dérivés de la source (clés <c>SourceFields</c> du canal GED), au même titre que les valeurs de
+    /// texte libre — un nom de champ source non-canonicalisé casserait l'anti-doublon RL-39 exactement comme
+    /// une valeur non-canonicalisée casse PIV04.
+    /// </summary>
+    /// <param name="value">La chaîne à canonicaliser.</param>
+    /// <returns>La forme NFC de <paramref name="value"/>, ou la chaîne telle quelle si Unicode invalide.</returns>
+    public static string NormalizeToNfc(string value)
     {
         try
         {

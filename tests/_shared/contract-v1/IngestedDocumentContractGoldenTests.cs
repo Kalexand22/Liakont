@@ -222,6 +222,50 @@ public sealed class IngestedDocumentContractGoldenTests
     }
 
     [Fact]
+    public void SourceFields_key_in_NFD_produces_the_same_hash_as_NFC()
+    {
+        // ADR-0007 règle 7 / RL-39 : un nom de champ source (pas seulement une valeur) peut arriver en NFC ou
+        // NFD selon le pilote ODBC. « café » précomposé (U+00E9) et décomposé (« cafe » + U+0301 combinant)
+        // sont la MÊME clé abstraite et doivent produire le MÊME JSON canonique (donc le MÊME hash), sinon
+        // l'anti-doublon (source_reference, payload_hash) se romprait selon la variante d'encodage reçue.
+        var reference = BuildGoldenManagedDocument();
+        var nfcFields = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["café"] = "valeur",
+        };
+        var nfdFields = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["café"] = "valeur",
+        };
+
+        var nfcDocument = new IngestedDocumentDto(
+            sourceReference: reference.SourceReference,
+            documentType: reference.DocumentType,
+            sourceTimestampUtc: reference.SourceTimestampUtc,
+            content: reference.Content,
+            sourceFields: nfcFields,
+            sourceAxes: reference.SourceAxes,
+            sourceEntities: reference.SourceEntities,
+            sourceRelations: reference.SourceRelations);
+        var nfdDocument = new IngestedDocumentDto(
+            sourceReference: reference.SourceReference,
+            documentType: reference.DocumentType,
+            sourceTimestampUtc: reference.SourceTimestampUtc,
+            content: reference.Content,
+            sourceFields: nfdFields,
+            sourceAxes: reference.SourceAxes,
+            sourceEntities: reference.SourceEntities,
+            sourceRelations: reference.SourceRelations);
+
+        string nfcJson = GedCanonicalJson.Serialize(nfcDocument);
+        string nfdJson = GedCanonicalJson.Serialize(nfdDocument);
+
+        nfdJson.Should().Be(nfcJson, "une clé SourceFields NFD doit se canonicaliser en NFC comme une valeur libre");
+        PayloadHasher.ComputeHash(nfdJson).Should().Be(
+            PayloadHasher.ComputeHash(nfcJson), "NFC et NFD de la même clé doivent produire la même empreinte");
+    }
+
+    [Fact]
     public void Serialize_null_document_throws()
     {
         Action act = () => GedCanonicalJson.Serialize(null!);

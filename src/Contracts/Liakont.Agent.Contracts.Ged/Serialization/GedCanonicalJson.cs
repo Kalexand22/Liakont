@@ -93,9 +93,15 @@ public static class GedCanonicalJson
         writer.BeginObject();
 
         // Tri ORDINAL de la clé (RL-39) : indépendant de la culture et de l'ordre d'insertion du dictionnaire,
-        // donc identique net48/.NET 10. Le nom de champ est émis comme un nom de membre (WritePropertyName) ;
-        // la valeur comme une chaîne libre (WriteString, NFC/ASCII).
-        foreach (KeyValuePair<string, string> field in fields.OrderBy(f => f.Key, StringComparer.Ordinal))
+        // donc identique net48/.NET 10. Les noms de champ sont dérivés de la SOURCE (pilote ODBC) et peuvent
+        // arriver en NFC ou NFD selon l'extraction — comme une valeur de texte libre (ADR-0007 règle 7) — donc
+        // on les normalise en NFC AVANT le tri ET l'émission : sinon deux variantes d'encodage de la MÊME clé
+        // (« café » précomposé vs décomposé) trieraient différemment et casseraient l'anti-doublon
+        // (source_reference, payload_hash) RL-39. Le nom de champ est émis comme un nom de membre
+        // (WritePropertyName) ; la valeur comme une chaîne libre (WriteString, NFC/ASCII).
+        foreach (KeyValuePair<string, string> field in fields
+            .Select(f => new KeyValuePair<string, string>(CanonicalJsonWriter.NormalizeToNfc(f.Key), f.Value))
+            .OrderBy(f => f.Key, StringComparer.Ordinal))
         {
             writer.WritePropertyName(field.Key);
             writer.WriteString(field.Value);
