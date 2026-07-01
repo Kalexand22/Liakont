@@ -5,10 +5,11 @@
 -- `archive_entry_id` (→ documents.archive_entries.id, paquet scellé) — l'index survit à toute évolution du
 -- fiscal, et aucune jointure SQL cross-schéma n'est autorisée (INV-GED-08, soft-link logique seulement).
 --
--- `content_hash` est SET-ONCE (posé à l'archivage, jamais ré-écrit) : ce n'est qu'une COPIE indexée des octets
--- write-once de IArchiveStore (ancre d'intégrité de référence, option C, INV-ARCH-GED-2). Toute mutation d'une
--- méta-colonne mutable (`title`/`status`/`doc_kind`) est TRACÉE dans `managed_document_change_log` (V010,
--- append-only) — la fiche reste ainsi entièrement auditable.
+-- `content_hash` est posé UNE SEULE FOIS par le handler d'ingestion (discipline applicative — le schéma NE
+-- fige PAS la colonne, cette table est mutable) : l'ancre d'intégrité AUTORITATIVE reste les octets write-once
+-- WORM de IArchiveStore (option C, INV-ARCH-GED-2), dont ce hash n'est qu'une COPIE indexée. Les mutations des
+-- méta-colonnes (`title`/`status`/`doc_kind`) sont TRACÉES par le handler d'écriture dans
+-- `managed_document_change_log` (V010, append-only) — la fiche reste ainsi auditable.
 --
 -- PAS de colonne `search_vector` ici (INV-GED-01) : le plein-texte document vit dans la table dérivée et
 -- reconstructible `ged_index.document_search` (GED08, F19 §6.3) — foyer UNIQUE, pour éviter une double-source
@@ -20,7 +21,7 @@ CREATE TABLE IF NOT EXISTS ged_index.managed_documents (
     fiscal_document_id uuid,                    -- soft-link OPTIONNEL → documents.documents.id (sans FK cross-schéma)
     archive_entry_id   uuid,                    -- soft-link → documents.archive_entries.id (paquet scellé), sans FK
     archive_path       text,                    -- chemin du paquet (chaîne fiscale OU espace '_ged/...' write-once, §5.1)
-    content_hash       text,                    -- SHA-256 du contenu indexé (dédup) ; SET-ONCE à l'archivage, jamais ré-écrit
+    content_hash       text,                    -- SHA-256 du contenu indexé (dédup) ; posé une seule fois par le handler (discipline applicative) ; ancre autoritative = octets WORM de IArchiveStore
     status             text        NOT NULL DEFAULT 'draft',            -- 'draft'|'indexed'|'archived'|'deferred'
     retention_class    text        NOT NULL DEFAULT 'tenant_bounded',   -- §7 : 'legal_hold'|'tenant_bounded'|'erasable'
     -- PAS de search_vector ici : le FTS document vit dans la table dérivée document_search (§6.3), foyer UNIQUE reconstructible

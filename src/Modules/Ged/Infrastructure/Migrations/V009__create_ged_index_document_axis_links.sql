@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS ged_index.document_axis_links (
     normalized_value    text,                                          -- tri/facette/recherche (casefold, unaccent, ISO, decimal canonique)
     source              text        NOT NULL,                          -- 'agent'|'manual'|'ai'|'import'|'ocr'
     confidence_score    numeric,                                       -- [0..1] ; null si déterministe
-    supersedes_id       uuid,                                          -- → id de la ligne que celle-ci remplace (chaîne de révision)
+    supersedes_id       uuid,                                          -- → id de la ligne remplacée (chaîne de révision) ; cohérence doc+axe garantie par le handler (GED04), pas par une FK (soft-link)
     is_retraction       boolean     NOT NULL DEFAULT false,            -- retrait append-only : retire la valeur courante sans la remplacer (RL-24)
     created_utc         timestamptz NOT NULL DEFAULT now(),
     operator_identity   text,                                          -- présent si source='manual'
@@ -45,7 +45,11 @@ CREATE TABLE IF NOT EXISTS ged_index.document_axis_links (
     )
 );
 
--- « Valeur courante » = lignes non superséedées par aucune autre ; une rétractation n'est PAS une valeur courante :
+-- « Valeur courante » = lignes non superséedées par aucune autre ; une rétractation n'est PAS une valeur courante.
+-- L'exclusion est ancrée sur l'id EXACT de la ligne superséedée (`s.supersedes_id = d.id`), fidèle à la spec
+-- (F19 §3.4.3). La COHÉRENCE de la chaîne — une ligne remplaçante porte le MÊME `managed_document_id` + `axis_id`
+-- que sa cible — relève du handler d'écriture (GED04, §3.4.3/RL-02, sous garde de concurrence), PAS du schéma :
+-- `supersedes_id` est un soft-link (pas de FK/CHECK cross-ligne, cohérent avec l'anti-couplage F19).
 CREATE OR REPLACE VIEW ged_index.current_axis_links AS
     SELECT d.* FROM ged_index.document_axis_links d
     WHERE d.is_retraction = false
