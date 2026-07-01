@@ -47,9 +47,13 @@ public interface IGedIndexUnitOfWork : IAsyncDisposable
     /// <summary>
     /// Résout une instance d'entité par sa clé d'identité (§4.4) ou la CRÉE si absente (registre polymorphe
     /// <c>entity_instances</c>). Quand <paramref name="identityValue"/> est non nul, une entité existante du même
-    /// type portant la même identité est RÉUTILISÉE (déduplication idempotente) ; sinon (type sans clé d'identité)
-    /// une nouvelle instance est créée par observation. Une création est tracée dans <c>entity_instance_change_log</c>
-    /// (append-only, <c>entity_created</c>). Rend l'<c>id</c> de l'entité (existante ou nouvelle).
+    /// type portant la même identité est RÉUTILISÉE — déduplication <b>best-effort par lookup</b> (§4.4, réutilise
+    /// <c>ix_ei_identity</c>, index NON unique par choix de GED03c) : sous concurrence multi-instance de documents
+    /// DISTINCTS partageant une même identité, un doublon TRANSITOIRE reste possible (deux lookups simultanés ne
+    /// trouvent rien puis insèrent) — il se résout par la fusion manuelle <c>canonical_id</c> (§4.4), JAMAIS par une
+    /// fusion automatique (irréversible sous append-only). Sans clé d'identité, une nouvelle instance est créée par
+    /// observation. Une création est tracée dans <c>entity_instance_change_log</c> (append-only, <c>entity_created</c>).
+    /// Rend l'<c>id</c> de l'entité (existante ou nouvelle).
     /// </summary>
     Task<Guid> ResolveOrCreateEntityAsync(
         Guid entityTypeId,

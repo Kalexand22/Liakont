@@ -157,6 +157,11 @@ internal static class AgentApiEndpoints
             }
 
             var identity = AgentApiContext.GetIdentity(http);
+
+            // request.Capabilities (ManagedExtractorCapabilitiesDto) est reçu mais VOLONTAIREMENT non consommé en V1
+            // (GED05b) : aucune fonctionnalité produit ne lit encore les capacités de l'extracteur géré. Champ
+            // add-only / forward-compat (ADR-0004 D2) — sa persistance (par agent/tenant) est un fast-follow, jamais
+            // une donnée implicite cachée (le comportement ne dépend d'aucune capacité GED aujourd'hui).
             var response = await sender.Send(
                 new IngestManagedDocumentBatchCommand
                 {

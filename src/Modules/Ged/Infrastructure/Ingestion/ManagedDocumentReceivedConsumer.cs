@@ -110,7 +110,34 @@ public sealed partial class ManagedDocumentReceivedConsumer : IIntegrationEventC
 
         var document = result.Document!;
 
-        // 3) Résolution des TYPES d'entité déclarés (§4.4) AVANT toute écriture : un type inconnu/inactif du catalogue
+        // 3a) Un identifiant externe DÉCLARÉ mais VIDE (le sélecteur a atteint une valeur PRÉSENTE mais blanche —
+        //     GedSelector ne filtre pas les scalaires vides, GedMapper.MapEntities n'écarte que l'absence totale) ne peut
+        //     résoudre AUCUNE identité d'entité : DÉFÉRER (INV-GED-05, motif français), jamais lever → dead-letter invisible.
+        foreach (var entity in document.Entities)
+        {
+            if (string.IsNullOrWhiteSpace(entity.ExternalId))
+            {
+                var reason = string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Le document « {ingested.SourceReference} » déclare une entité de type « {entity.EntityType} » sans identifiant externe (valeur vide) : document rangé en attente (deferred). Action opérateur : corriger le profil de mapping ou la donnée source.");
+                await IndexDeferredAsync(services, payload.ManagedDocumentId, ingested.SourceReference, ingested.DocumentType, reason, cancellationToken);
+                return;
+            }
+        }
+
+        foreach (var relation in document.Relations)
+        {
+            if (string.IsNullOrWhiteSpace(relation.TargetExternalId))
+            {
+                var reason = string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Le document « {ingested.SourceReference} » déclare une relation « {relation.Kind} » sans identifiant de cible (valeur vide) : document rangé en attente (deferred). Action opérateur : corriger le profil de mapping ou la donnée source.");
+                await IndexDeferredAsync(services, payload.ManagedDocumentId, ingested.SourceReference, ingested.DocumentType, reason, cancellationToken);
+                return;
+            }
+        }
+
+        // 3b) Résolution des TYPES d'entité déclarés (§4.4) AVANT toute écriture : un type inconnu/inactif du catalogue
         //    DÉFÈRE le document (jamais deviner, règle 2/n°3), plutôt qu'une indexation partielle silencieuse.
         var entityTypes = new Dictionary<string, EntityTypeDefinition>(StringComparer.Ordinal);
         var entityCatalog = services.GetRequiredService<IEntityCatalog>();

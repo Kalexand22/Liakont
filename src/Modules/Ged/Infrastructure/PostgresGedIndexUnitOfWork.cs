@@ -202,8 +202,9 @@ internal sealed class PostgresGedIndexUnitOfWork : IGedIndexUnitOfWork
         ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
         ArgumentException.ThrowIfNullOrWhiteSpace(source);
 
-        // §4.4 — clé d'identité présente : réutiliser l'instance existante (déduplication idempotente). Absente :
-        // pas de déduplication auto, création par observation (jamais deviner une fusion, règle 2).
+        // §4.4 — clé d'identité présente : réutiliser l'instance existante (déduplication BEST-EFFORT par lookup ;
+        // ix_ei_identity non unique par choix GED03c → un doublon transitoire est possible sous concurrence de documents
+        // distincts, résolu par fusion manuelle canonical_id, jamais auto). Absente : création par observation (règle 2).
         if (identityValue is not null)
         {
             var existing = await _txn.Connection.ExecuteScalarAsync<Guid?>(new CommandDefinition(

@@ -194,6 +194,35 @@ public sealed class ManagedDocumentIngestionIntegrationTests
     }
 
     [Fact]
+    public async Task Document_with_an_empty_entity_external_id_is_deferred_not_dead_lettered()
+    {
+        var factory = _fixture.CreateTenantDatabase();
+        var staging = new InMemoryPayloadStagingStore();
+        await SeedAxisAsync(factory, "d", "string");
+        await SeedEntityTypeAsync(factory, "partner", identityKey: "ref");
+        await SeedGraphProfileAsync(factory, "DEAL");
+        var handler = BuildHandler(factory, staging);
+        var consumer = BuildConsumer(staging, (TenantA, factory));
+
+        // L'entité déclarée porte un identifiant externe PRÉSENT mais VIDE (le sélecteur atteint une valeur blanche) :
+        // sans cette garde, ResolveOrCreateEntityAsync lèverait → dead-letter invisible (contredit INV-GED-05).
+        var document = new IngestedDocumentDto(
+            "SRC-1",
+            "DEAL",
+            sourceFields: new Dictionary<string, string> { ["d"] = "2026-01-01", ["rel"] = "P-99" },
+            sourceEntities: new[] { new RawEntityHint("p", string.Empty, "Partner One") });
+        await IngestDocumentAsync(handler, TenantA, document);
+        var evt = await DrainSingleGedEventAsync(factory);
+
+        await consumer.HandleAsync(evt, CancellationToken.None);
+
+        (await StatusAsync(factory, evt.Payload.ManagedDocumentId)).Should().Be("deferred", "un identifiant externe vide défère (INV-GED-05), jamais un dead-letter");
+        (await DeferReasonAsync(factory, evt.Payload.ManagedDocumentId)).Should().Contain("vide", "le motif français est actionnable (n°12)");
+        (await CountEntityInstancesAsync(factory)).Should().Be(0);
+        (await CountAxisLinksAsync(factory)).Should().Be(0, "aucune écriture partielle : la garde défère AVANT la transaction d'indexation");
+    }
+
+    [Fact]
     public async Task Indexing_is_scoped_to_the_tenant_database()
     {
         var tenantA = _fixture.CreateTenantDatabase();
