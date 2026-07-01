@@ -204,6 +204,36 @@ public sealed class GedIndexMigrationsIntegrationTests
         currentCount.Should().Be(0);
     }
 
+    // ─────────────────────── managed_documents CHECK vocabulary (ck_md_status / ck_md_retention) ───────────────────────
+
+    [Fact]
+    public async Task Managed_documents_rejects_a_status_outside_the_closed_vocabulary()
+    {
+        var factory = _fixture.CreateTenantDatabase();
+        using var connection = await factory.OpenAsync();
+
+        Func<Task> insert = () => connection.ExecuteAsync(
+            "INSERT INTO ged_index.managed_documents (id, title, status) VALUES (@Id, 'T', 'bogus')",
+            new { Id = Guid.NewGuid() });
+
+        (await insert.Should().ThrowAsync<PostgresException>())
+            .Which.SqlState.Should().Be(PostgresErrorCodes.CheckViolation);
+    }
+
+    [Fact]
+    public async Task Managed_documents_rejects_a_retention_class_outside_the_closed_vocabulary()
+    {
+        var factory = _fixture.CreateTenantDatabase();
+        using var connection = await factory.OpenAsync();
+
+        Func<Task> insert = () => connection.ExecuteAsync(
+            "INSERT INTO ged_index.managed_documents (id, title, retention_class) VALUES (@Id, 'T', 'bogus')",
+            new { Id = Guid.NewGuid() });
+
+        (await insert.Should().ThrowAsync<PostgresException>())
+            .Which.SqlState.Should().Be(PostgresErrorCodes.CheckViolation);
+    }
+
     // ─────────────────────── Anti-EAV structurel (INV-GED-01) ───────────────────────
 
     [Fact]
