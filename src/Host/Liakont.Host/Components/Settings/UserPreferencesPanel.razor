@@ -1,7 +1,6 @@
 @namespace Liakont.Host.Components.Settings
 
 @using System.Globalization
-@using System.Security.Claims
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.Extensions.Localization
 @using Microsoft.Extensions.Logging
@@ -24,9 +23,10 @@
  *   - UserPreferencesDialog.razor (modal from topbar profile menu)
  *
  * Source of truth: identity.user_preferences (via IUserPreferencesService).
- * JS helpers (stratumUI.setTheme/setDensity/setCulture) are used only for
- * live application — the database owns the persisted value.
- * Grid page size continues to use localStorage (explicitly out of scope per GUX06).
+ * JS helpers (stratumUI.setTheme/setDensity/setCulture/setGridPageSize) are used only
+ * for live application — the database owns the persisted value.
+ * Grid page size is now persisted in the database too (RBF08, stored in ExtensionsJson)
+ * so it follows the user across browsers; localStorage is only the live application layer.
  *@
 
 <div class="user-preferences-panel" data-testid="user-preferences-panel">
@@ -111,10 +111,11 @@
 @code {
     private bool _isDark;
     private string _density = UserPreferences.DensityStandard;
-    private int _gridPageSize = 25;
+    private int _gridPageSize = UserPreferencesSupport.DefaultGridPageSize;
     private Guid _userId;
     private bool _themeFromDb;
     private bool _densityFromDb;
+    private bool _gridPageSizeFromDb;
 
     private sealed record PageSizeOption(string Label, int Value);
 
@@ -131,7 +132,7 @@
         try
         {
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-            _userId = ResolveUserId(authState.User);
+            _userId = UserPreferencesSupport.ResolveUserId(authState.User);
         }
         catch (Exception ex) when (ex is InvalidOperationException or OperationCanceledException)
         {
@@ -176,6 +177,15 @@
                 _density = preferences.Density;
                 _densityFromDb = true;
             }
+
+            // Grid page size (RBF08): persisted in ExtensionsJson. Only treat the DB value as
+            // authoritative when it is explicitly present — otherwise leave the JS layer
+            // (legacy localStorage) in charge, like theme/density.
+            if (UserPreferencesSupport.HasExplicitGridPageSize(preferences))
+            {
+                _gridPageSize = UserPreferencesSupport.GetGridPageSize(preferences);
+                _gridPageSizeFromDb = true;
+            }
         }
         catch (Exception ex)
         {
@@ -213,7 +223,16 @@
                     : UserPreferences.DensityStandard;
             }
 
-            _gridPageSize = await JS.InvokeAsync<int>("stratumUI.getGridPageSize");
+            // Grid page size: push the DB value into the live layer when present (so it follows
+            // the user across browsers, RBF08); otherwise reflect the existing localStorage value.
+            if (_gridPageSizeFromDb)
+            {
+                await JS.InvokeVoidAsync("stratumUI.setGridPageSize", _gridPageSize);
+            }
+            else
+            {
+                _gridPageSize = await JS.InvokeAsync<int>("stratumUI.getGridPageSize");
+            }
 
             StateHasChanged();
         }
@@ -277,14 +296,25 @@
 
     private async Task HandleGridPageSizeChanged(int size)
     {
+        if (Array.IndexOf(UserPreferencesSupport.AllowedGridPageSizes, size) < 0)
+            return;
+
         _gridPageSize = size;
+        _gridPageSizeFromDb = true;
         try
         {
             await JS.InvokeVoidAsync("stratumUI.setGridPageSize", size);
         }
         catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException)
         {
-            // Safe: disconnected circuit. Grid page size stays in localStorage per GUX06 scope.
+            // Safe: disconnected circuit. The DB value below remains the source of truth.
+        }
+
+        // RBF08: persist to the database (ExtensionsJson) so the page size follows the user
+        // across browsers, consistent with theme/density.
+        if (_userId != Guid.Empty)
+        {
+            await TryPersistAsync(p => UserPreferencesSupport.WithGridPageSize(p, size));
         }
     }
 
@@ -321,18 +351,6 @@
         {
             Logger.LogWarning(ex, "Failed to persist user preferences for user {UserId}.", _userId);
         }
-    }
-
-    private static Guid ResolveUserId(ClaimsPrincipal user)
-    {
-        if (user.Identity?.IsAuthenticated != true)
-            return Guid.Empty;
-
-        var stratumUserId = user.FindFirst("stratum_user_id")?.Value;
-        var nameIdentifier = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
-            ?? user.FindFirst("sub")?.Value;
-        var raw = stratumUserId ?? nameIdentifier;
-        return Guid.TryParse(raw, out var id) ? id : Guid.Empty;
     }
 
 }

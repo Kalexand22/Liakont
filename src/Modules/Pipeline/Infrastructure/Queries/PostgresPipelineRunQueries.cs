@@ -32,7 +32,7 @@ public sealed class PostgresPipelineRunQueries : IPipelineRunQueries
 
         const string sql = """
             SELECT id, run_type, run_trigger, started_at, completed_at,
-                   documents_processed, documents_succeeded, documents_failed, detail
+                   documents_processed, documents_succeeded, documents_failed, documents_deferred, documents_held, detail
             FROM pipeline.run_logs
             ORDER BY started_at DESC, id
             LIMIT @Limit
@@ -65,7 +65,7 @@ public sealed class PostgresPipelineRunQueries : IPipelineRunQueries
 
         var sql = $"""
             SELECT id, run_type, run_trigger, started_at, completed_at,
-                   documents_processed, documents_succeeded, documents_failed, detail
+                   documents_processed, documents_succeeded, documents_failed, documents_deferred, documents_held, detail
             FROM pipeline.run_logs
             {where}
             ORDER BY started_at DESC, id
@@ -90,6 +90,8 @@ public sealed class PostgresPipelineRunQueries : IPipelineRunQueries
             DocumentsProcessed = (int)row.documents_processed,
             DocumentsSucceeded = (int)row.documents_succeeded,
             DocumentsFailed = (int)row.documents_failed,
+            DocumentsDeferred = (int)row.documents_deferred,
+            DocumentsHeld = (int)row.documents_held,
             Detail = (string?)row.detail,
         };
     }

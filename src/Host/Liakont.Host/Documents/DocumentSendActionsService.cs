@@ -299,12 +299,45 @@ internal sealed class DocumentSendActionsService : IDocumentSendActions
                 head += string.Create(Fr, $" {pending} document(s) restent en attente d'envoi (voir le journal des traitements).");
             }
 
+            // Émission PARTIELLE avec des HOLD : nommer l'action corrective inline (n°12), comme la branche
+            // « 0 émis + HOLD » — un « voir le journal » seul ne dirait pas à l'opérateur quoi rétablir.
+            if (run.DocumentsHeld > 0)
+            {
+                head += string.Create(Fr, $" Dont {run.DocumentsHeld} en attente de paramétrage : publiez le SIREN émetteur et vérifiez la table de mapping TVA, puis relancez l'envoi.");
+            }
+
             return DocumentSendActionResult.Ok(head);
         }
 
+        // Aucun document émis, aucun échec, et les SEULS documents pris en compte sont des DIFFÉRÉS TRANSITOIRES
+        // (contenu pas encore stagé / dépôt asynchrone accepté) : ils sont EN COURS D'ÉMISSION (émis au prochain
+        // cycle SANS action opérateur), pas une anomalie (RBF07/RB26). On le restitue en INFO (Success == true,
+        // bandeau non rouge), avec le détail du pipeline — jamais le wording alarmant « staging absent ». La
+        // condition exige `pending == DocumentsDeferred` (donc ZÉRO HOLD et ZÉRO ignoré) ET `DocumentsHeld == 0`
+        // explicite : un document EN ATTENTE DE PARAMÉTRAGE (HOLD : SIREN non publié, table TVA non reposée) ou
+        // IGNORÉ ne partira pas tout seul → le run n'est pas un pur « en cours d'émission » et reste un résultat
+        // SIGNALÉ (anti succès silencieux, CLAUDE.md n°3 — review P2).
+        if (failed == 0 && run.DocumentsHeld == 0 && run.DocumentsDeferred > 0 && pending == run.DocumentsDeferred)
+        {
+            var deferred = run.DocumentsDeferred;
+            var head = string.Create(Fr, $"Le traitement d'envoi du tenant est terminé : aucun document émis pour l'instant ; {deferred} document(s) en cours d'émission (contenu en cours de préparation).");
+            return DocumentSendActionResult.Ok(motif is null ? head : head + " " + motif);
+        }
+
+        // Aucun document émis, aucun échec, et les SEULS non-émis sont des HOLD en attente d'une ACTION OPÉRATEUR
+        // (SIREN émetteur non publié / table TVA non revalidée depuis le CHECK) : SIGNALÉ (Success == false),
+        // JAMAIS présenté « en cours d'émission » — sans correction du paramétrage ces documents restent bloqués
+        // indéfiniment (CLAUDE.md n°3). Message porteur de l'action corrective (n°12).
+        if (failed == 0 && run.DocumentsHeld > 0 && pending == run.DocumentsHeld)
+        {
+            var held = run.DocumentsHeld;
+            var head = string.Create(Fr, $"Le traitement d'envoi du tenant est terminé : aucun document émis ; {held} document(s) en attente de paramétrage. Action opérateur : publiez le SIREN émetteur et vérifiez la table de mapping TVA, puis relancez l'envoi.");
+            return DocumentSendActionResult.Failure(motif is null ? head : head + " " + motif);
+        }
+
         // Aucun document émis : ce n'est PAS un succès silencieux. On expose le motif (paramétrage manquant,
-        // SIREN non publié, contenu différé, rien de prêt…) pour que l'opérateur sache quoi faire (FIX202 : ce
-        // motif remonte désormais aussi sur « Envoyer la sélection » et « Tout envoyer », pas seulement le run).
+        // SIREN non publié, rien de prêt…) pour que l'opérateur sache quoi faire (FIX202 : ce motif remonte
+        // désormais aussi sur « Envoyer la sélection » et « Tout envoyer », pas seulement le run).
         var none = failed > 0
             ? string.Create(Fr, $"Le traitement d'envoi du tenant est terminé : aucun document émis, {failed} en échec.")
             : "Le traitement d'envoi du tenant est terminé : aucun document émis.";

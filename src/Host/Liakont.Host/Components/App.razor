@@ -13,15 +13,25 @@
             if (!t) t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
             document.documentElement.setAttribute('data-theme', t);
         })();
-        // Apply saved density mode before first paint (UIF06).
+        // Apply saved density mode before first paint (UIF06 ; RBF08/RB25).
         // Liakont default = 'standard' (aligné sur UserPreferences.DensityStandard, le défaut du modèle métier) :
         // un nouvel utilisateur sans préférence enregistrée doit voir 'standard', pas 'compact' (BUG-16).
+        // On sème ce défaut dans localStorage quand aucun choix explicite n'existe : sinon le
+        // stratum-ui.js vendored (apply()/observer) retombe sur 'compact' sur un store vide et
+        // reviendrait sur l'attribut posé ici. Un choix persisté (localStorage, ou ré-hydraté depuis
+        // la base au login par UserPreferencesHydrator) l'emporte toujours sur ce défaut.
         // Setting the attribute here (before tokens.css is evaluated) guarantees
         // inputs/rows render at the final height on first paint, with no
         // flash-of-wrong-density when the circuit connects.
         (function() {
             var d = localStorage.getItem('stratum-density');
-            if (d !== 'compact' && d !== 'standard') d = 'standard';
+            if (d !== 'compact' && d !== 'standard') {
+                d = 'standard';
+                // L'écriture peut échouer (quota, stockage bloqué par politique, mode privé) : on
+                // l'isole pour ne pas interrompre le <script> inline (sinon FOUC densité + sidebar).
+                try { localStorage.setItem('stratum-density', d); } catch (e) { /* stockage indisponible */ }
+            }
+            // Toujours posé, même si l'écriture localStorage a échoué.
             document.documentElement.setAttribute('data-density', d);
         })();
         // Apply saved sidebar collapsed state before first paint to prevent FOUC.

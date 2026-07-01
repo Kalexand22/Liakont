@@ -1,5 +1,6 @@
 @inherits LayoutComponentBase
 @using Stratum.Common.UI.Components
+@using Liakont.Host.Components.Settings
 
 <ConnectionStatus />
 <Toast @rendermode="InteractiveServer" />
@@ -7,6 +8,8 @@
 <BugCaptureButton @rendermode="InteractiveServer" />
 @* RB6 — résout le fuseau du navigateur une fois par circuit (sonde invisible, socle Stratum.Common.UI). *@
 <BrowserTimeProbe @rendermode="InteractiveServer" />
+@* RBF08 — hydrate thème/densité/taille de page depuis la base dès le login (sonde invisible). *@
+<UserPreferencesHydrator @rendermode="InteractiveServer" />
 
 <div class="erp-shell">
     <ErpNav @rendermode="InteractiveServer" />
