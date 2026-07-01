@@ -25,9 +25,12 @@ pourcentages sans un seul `ALTER TABLE`.
   - `ged_index` (base **tenant**) : instances, liens, graphe, index de recherche, journal de consultation.
   - `ged_ingestion` (base **système**) : registre d'ingestion GED + outbox (co-localisé, écriture atomique).
 - Le **wiring DI** (`AddGedModule` → déclaration de l'assembly de migrations) et l'enregistrement au Host.
-- Les **gardes de frontière** NetArchTest : le module GED n'accède aux autres modules que par leurs
-  `Contracts` ; le **flux fiscal** (Pipeline / Validation / Transmission / Documents) **ne dépend jamais**
-  de `Ged.*` (le flux fiscal ignore la GED).
+- Les **gardes de frontière** (`GedBoundaryTests`), à deux niveaux : **NetArchTest (IL)** — les assemblies
+  de production GED ne portent aucune dépendance de type vers le flux fiscal (« Ged.Domain → aucune
+  dépendance fiscale », F19 §7) — et **scan déclaratif des `.csproj`** (modèle `StratumPackagingBoundaryTests`,
+  couvre la « référence sèche ») : le module GED n'accède aux autres modules que par leurs `Contracts` ; le
+  **flux fiscal** (Pipeline / Validation / Transmission / Documents — liste explicite F19 §7) **ne dépend
+  jamais** de `Ged.*`.
 
 Sont **hors périmètre GED02** (items suivants) : les migrations du méta-modèle (`entity_types`,
 `axis_definitions`, `axis_values`, `catalog_change_log` — **GED03a** ; `managed_documents`,

@@ -2,16 +2,25 @@
 
 ## Unit (`Liakont.Modules.Ged.Tests.Unit`) — livrés par GED02 (scaffold)
 
-### Frontières NetArchTest — `GedBoundaryTests` (F19 §7/§8, INV-GED-08, module-rules §3, CLAUDE.md n°14)
+### Frontières — `GedBoundaryTests` (F19 §7/§8, INV-GED-08, module-rules §3, CLAUDE.md n°14)
 
-- `Ged_layers_only_reference_other_modules_through_their_Contracts` — scan DÉCLARATIF (source-tree) des
+Deux niveaux complémentaires : **NetArchTest (IL, usage effectif des types)** + **scan déclaratif des
+`.csproj` (référence sèche, modèle `StratumPackagingBoundaryTests`)**.
+
+- `Ged_production_assemblies_carry_no_fiscal_dependency` — **NetArchTest (IL)** : aucun type des assemblies
+  de production GED (Infrastructure/Domain/Application/Contracts) ne dépend d'un namespace du flux fiscal
+  (`Pipeline`/`Validation`/`Transmission`/`Documents`) — « Ged.Domain → aucune dépendance fiscale » (F19 §7).
+  Non vacuous : `Ged.Infrastructure` porte `GedModuleRegistration` (types + dépendances réels).
+- `Ged_layers_only_reference_other_modules_through_their_Contracts` — **scan DÉCLARATIF** (source-tree) des
   `.csproj` du module GED (Contracts/Domain/Application/Infrastructure/Web) : toute `ProjectReference` vers
   un **autre** module `Liakont.Modules.*` doit viser un projet `*.Contracts` (jamais Domain/Application/
   Infrastructure). Couvre la « référence sèche » (ajoutée mais type non encore utilisé). Plancher de
   cohérence : les 5 couches GED sont trouvées (sinon faux-vert à vide).
-- `Fiscal_flow_modules_never_reference_Ged` — scan DÉCLARATIF des `.csproj` de **Pipeline / Validation /
-  Transmission / Documents** (toutes couches) : **aucune** `ProjectReference` vers `Liakont.Modules.Ged.*`
-  (le flux fiscal IGNORE la GED — P1, F19 §7). Plancher : les 4 modules fiscaux sont trouvés.
+- `Fiscal_flow_modules_never_reference_Ged` — **scan DÉCLARATIF** des `.csproj` de **Pipeline / Validation /
+  Transmission / Documents** (liste EXPLICITE F19 §7, toutes couches) : **aucune** `ProjectReference` vers
+  `Liakont.Modules.Ged.*` (le flux fiscal IGNORE la GED — P1, F19 §7). Plancher : les 4 modules fiscaux sont
+  trouvés. La liste est volontairement restreinte à ces 4 modules (un module d'intake référençant la surface
+  `Ged.Contracts` est permis par design, module-rules §3, et n'est donc pas une violation).
 
 ### Scaffold de migrations — `GedMigrationScaffoldTests` (acceptance GED02, INV-GED-06)
 

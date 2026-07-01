@@ -6,26 +6,78 @@ using System.IO;
 using System.Linq;
 using System.Xml.Linq;
 using FluentAssertions;
+using Liakont.Modules.Ged.Infrastructure;
+using NetArchTest.Rules;
 using Xunit;
 
 /// <summary>
-/// Gardes de frontière du module GED (F19 §7/§8, module-rules §3, CLAUDE.md n°14), sur le modèle DÉCLARATIF
-/// et AUTORITAIRE de <c>StratumPackagingBoundaryTests</c> : scan des <c>.csproj</c> depuis l'arbre SOURCE.
-/// <para>
-/// L'approche déclarative couvre le cas de la « référence sèche » (une <c>ProjectReference</c> ajoutée mais
-/// dont le type n'est pas encore utilisé) — précisément celui qui casse une frontière sans qu'un test IL au
-/// niveau des types ne le voie — et reste significative même quand le module GED, au stade scaffold, ne
-/// référence encore aucun autre module.
-/// </para>
+/// Gardes de frontière du module GED (F19 §7/§8, module-rules §3, CLAUDE.md n°14), à DEUX niveaux
+/// complémentaires :
+/// <list type="bullet">
+/// <item><description>
+/// <b>NetArchTest (IL)</b> : les assemblies de production GED ne portent AUCUNE dépendance de type vers le
+/// flux fiscal (« Ged.Domain → aucune dépendance fiscale », F19 §7). Voit l'usage EFFECTIF des types.
+/// </description></item>
+/// <item><description>
+/// <b>Scan déclaratif des <c>.csproj</c></b> (modèle <c>StratumPackagingBoundaryTests</c>) : couvre la
+/// « référence sèche » (une <c>ProjectReference</c> ajoutée mais dont le type n'est pas encore utilisé) —
+/// que l'IL ne peut pas voir — et reste significatif quand le module GED, au stade scaffold, ne référence
+/// encore aucun autre module. C'est ce niveau qui prouve « flux fiscal ⇏ Ged » sans référencer les
+/// assemblies fiscales depuis le projet de test.
+/// </description></item>
+/// </list>
 /// </summary>
 public sealed class GedBoundaryTests
 {
-    // Planchers de cohérence : sans projets à inspecter, une garde passerait à VIDE (faux vert). Le module
+    // Plancher de cohérence : sans projets à inspecter, une garde passerait à VIDE (faux vert). Le module
     // GED expose 5 couches de production (Contracts/Domain/Application/Infrastructure/Web) ; les 4 modules du
     // flux fiscal exposent au moins un .csproj de production chacun.
     private const int MinimumGedProductionProjects = 5;
 
+    // Modules du FLUX FISCAL d'émission — liste EXPLICITE de F19 §7 (« ★ INTERDIT (P1) :
+    // Pipeline/Validation/Transmission/Documents ──X──▶ Ged.* »). La garde est volontairement restreinte à
+    // cet ensemble : le silo fiscal interdit à CES modules toute dépendance vers Ged. Qu'un module d'intake
+    // (Ingestion, Staging, …) référence un jour la SURFACE PUBLIQUE Ged.Contracts est permis par design
+    // (module-rules §3, accès inter-module par les Contracts) et n'est donc PAS une violation de frontière.
     private static readonly string[] FiscalFlowModules = ["Pipeline", "Validation", "Transmission", "Documents"];
+
+    private static readonly string[] FiscalFlowNamespaces =
+        [.. FiscalFlowModules.Select(m => $"Liakont.Modules.{m}")];
+
+    [Fact]
+    public void Ged_production_assemblies_carry_no_fiscal_dependency()
+    {
+        // NetArchTest (IL) : aucun type des assemblies de production GED ne dépend d'un namespace du flux
+        // fiscal d'émission (F19 §7). Non vacuous : Ged.Infrastructure porte GedModuleRegistration (types +
+        // dépendances réels). Domain/Application/Contracts sont couverts en même temps (le silo grandira).
+        var gedProductionAssemblies = new[]
+        {
+            typeof(GedModuleRegistration).Assembly,                                  // Ged.Infrastructure
+            typeof(Liakont.Modules.Ged.Domain.IGedDomainMarker).Assembly,           // Ged.Domain
+            typeof(Liakont.Modules.Ged.Application.IGedApplicationMarker).Assembly,  // Ged.Application
+            typeof(Liakont.Modules.Ged.Contracts.IGedContractsMarker).Assembly,      // Ged.Contracts
+        };
+
+        var offenders = new List<string>();
+        foreach (var assembly in gedProductionAssemblies)
+        {
+            var result = Types.InAssembly(assembly)
+                .Should()
+                .NotHaveDependencyOnAny(FiscalFlowNamespaces)
+                .GetResult();
+
+            if (!result.IsSuccessful)
+            {
+                var failing = string.Join(", ", result.FailingTypeNames ?? Enumerable.Empty<string>());
+                offenders.Add($"{assembly.GetName().Name} -> [{failing}]");
+            }
+        }
+
+        var reason =
+            "le module GED est un silo isolé du flux fiscal (F19 §7) : aucun type de production GED ne doit "
+            + "dépendre de Pipeline/Validation/Transmission/Documents — fautifs : {0}";
+        offenders.Should().BeEmpty(reason, string.Join(" ; ", offenders));
+    }
 
     [Fact]
     public void Ged_layers_only_reference_other_modules_through_their_Contracts()
@@ -83,8 +135,8 @@ public sealed class GedBoundaryTests
         }
 
         var boundaryReason =
-            "le flux fiscal (Pipeline/Validation/Transmission/Documents) IGNORE la GED : aucune dépendance "
-            + "vers Ged.* (P1, F19 §7) — références fautives : {0}";
+            "le flux fiscal (Pipeline/Validation/Transmission/Documents — liste explicite F19 §7) IGNORE la "
+            + "GED : aucune dépendance vers Ged.* (P1) — références fautives : {0}";
         offenders.Should().BeEmpty(boundaryReason, string.Join(" ; ", offenders));
     }
 
