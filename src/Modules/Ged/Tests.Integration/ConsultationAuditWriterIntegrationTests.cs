@@ -24,6 +24,9 @@ using Xunit;
 [Collection("GedIntegration")]
 public sealed class ConsultationAuditWriterIntegrationTests
 {
+    private static readonly string[] ExpectedClosedDbActions =
+        ["search", "view_document", "explore_entity", "export", "open_archive"];
+
     private readonly GedDatabaseFixture _fixture;
 
     public ConsultationAuditWriterIntegrationTests(GedDatabaseFixture fixture) => _fixture = fixture;
@@ -72,8 +75,9 @@ public sealed class ConsultationAuditWriterIntegrationTests
         }
 
         using var connection = await factory.OpenAsync();
-        var count = await connection.ExecuteScalarAsync<long>("SELECT count(*) FROM ged_index.consultation_log");
-        count.Should().Be(Enum.GetValues<ConsultationAction>().Length);
+        var actions = (await connection.QueryAsync<string>(
+            "SELECT action FROM ged_index.consultation_log")).ToHashSet(StringComparer.Ordinal);
+        actions.Should().BeEquivalentTo(ExpectedClosedDbActions);
     }
 
     // ─────────────────────── masquage confidentiel server-side (§6.5, anti-oracle) ───────────────────────

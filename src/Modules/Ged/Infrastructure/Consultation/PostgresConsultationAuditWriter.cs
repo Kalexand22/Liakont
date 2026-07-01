@@ -76,11 +76,10 @@ internal sealed partial class PostgresConsultationAuditWriter : IConsultationAud
         // Le régime est résolu AVANT le try : c'est un fait de configuration tenant, pas une écriture faillible ;
         // le défaut (BestEffort) ne lève jamais. On sait donc, en cas d'échec d'écriture, s'il faut fail-closed.
         var mode = await _modeProvider.GetModeAsync(cancellationToken);
+        var actor = _actorContextAccessor.Current;
 
         try
         {
-            var actor = _actorContextAccessor.Current;
-
             using var connection = await _connectionFactory.OpenAsync(cancellationToken);
 
             // La RÉSOLUTION de confidentialité PRÉCÈDE l'INSERT : si elle échoue, on n'insère RIEN (pas d'insertion
@@ -110,7 +109,7 @@ internal sealed partial class PostgresConsultationAuditWriter : IConsultationAud
             {
                 // Régime PROBANT : la trace est une précondition de l'accès. On NE DÉGRADE PAS en silence
                 // (CLAUDE.md n.3) — Error + exception que l'appelant traduit en refus de lecture (message FR).
-                LogEvidentialFailure(_logger, ex, entry.Action, _actorContextAccessor.Current.UserId);
+                LogEvidentialFailure(_logger, ex, entry.Action, actor.UserId);
 
                 throw new ConsultationAuditException(
                     "La trace de consultation GED n'a pas pu être enregistrée : accès refusé (régime probant). Réessayez ; si le problème persiste, contactez l'administrateur.",
@@ -119,7 +118,7 @@ internal sealed partial class PostgresConsultationAuditWriter : IConsultationAud
 
             // Régime BEST-EFFORT (défaut) : une lecture n'a pas de transaction métier à casser. La lecture réussit ;
             // l'échec de trace est journalisé en Warning pour l'observabilité (message FR, CLAUDE.md n.12).
-            LogBestEffortFailure(_logger, ex, entry.Action, _actorContextAccessor.Current.UserId);
+            LogBestEffortFailure(_logger, ex, entry.Action, actor.UserId);
         }
     }
 
