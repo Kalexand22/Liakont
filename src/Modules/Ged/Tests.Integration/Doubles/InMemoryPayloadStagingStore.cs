@@ -13,8 +13,13 @@ using Liakont.Modules.Staging.Contracts;
 internal sealed class InMemoryPayloadStagingStore : IPayloadStagingStore
 {
     private readonly ConcurrentDictionary<StagedPayloadKey, string> _entries = new();
+    private readonly ConcurrentDictionary<StagedPayloadKey, byte> _corrupted = new();
 
     public PayloadStagingStoreCapabilities Capabilities => PayloadStagingStoreCapabilities.None;
+
+    /// <summary>Marque une entrée comme ALTÉRÉE : <see cref="ReadAsync"/> lèvera <see cref="StagedPayloadIntegrityException"/>
+    /// (comme le magasin réel qui re-vérifie le hash), pour exercer la branche de déférement d'intégrité du consommateur.</summary>
+    public void Corrupt(StagedPayloadKey key) => _corrupted[key] = 0;
 
     public Task WriteAsync(StagedPayloadKey key, string canonicalJson, CancellationToken cancellationToken = default)
     {
@@ -22,10 +27,17 @@ internal sealed class InMemoryPayloadStagingStore : IPayloadStagingStore
         return Task.CompletedTask;
     }
 
-    public Task<string> ReadAsync(StagedPayloadKey key, CancellationToken cancellationToken = default) =>
-        _entries.TryGetValue(key, out var content)
+    public Task<string> ReadAsync(StagedPayloadKey key, CancellationToken cancellationToken = default)
+    {
+        if (_corrupted.ContainsKey(key))
+        {
+            throw StagedPayloadIntegrityException.HashMismatch(key, "hash-altéré");
+        }
+
+        return _entries.TryGetValue(key, out var content)
             ? Task.FromResult(content)
             : throw StagedPayloadNotFoundException.ForKey(key);
+    }
 
     public Task<bool> ExistsAsync(StagedPayloadKey key, CancellationToken cancellationToken = default) =>
         Task.FromResult(_entries.ContainsKey(key));

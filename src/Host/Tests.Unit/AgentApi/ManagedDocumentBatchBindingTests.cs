@@ -69,4 +69,32 @@ public sealed class ManagedDocumentBatchBindingTests
         bound.Capabilities!.ProvidesManagedDocuments.Should().BeTrue();
         bound.Capabilities.ProvidesAxes.Should().BeTrue();
     }
+
+    [Fact]
+    public void Unknown_member_in_the_ged_batch_envelope_is_rejected_not_dropped()
+    {
+        // RDL04 étendu au canal GED : un membre post-v1 inconnu de l'enveloppe est REFUSÉ (400), jamais droppé.
+        const string wire = "{\"Documents\":[],\"FutureV2Field\":\"x\"}";
+
+        Action bind = () => JsonSerializer.Deserialize<ManagedDocumentBatchRequestDto>(wire, HostMinimalApiOptions());
+
+        bind.Should().Throw<JsonException>(
+            "un membre inconnu de l'enveloppe GED est REFUSÉ (RDL04 étendu à l'assembly Liakont.Agent.Contracts.Ged), jamais droppé");
+    }
+
+    [Fact]
+    public void Unknown_member_in_an_ingested_document_is_rejected_not_dropped()
+    {
+        // Le cas qui casse RÉELLEMENT le hash : c'est l'IngestedDocumentDto qui est re-sérialisé (GedCanonicalJson)
+        // puis hashé. Un membre post-v1 droppé → deux documents distincts au même JSON canonique → même empreinte →
+        // faux Duplicate (jamais indexé) OU fausse non-altération : INV-GED-06 cassé. Il DOIT être rejeté (400).
+        var document = new IngestedDocumentDto("SRC-1", "NOTE", sourceFields: new Dictionary<string, string>());
+        var documentWithUnknownMember = "{\"FutureV2Field\":\"x\"," + GedCanonicalJson.Serialize(document)[1..];
+        var wire = "{\"Documents\":[" + documentWithUnknownMember + "]}";
+
+        Action bind = () => JsonSerializer.Deserialize<ManagedDocumentBatchRequestDto>(wire, HostMinimalApiOptions());
+
+        bind.Should().Throw<JsonException>(
+            "un membre inconnu d'un IngestedDocumentDto est REFUSÉ — sinon re-hash amputé, anti-doublon GED INV-GED-06 cassé (RDL04 étendu au canal GED)");
+    }
 }

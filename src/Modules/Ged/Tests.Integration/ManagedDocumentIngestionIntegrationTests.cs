@@ -18,6 +18,7 @@ using Liakont.Modules.Ged.Infrastructure.Ingestion;
 using Liakont.Modules.Ged.Infrastructure.Mapping;
 using Liakont.Modules.Ged.Tests.Integration.Doubles;
 using Liakont.Modules.Ged.Tests.Integration.Fixtures;
+using Liakont.Modules.Staging.Contracts;
 using Microsoft.Extensions.Logging.Abstractions;
 using Stratum.Common.Abstractions.Events;
 using Stratum.Common.Infrastructure.Database;
@@ -220,6 +221,28 @@ public sealed class ManagedDocumentIngestionIntegrationTests
         (await DeferReasonAsync(factory, evt.Payload.ManagedDocumentId)).Should().Contain("vide", "le motif français est actionnable (n°12)");
         (await CountEntityInstancesAsync(factory)).Should().Be(0);
         (await CountAxisLinksAsync(factory)).Should().Be(0, "aucune écriture partielle : la garde défère AVANT la transaction d'indexation");
+    }
+
+    [Fact]
+    public async Task Document_with_corrupted_staged_content_is_deferred()
+    {
+        var factory = _fixture.CreateTenantDatabase();
+        var staging = new InMemoryPayloadStagingStore();
+        var handler = BuildHandler(factory, staging);
+        var consumer = BuildConsumer(staging, (TenantA, factory));
+
+        await IngestAsync(handler, TenantA, "SRC-1", "NOTE", new Dictionary<string, string> { ["d"] = "x" });
+        var evt = await DrainSingleGedEventAsync(factory);
+
+        // Le contenu stagé devient illisible (le magasin réel re-vérifie le hash) : altération PERSISTANTE → DÉFÉRER
+        // (visible console, motif français), jamais un retry aveugle ni un dead-letter silencieux.
+        staging.Corrupt(new StagedPayloadKey(TenantA, evt.Payload.ManagedDocumentId, evt.Payload.PayloadHash));
+
+        await consumer.HandleAsync(evt, CancellationToken.None);
+
+        (await StatusAsync(factory, evt.Payload.ManagedDocumentId)).Should().Be("deferred", "un contenu stagé altéré défère (persistant)");
+        (await DeferReasonAsync(factory, evt.Payload.ManagedDocumentId)).Should().Contain("intégrité", "le motif français nomme le contrôle d'intégrité (n°12)");
+        (await CountAxisLinksAsync(factory)).Should().Be(0);
     }
 
     [Fact]
