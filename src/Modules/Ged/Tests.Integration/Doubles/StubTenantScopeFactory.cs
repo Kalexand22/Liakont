@@ -4,8 +4,10 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Liakont.Modules.Ged.Application;
+using Liakont.Modules.Ged.Application.Index;
 using Liakont.Modules.Ged.Application.Mapping;
 using Liakont.Modules.Ged.Infrastructure;
+using Liakont.Modules.Ged.Infrastructure.Index;
 using Liakont.Modules.Ged.Infrastructure.Mapping;
 using Liakont.Modules.Staging.Contracts;
 using Stratum.Common.Abstractions.MultiTenancy;
@@ -33,6 +35,7 @@ internal sealed class StubTenantScopeFactory : ITenantScopeFactory
                 [typeof(IEntityCatalog)] = new PostgresEntityCatalog(factory),
                 [typeof(IGedIndexUnitOfWorkFactory)] = new PostgresGedIndexUnitOfWorkFactory(factory),
                 [typeof(IGedMappingProfileStore)] = new GedMappingProfileRepository(factory),
+                [typeof(IDocumentSearchIndex)] = new PostgresDocumentSearchIndex(factory, new PostgresAxisCatalog(factory)),
             };
             providers[tenantId] = new DirectServiceProvider(services);
         }

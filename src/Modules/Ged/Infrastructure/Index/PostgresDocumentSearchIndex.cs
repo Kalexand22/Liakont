@@ -59,9 +59,16 @@ internal sealed class PostgresDocumentSearchIndex : IDocumentSearchIndex
                 refreshed_utc = EXCLUDED.refreshed_utc;
         """;
 
-    // §6.4 — traversée BIDIRECTIONNELLE bornée. Deux gardes miroir de la référence F19 : (1) anti-cycle par TABLEAU DE
-    // CHEMIN (borne le nombre de marches, donc de lignes matérialisées — anti-DoS réel) ; (2) CONFIDENTIALITÉ héritée
-    // des entity_types aux DEUX extrémités ET à la RACINE (sinon oracle depth-0) — matérialisée dans le SQL (RL-31).
+    // §6.4 — traversée BIDIRECTIONNELLE bornée. Deux gardes miroir de la référence F19 : (1) la borne DURE de
+    // profondeur (r.depth < @MaxDepth, clampée par l'appelant dans [0..GraphExplorationQuery.MaxAllowedDepth]=8) est
+    // l'anti-DoS réel : l'ensemble de résultat est FINI, borné par le graphe du tenant restreint à cette profondeur.
+    // Le tableau de CHEMIN (NOT nxt.entity_id = ANY(r.path)) garantit la TERMINAISON sur un cycle et garde chaque
+    // chemin de traversée SIMPLE (aucune entité répétée dans un même chemin) ; il ne borne PAS, à lui seul, le nombre
+    // de chemins simples distincts — sur un graphe tenant pathologiquement dense, le CTE récursif (UNION ALL) peut
+    // matérialiser de nombreuses lignes jusqu'à la borne de profondeur ; rayon d'impact = un seul tenant, opérateur
+    // authentifié ; le passage à l'échelle sur un gros corpus est le backend OpenSearch derrière IDocumentSearchIndex
+    // (GED21). (2) CONFIDENTIALITÉ héritée des entity_types aux DEUX extrémités ET à la RACINE (sinon oracle
+    // depth-0) — matérialisée dans le SQL (RL-31), inchangée par ce qui précède.
     // La traversée lit current_entity_relations (exclut rétractées/superséedées, RL-24) et current_document_entity_links.
     // Regroupement par (document, entité, rôle) + min(depth) : clé de résultat UNIQUE → keyset composite stable (RL-20).
     private const string ExploreSql = """
