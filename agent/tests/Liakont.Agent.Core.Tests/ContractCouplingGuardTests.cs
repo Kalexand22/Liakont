@@ -53,6 +53,12 @@ public sealed class ContractCouplingGuardTests
     {
         "src/Liakont.Agent.Cli/Liakont.Agent.Cli.csproj -> src/Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj",
         "src/Liakont.Agent.Core/Liakont.Agent.Core.csproj -> src/Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj",
+
+        // Canal GED (F19 §4.2/§4.6, item GED05a) : Core consomme Contracts.Ged (IManagedExtractor →
+        // IngestedDocumentDto), Core.Tests l'exerce (golden RL-39 + frontière AgentBoundaryTests).
+        "src/Liakont.Agent.Core/Liakont.Agent.Core.csproj -> src/Contracts/Liakont.Agent.Contracts.Ged/Liakont.Agent.Contracts.Ged.csproj",
+        "tests/Liakont.Agent.Core.Tests/Liakont.Agent.Core.Tests.csproj -> src/Contracts/Liakont.Agent.Contracts.Ged/Liakont.Agent.Contracts.Ged.csproj",
+        "tests/Liakont.Agent.Core.Tests/Liakont.Agent.Core.Tests.csproj -> tests/_shared/contract-v1/IngestedDocumentContractGoldenTests.cs",
         "tests/Liakont.Agent.Adapters.DemoErpA.Tests/Liakont.Agent.Adapters.DemoErpA.Tests.csproj -> src/Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj",
         "tests/Liakont.Agent.Adapters.DemoErpB.Tests/Liakont.Agent.Adapters.DemoErpB.Tests.csproj -> src/Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj",
         "tests/Liakont.Agent.Adapters.EncheresV6.Tests/Liakont.Agent.Adapters.EncheresV6.Tests.csproj -> src/Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj",
@@ -91,36 +97,46 @@ public sealed class ContractCouplingGuardTests
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     [Fact]
-    public void Contract_project_is_netstandard20_with_zero_effective_package_reference()
+    public void Contract_projects_are_netstandard20_with_zero_effective_package_reference()
     {
         string repoRoot = FindRepoRoot();
-        string contractCsproj = Path.Combine(
-            repoRoot, "src", "Contracts", "Liakont.Agent.Contracts", "Liakont.Agent.Contracts.csproj");
 
-        File.Exists(contractCsproj).Should().BeTrue(
-            "le projet de contrat agent↔plateforme doit exister à src/Contracts/ (introuvable : " + contractCsproj + ")");
+        // Les DEUX projets du contrat agent↔plateforme partagés en netstandard2.0 : le contrat de base
+        // (pivot fiscal) ET le contrat GED (Contracts.Ged, F19 §4.2/§4.6, item GED05a). Les deux doivent
+        // rester netstandard2.0 + zéro paquet effectif — même exigence de consommabilité net48/.NET 10.
+        string[] contractCsprojs =
+        {
+            Path.Combine(repoRoot, "src", "Contracts", "Liakont.Agent.Contracts", "Liakont.Agent.Contracts.csproj"),
+            Path.Combine(repoRoot, "src", "Contracts", "Liakont.Agent.Contracts.Ged", "Liakont.Agent.Contracts.Ged.csproj"),
+        };
 
-        string csprojText = File.ReadAllText(contractCsproj);
+        foreach (string contractCsproj in contractCsprojs)
+        {
+            File.Exists(contractCsproj).Should().BeTrue(
+                "le projet de contrat agent↔plateforme doit exister à src/Contracts/ (introuvable : " + contractCsproj + ")");
 
-        // 1. Cible netstandard2.0 : seul TFM consommable à la fois par net48 (agent) et net10 (plateforme).
-        //    Un passage à net8.0/net10 casserait la consommabilité net48 (condition de la publication NuGet).
-        Match tfm = TargetFrameworkElement.Match(csprojText);
-        tfm.Success.Should().BeTrue("le contrat doit déclarer un <TargetFramework> unique (pas de TargetFrameworks pluriel)");
-        tfm.Groups[1].Value.Should().Be(
-            "netstandard2.0",
-            "le contrat reste netstandard2.0 — consommable par l'agent net48 ET la plateforme net10 (blueprint.md §3.2)");
+            string csprojText = File.ReadAllText(contractCsproj);
 
-        // 2. Zéro PackageReference EFFECTIF, en tenant compte du Remove hérité : le Directory.Build.props
-        //    racine injecte StyleCop.Analyzers pour tous les projets ; le contrat doit le RETIRER pour
-        //    rester « BCL seul ». Si ce Remove disparaît (ou un paquet est ajouté), l'effectif devient
-        //    non vide → échec. C'est la garde DÉCLARATIVE qui manque à ContractsPurityTests (niveau IL).
-        IEnumerable<string> msbuildChain = MsbuildChain(Path.GetDirectoryName(contractCsproj)!, repoRoot);
-        string[] effective = ComputeEffectivePackages(msbuildChain.Select(File.ReadAllText)).ToArray();
+            // 1. Cible netstandard2.0 : seul TFM consommable à la fois par net48 (agent) et net10 (plateforme).
+            //    Un passage à net8.0/net10 casserait la consommabilité net48 (condition de la publication NuGet).
+            Match tfm = TargetFrameworkElement.Match(csprojText);
+            tfm.Success.Should().BeTrue("le contrat doit déclarer un <TargetFramework> unique (pas de TargetFrameworks pluriel)");
+            tfm.Groups[1].Value.Should().Be(
+                "netstandard2.0",
+                "le contrat reste netstandard2.0 — consommable par l'agent net48 ET la plateforme net10 (blueprint.md §3.2)");
 
-        effective.Should().BeEmpty(
-            "Liakont.Agent.Contracts doit rester sans aucune dépendance NuGet effective (BCL seul, acceptance SOL02) — "
-            + "un analyseur non retiré ou une lib ajoutée casse la pureté du paquet publié. Effectif : "
-            + string.Join(", ", effective));
+            // 2. Zéro PackageReference EFFECTIF, en tenant compte du Remove hérité : le Directory.Build.props
+            //    racine injecte StyleCop.Analyzers pour tous les projets ; le contrat doit le RETIRER pour
+            //    rester « BCL seul ». Si ce Remove disparaît (ou un paquet est ajouté), l'effectif devient
+            //    non vide → échec. C'est la garde DÉCLARATIVE qui manque à ContractsPurityTests (niveau IL).
+            IEnumerable<string> msbuildChain = MsbuildChain(Path.GetDirectoryName(contractCsproj)!, repoRoot);
+            string[] effective = ComputeEffectivePackages(msbuildChain.Select(File.ReadAllText)).ToArray();
+
+            effective.Should().BeEmpty(
+                Path.GetFileNameWithoutExtension(contractCsproj) + " doit rester sans aucune dépendance NuGet effective "
+                + "(BCL seul, acceptance SOL02) — un analyseur non retiré ou une lib ajoutée casse la pureté du paquet "
+                + "publié. Effectif : " + string.Join(", ", effective));
+        }
     }
 
     [Fact]

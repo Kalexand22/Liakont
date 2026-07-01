@@ -605,6 +605,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests.Integration", "Tests.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Modules.Ged.Tests.Integration", "Modules\Ged\Tests.Integration\Liakont.Modules.Ged.Tests.Integration.csproj", "{3FD89230-A23A-4FD6-952C-A63823910AC3}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Agent.Contracts.Ged", "Contracts\Liakont.Agent.Contracts.Ged\Liakont.Agent.Contracts.Ged.csproj", "{3E8851B2-AF48-4117-9BDB-95D54CDEAEF4}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -2679,6 +2681,18 @@ Global
 		{3FD89230-A23A-4FD6-952C-A63823910AC3}.Release|x64.Build.0 = Release|Any CPU
 		{3FD89230-A23A-4FD6-952C-A63823910AC3}.Release|x86.ActiveCfg = Release|Any CPU
 		{3FD89230-A23A-4FD6-952C-A63823910AC3}.Release|x86.Build.0 = Release|Any CPU
+		{3E8851B2-AF48-4117-9BDB-95D54CDEAEF4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3E8851B2-AF48-4117-9BDB-95D54CDEAEF4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3E8851B2-AF48-4117-9BDB-95D54CDEAEF4}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{3E8851B2-AF48-4117-9BDB-95D54CDEAEF4}.Debug|x64.Build.0 = Debug|Any CPU
+		{3E8851B2-AF48-4117-9BDB-95D54CDEAEF4}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{3E8851B2-AF48-4117-9BDB-95D54CDEAEF4}.Debug|x86.Build.0 = Debug|Any CPU
+		{3E8851B2-AF48-4117-9BDB-95D54CDEAEF4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3E8851B2-AF48-4117-9BDB-95D54CDEAEF4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3E8851B2-AF48-4117-9BDB-95D54CDEAEF4}.Release|x64.ActiveCfg = Release|Any CPU
+		{3E8851B2-AF48-4117-9BDB-95D54CDEAEF4}.Release|x64.Build.0 = Release|Any CPU
+		{3E8851B2-AF48-4117-9BDB-95D54CDEAEF4}.Release|x86.ActiveCfg = Release|Any CPU
+		{3E8851B2-AF48-4117-9BDB-95D54CDEAEF4}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -2966,5 +2980,6 @@ Global
 		{9774ACF8-3A65-4F41-8E1E-E20259D8D64E} = {176DB449-CBFA-42BB-DE54-DAF46D5E4428}
 		{08CE9980-3FBE-46CA-B63D-4509B9B0C4F2} = {1D9E1DA4-E6C0-DA2F-25E4-2E0999213C1E}
 		{3FD89230-A23A-4FD6-952C-A63823910AC3} = {08CE9980-3FBE-46CA-B63D-4509B9B0C4F2}
+		{3E8851B2-AF48-4117-9BDB-95D54CDEAEF4} = {A73F2606-6D4C-3EEE-1759-0E59DCFEF523}
 	EndGlobalSection
 EndGlobal

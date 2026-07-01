@@ -120,6 +120,23 @@ public sealed class CanonicalJsonWriter
         AppendEscapedString(value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
 
     /// <summary>
+    /// Écrit un HORODATAGE UTC au format canonique <c>yyyy-MM-ddTHH:mm:ssZ</c> (culture invariante,
+    /// précision seconde), format anticipé par <c>ADR-0007</c> pour les horodatages (« hors périmètre
+    /// PIV02 : yyyy-MM-ddTHH:mm:ssZ »). Comme <see cref="WriteDate"/>, les composantes calendaires et
+    /// horaires (Year..Second) sont émises VERBATIM et le <see cref="DateTimeKind"/> est IGNORÉ (aucune
+    /// conversion de fuseau : deux <see cref="DateTime"/> de mêmes composantes mais de Kind différent
+    /// produisent le MÊME octet) ; le suffixe <c>Z</c> est un littéral déclarant la convention UTC du
+    /// contrat, PAS une conversion. La source est responsable de fournir un instant UTC déterministe
+    /// (ADR-0007 §traçabilité). Les sous-secondes sont TRONQUÉES (précision seconde figée du contrat) —
+    /// deux instants de même seconde sont indiscernables, comme deux dates de même jour pour
+    /// <see cref="WriteDate"/>. Le premier consommateur est le canal GED (<c>GedCanonicalJson</c>,
+    /// F19 §4.2) ; le pivot fiscal ne l'utilise pas (son empreinte figée reste inchangée).
+    /// </summary>
+    /// <param name="value">L'horodatage (ses composantes date+heure à la seconde sont retenues).</param>
+    public void WriteDateTimeUtc(DateTime value) =>
+        AppendEscapedString(value.ToString("yyyy-MM-ddTHH:mm:ss'Z'", CultureInfo.InvariantCulture));
+
+    /// <summary>
     /// Écrit une énumération par son NOM (règle 4 d'<c>ADR-0007</c> : « émis par leur NOM »),
     /// GARDÉE par <see cref="Enum.IsDefined(Type, object)"/> : une valeur hors plage LÈVE au lieu
     /// d'émettre le NOMBRE muet que produirait <c>ToString()</c> (les enums du contrat commencent à 1 ;
@@ -152,16 +169,24 @@ public sealed class CanonicalJsonWriter
     /// <returns>Le document JSON canonique.</returns>
     public override string ToString() => _builder.ToString();
 
-    // Normalisation Unicode NFC (ADR-0007 règle 7). Une valeur de texte LIBRE issue de la source (raison
-    // sociale, libellé, SourceData…) peut arriver en NFC ou NFD selon le pilote ODBC ; « café » précomposé
-    // (U+00E9) et décomposé (U+0065 U+0301) sont la MÊME chaîne abstraite (équivalence canonique Unicode)
-    // mais produiraient deux empreintes — anti-doublon PIV04 rompu. On canonicalise la FORME d'encodage ici,
-    // au même titre que l'échappement ASCII : c'est une canonicalisation d'ENCODAGE de chaîne, distincte du
-    // déterminisme de CONTENU/structure (ordre des champs, absence d'horodatage) qui reste la responsabilité
-    // de l'adaptateur (ADR-0007 §traçabilité). La forme NFC est STABLE entre net48 (NLS) et .NET 10 (ICU) —
-    // Unicode Normalization Stability Policy : la décomposition canonique d'un caractère ASSIGNÉ ne change
-    // jamais — donc l'empreinte reste identique des deux côtés (prouvé par les golden cross-runtime).
-    private static string NormalizeToNfc(string value)
+    /// <summary>
+    /// Normalisation Unicode NFC (ADR-0007 règle 7). Une valeur de texte LIBRE issue de la source (raison
+    /// sociale, libellé, SourceData…) peut arriver en NFC ou NFD selon le pilote ODBC ; « café » précomposé
+    /// (U+00E9) et décomposé (U+0065 U+0301) sont la MÊME chaîne abstraite (équivalence canonique Unicode)
+    /// mais produiraient deux empreintes — anti-doublon PIV04 rompu. On canonicalise la FORME d'encodage ici,
+    /// au même titre que l'échappement ASCII : c'est une canonicalisation d'ENCODAGE de chaîne, distincte du
+    /// déterminisme de CONTENU/structure (ordre des champs, absence d'horodatage) qui reste la responsabilité
+    /// de l'adaptateur (ADR-0007 §traçabilité). La forme NFC est STABLE entre net48 (NLS) et .NET 10 (ICU) —
+    /// Unicode Normalization Stability Policy : la décomposition canonique d'un caractère ASSIGNÉ ne change
+    /// jamais — donc l'empreinte reste identique des deux côtés (prouvé par les golden cross-runtime).
+    /// Primitive PARTAGÉE : réutilisée telle quelle par <c>GedCanonicalJson</c> pour normaliser les NOMS de
+    /// membre dérivés de la source (clés <c>SourceFields</c> du canal GED), au même titre que les valeurs de
+    /// texte libre — un nom de champ source non-canonicalisé casserait l'anti-doublon RL-39 exactement comme
+    /// une valeur non-canonicalisée casse PIV04.
+    /// </summary>
+    /// <param name="value">La chaîne à canonicaliser.</param>
+    /// <returns>La forme NFC de <paramref name="value"/>, ou la chaîne telle quelle si Unicode invalide.</returns>
+    public static string NormalizeToNfc(string value)
     {
         try
         {

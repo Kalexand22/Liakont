@@ -7,6 +7,7 @@ using System.Reflection;
 using FluentAssertions;
 using Liakont.Agent.Adapters.EncheresV6;
 using Liakont.Agent.Contracts;
+using Liakont.Agent.Contracts.Ged;
 using Xunit;
 
 /// <summary>
@@ -50,6 +51,7 @@ public class AgentBoundaryTests
         var agentAssemblies = new[]
         {
             typeof(AgentContractVersion).Assembly,
+            typeof(IngestedDocumentDto).Assembly, // Contracts.Ged (F19, GED05a) : BCL + Liakont.Agent.Contracts seul.
             typeof(IExtractor).Assembly,
             typeof(PervasiveExtractor).Assembly,
             typeof(Liakont.Agent.Adapters.DemoErpA.DemoErpAExtractor).Assembly,
