@@ -150,5 +150,7 @@ public sealed class B2cMarginEmissionsConsoleQueryServiceTests
             RequestedBatchIds.Add(emissionBatchId);
             return Task.FromResult(_detail);
         }
+
+        public Task<Guid?> GetEmissionBatchIdForDocumentAsync(Guid documentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }

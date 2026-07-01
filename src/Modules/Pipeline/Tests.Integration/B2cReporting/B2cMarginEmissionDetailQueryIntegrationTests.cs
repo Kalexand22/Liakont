@@ -84,6 +84,65 @@ public sealed class B2cMarginEmissionDetailQueryIntegrationTests
         (await queries.GetEmissionDetailAsync(Guid.NewGuid())).Should().BeNull();
     }
 
+    [Fact]
+    public async Task GetEmissionBatchIdForDocument_Resolves_The_Batch_Of_An_Issued_Document_Without_Any_Event()
+    {
+        // BUG-24 / ADR-0037 §4 : le lien « Voir la déclaration » lit le lot depuis le JOURNAL D'ÉMISSION (source de
+        // vérité de la liaison), pas depuis un événement d'audit. Ce test prouve la RÉTROACTIVITÉ : le lot se résout
+        // à partir des SEULES entrées du journal — exactement l'état d'un document rétro-corrigé par V012, qui n'a
+        // AUCUN événement DocumentEReported. On n'écrit ici que dans pipeline.b2c_margin_emissions (aucun événement).
+        var factory = _fixture.CreateConnectionFactory();
+        var store = new PostgresB2cMarginEmissionStore(factory);
+        var queries = new PostgresB2cMarginEmissionQueries(factory);
+
+        var batchId = Guid.NewGuid();
+        var doc = Guid.NewGuid();
+        var date = new DateOnly(2099, 8, 12);
+
+        await store.AppendAsync(Entry(doc, "encheresv6:ba:9000010", batchId, date, B2cMarginEmissionStatus.Pending));
+        await store.AppendAsync(Entry(doc, "encheresv6:ba:9000010", batchId, date, B2cMarginEmissionStatus.Issued, paEmissionId: "610"));
+
+        (await queries.GetEmissionBatchIdForDocumentAsync(doc)).Should().Be(batchId,
+            "la liaison document→lot vit dans le journal, indépendamment de tout événement (cas backfill V012)");
+    }
+
+    [Fact]
+    public async Task GetEmissionBatchIdForDocument_Returns_The_Most_Recent_Issued_Batch()
+    {
+        // Un document tardif ré-agrégé (D3) peut appartenir à DEUX transmissions Issued : on retourne la PLUS RÉCENTE
+        // (created_utc, seq décroissants) — le lot que reflète l'état EReported courant. Déterminisme garanti par seq.
+        var factory = _fixture.CreateConnectionFactory();
+        var store = new PostgresB2cMarginEmissionStore(factory);
+        var queries = new PostgresB2cMarginEmissionQueries(factory);
+
+        var firstBatch = Guid.NewGuid();
+        var secondBatch = Guid.NewGuid();
+        var doc = Guid.NewGuid();
+        var date = new DateOnly(2099, 8, 13);
+
+        await store.AppendAsync(Entry(doc, "encheresv6:ba:9000011", firstBatch, date, B2cMarginEmissionStatus.Issued, paEmissionId: "611"));
+        await store.AppendAsync(Entry(doc, "encheresv6:ba:9000011", secondBatch, date, B2cMarginEmissionStatus.Issued, paEmissionId: "612"));
+
+        (await queries.GetEmissionBatchIdForDocumentAsync(doc)).Should().Be(secondBatch, "le lot le plus récent l'emporte");
+    }
+
+    [Fact]
+    public async Task GetEmissionBatchIdForDocument_Returns_Null_When_The_Document_Has_No_Issued_Emission()
+    {
+        // Aucune issue confirmée (seulement Pending) → aucun lot (le document n'est pas réellement e-reporté).
+        var factory = _fixture.CreateConnectionFactory();
+        var store = new PostgresB2cMarginEmissionStore(factory);
+        var queries = new PostgresB2cMarginEmissionQueries(factory);
+
+        var batchId = Guid.NewGuid();
+        var doc = Guid.NewGuid();
+
+        await store.AppendAsync(Entry(doc, "encheresv6:ba:9000012", batchId, new DateOnly(2099, 8, 14), B2cMarginEmissionStatus.Pending));
+
+        (await queries.GetEmissionBatchIdForDocumentAsync(doc)).Should().BeNull("aucune entrée Issued ⇒ aucun lot résolu");
+        (await queries.GetEmissionBatchIdForDocumentAsync(Guid.NewGuid())).Should().BeNull("document inconnu ⇒ null");
+    }
+
     private static B2cMarginEmissionEntry Entry(
         Guid documentId,
         string sourceReference,

@@ -28,22 +28,24 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
     private const string BlockedEventType = "DocumentBlocked";
     private const string RecheckedStillBlockedEventType = "DocumentRecheckedStillBlocked";
     private const string BlockedDocumentState = "Blocked";
-    private const string EReportedEventType = "DocumentEReported";
     private const string EReportedDocumentState = "EReported";
 
     private readonly IDocumentQueries _documents;
     private readonly IDocumentContentReplayService _contentReplay;
+    private readonly IB2cMarginEmissionQueries _emissions;
     private readonly ISender _sender;
     private readonly ILogger<DocumentDetailConsoleQueryService> _logger;
 
     public DocumentDetailConsoleQueryService(
         IDocumentQueries documents,
         IDocumentContentReplayService contentReplay,
+        IB2cMarginEmissionQueries emissions,
         ISender sender,
         ILogger<DocumentDetailConsoleQueryService> logger)
     {
         _documents = documents;
         _contentReplay = contentReplay;
+        _emissions = emissions;
         _sender = sender;
         _logger = logger;
     }
@@ -85,6 +87,8 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
         // (cœurs e-reporting réutilisés) sur le MÊME pivot que le contenu affiché. null hors régime de la marge.
         var marginRecap = await ResolveMarginRecapAsync(id, pivot, cancellationToken).ConfigureAwait(false);
 
+        var eReportedBatchId = await ResolveEReportedBatchIdAsync(id, document.State, cancellationToken).ConfigureAwait(false);
+
         return new DocumentDetailViewModel
         {
             Document = document,
@@ -92,52 +96,45 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
             BlockingReason = blockingReason,
             Content = content,
             MarginRecap = marginRecap,
-            EReportedBatchId = ExtractEReportedBatchId(document.State, events),
+            EReportedBatchId = eReportedBatchId,
             Archive = archive,
             IsArchived = archive is not null,
         };
     }
 
-    // Lien « Voir la déclaration » (fiche → /emissions-marge-b2c/{batchId}) re-sourcé depuis l'événement d'audit
-    // DÉJÀ chargé (BUG-24/ADR-0037 §4) : aucune requête read-time sur le journal d'émission. Le lot d'émission est
-    // porté par le Detail de l'événement DocumentEReported, entre guillemets « … ». PRÉSENTATION pure : si le batch
-    // n'est pas extractible (état non EReported, événement absent, format inattendu), on renvoie null → le lien est
-    // simplement absent (jamais une exception). L'état, lui, reste piloté par documents.state (une seule vérité).
-    private static Guid? ExtractEReportedBatchId(string state, IReadOnlyList<DocumentEventDto> events)
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to replay document content for document {DocumentId}; falling back to the transmitted snapshot.")]
+    private static partial void LogContentReplayFailed(ILogger logger, Guid documentId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to resolve the e-reporting emission batch for document {DocumentId}; the deep link is omitted (the detail remains available).")]
+    private static partial void LogEReportedBatchResolutionFailed(ILogger logger, Guid documentId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to resolve the margin recap for document {DocumentId}; the recap is omitted (the detail remains available).")]
+    private static partial void LogMarginRecapFailed(ILogger logger, Guid documentId, Exception exception);
+
+    // Lien « Voir la déclaration » (fiche → /emissions-marge-b2c/{lot}) : le LOT d'émission auquel appartient le
+    // document e-reporté est lu depuis la SOURCE DE VÉRITÉ de la liaison — le journal d'émission B2C
+    // (pipeline.b2c_margin_emissions.emission_batch_id, via la query Contracts). Cette liaison existe pour TOUT
+    // document e-reporté, qu'il l'ait été par le job (frais) OU par le backfill V012 (RÉTROACTIF, sans événement
+    // d'audit) — contrairement à l'événement DocumentEReported, absent des documents rétro-corrigés. On ne résout QUE
+    // si l'état persisté est EReported (une seule vérité : documents.state). PRÉSENTATION pure : une panne de lecture
+    // n'expose pas le lien mais ne casse JAMAIS le détail (miroir du récap de marge) ; seule l'annulation se propage.
+    private async Task<Guid?> ResolveEReportedBatchIdAsync(Guid id, string state, CancellationToken cancellationToken)
     {
         if (!string.Equals(state, EReportedDocumentState, StringComparison.Ordinal))
         {
             return null;
         }
 
-        var detail = events
-            .Where(e => string.Equals(e.EventType, EReportedEventType, StringComparison.Ordinal))
-            .OrderByDescending(e => e.TimestampUtc)
-            .ThenByDescending(e => e.Id)
-            .Select(e => e.Detail)
-            .FirstOrDefault(d => !string.IsNullOrWhiteSpace(d));
-
-        if (detail is null)
+        try
         {
+            return await _emissions.GetEmissionBatchIdForDocumentAsync(id, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogEReportedBatchResolutionFailed(_logger, id, ex);
             return null;
         }
-
-        var open = detail.IndexOf('«');
-        var close = detail.IndexOf('»');
-        if (open < 0 || close <= open)
-        {
-            return null;
-        }
-
-        var candidate = detail.Substring(open + 1, close - open - 1).Trim();
-        return Guid.TryParse(candidate, out var batchId) ? batchId : null;
     }
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to replay document content for document {DocumentId}; falling back to the transmitted snapshot.")]
-    private static partial void LogContentReplayFailed(ILogger logger, Guid documentId, Exception exception);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to resolve the margin recap for document {DocumentId}; the recap is omitted (the detail remains available).")]
-    private static partial void LogMarginRecapFailed(ILogger logger, Guid documentId, Exception exception);
 
     /// <summary>
     /// Projette le contenu ligne à ligne (FIX205 + BUG-5). PRIORITÉ au pivot RÉELLEMENT TRANSMIS (snapshot porté

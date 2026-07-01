@@ -146,6 +146,28 @@ public sealed class PostgresB2cMarginEmissionQueries : IB2cMarginEmissionQueries
         };
     }
 
+    public async Task<Guid?> GetEmissionBatchIdForDocumentAsync(Guid documentId, CancellationToken cancellationToken = default)
+    {
+        using var conn = await _connectionFactory.OpenAsync(cancellationToken);
+
+        // Lot de la DERNIÈRE transmission ISSUED qui a inclus ce document (created_utc, seq décroissants). Le journal
+        // porte une entrée par (document × POST) ; on ne retient que les issues confirmées. Un document tardif
+        // ré-agrégé (D3) appartient à son POST le plus récent. Aucun événement d'audit n'est requis : la liaison
+        // vit dans le journal d'émission — donc le lot se résout AUSSI pour un document rétro-corrigé par V012
+        // (BUG-24, ADR-0037 §4). Lecture seule, tenant-scopée (la connexion EST le tenant).
+        const string sql = """
+            SELECT emission_batch_id
+            FROM pipeline.b2c_margin_emissions
+            WHERE document_id = @DocumentId
+              AND status = 'Issued'
+            ORDER BY created_utc DESC, seq DESC
+            LIMIT 1
+            """;
+
+        return await conn.ExecuteScalarAsync<Guid?>(new CommandDefinition(
+            sql, new { DocumentId = documentId }, cancellationToken: cancellationToken));
+    }
+
     private static B2cMarginEmissionAggregateDto Map(dynamic row)
     {
         return new B2cMarginEmissionAggregateDto

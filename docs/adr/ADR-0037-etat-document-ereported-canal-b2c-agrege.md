@@ -133,10 +133,13 @@ Contraintes **non négociables**, sur le modèle de `MarkIssuedAsync` et du gel 
    erreur). Un document **hors** `ReadyToSend` (course) n'est **pas** forcé : l'écart est journalisé, pas
    transitionné (jamais de faux audit, pas de TOCTOU — même patron que les `*RecheckAsync`).
 
-L'`emissionBatchId` est porté sur l'événement `DocumentEReported` (détail) : il devient la **source
-persistée** du lien « Voir la déclaration » (fiche → `/emissions-marge-b2c/{batchId}`), **extrait de
-l'événement DÉJÀ chargé** au read-time (aucune requête journal — l'état, lui, reste piloté par
-`documents.state`). Cf. **Amendement 2** (le lien direct est rétabli).
+L'`emissionBatchId` est porté sur l'événement `DocumentEReported` (détail) — trace d'audit du document.
+Le lien « Voir la déclaration » (fiche → `/emissions-marge-b2c/{batchId}`), lui, résout ce lot depuis la
+**source de vérité de la liaison** — le **journal d'émission** (`pipeline.b2c_margin_emissions.emission_batch_id`),
+via `IB2cMarginEmissionQueries.GetEmissionBatchIdForDocumentAsync` — et **non** par extraction de la phrase
+de l'événement : cette liaison existe pour **tout** document e-reporté, y compris rétro-corrigé par V012
+(sans événement). Cf. **Amendement 3** (qui supersède le re-sourçage par l'événement d'Amendement 2). L'état,
+lui, reste piloté par `documents.state`.
 
 ### 5. Suppression de l'overlay read-time (le correctif `39174c9e` devient inutile)
 
@@ -153,9 +156,11 @@ double-vérité) :
   de l'événement déjà chargé (aucune requête journal), cf. **Amendement 2** ;
 - `DocumentActionBar.razor` : `CanSend = IsReadyToSend && !IsB2cReported` → le second terme devient inutile
   (l'état n'est plus `ReadyToSend`, `IsReadyToSend` est déjà faux) ; suppression de `IsB2cReported` ;
-- `PostgresB2cMarginEmissionQueries.GetIssuedEmissionBatchForDocumentAsync` (+ la méthode du contrat
-  `IB2cMarginEmissionQueries`) : supprimée **si** le lien batch est re-sourcé par l'événement (sinon
-  conservée uniquement pour ce lien — décision par défaut : re-sourcer par l'événement, supprimer la query).
+- `PostgresB2cMarginEmissionQueries` (+ contrat `IB2cMarginEmissionQueries`) : la lecture batch-par-document
+  est **conservée** sous le nom `GetEmissionBatchIdForDocumentAsync`, **seule** source du lien « Voir la
+  déclaration » (cf. **Amendement 3** — le re-sourçage par l'événement d'Amendement 2 ne couvrait pas les
+  documents backfillés V012, sans événement). Ce n'est **pas** un retour à l'overlay read-time (§5) : l'état
+  n'est **jamais** dérivé de cette lecture — il reste `documents.state` —, seule la cible du lien l'est.
 
 ### 6. Restitution console : `EReported` reflété partout GRATUITEMENT, un seul ajout d'affichage
 
@@ -271,17 +276,34 @@ divergence silencieuse (faux-vert) :
 1. **Lien direct « Voir la déclaration » — d'abord abandonné, puis RÉTABLI (Amendement 2, retour recette
    Karl).** La 1re passe de revue avait abandonné le lien direct (fiche → `/emissions-marge-b2c/{batchId}`)
    au profit de la seule navigation inverse. La **recette a tranché** : cette navigation directe est utile et
-   attendue → le lien est **rétabli**, conformément à l'intention initiale de §4/§6, **re-sourcé depuis
-   l'événement `DocumentEReported` DÉJÀ chargé** dans la fiche (l'`emissionBatchId` est extrait du `Detail`,
-   entre guillemets « … », côté service de présentation `DocumentDetailConsoleQueryService`). **Ni** requête
-   read-time sur le journal (le pattern retiré par le fix), **ni** changement de schéma (pas de nouvelle
-   colonne sur la table d'événements append-only) : présentation pure, graceful (lien absent si le batch n'est
-   pas extractible, jamais une erreur). L'**état** reste piloté par `documents.state` (INV-DOC-ER-01 intact).
-   La navigation inverse (`B2cMarginEmissionDetail` → `/documents/{id}`) subsiste en doublon. Aucun impact fiscal.
+   attendue → le lien est **rétabli**, conformément à l'intention initiale de §4/§6. _(La source du lot —
+   d'abord l'événement — a été corrigée en **Amendement 3** : voir ci-dessous.)_ L'**état** reste piloté par
+   `documents.state` (INV-DOC-ER-01 intact). La navigation inverse (`B2cMarginEmissionDetail` →
+   `/documents/{id}`) subsiste en doublon. Aucun impact fiscal.
 2. **Réconciliation récurrente = point ouvert D3** (ci-dessus), pas un filet permanent en V1. Le message
    opérateur 7461 et les commentaires de `B2cReportingEmitter` ont été **corrigés** pour ne plus promettre un
    « prochain backfill » automatique (V012 est one-shot) : ils décrivent désormais l'état réel (émission
    valide, réconciliation hors-ligne) avec action corrective (signalement support).
+
+## Amendement 3 (2026-07-01, retour recette Karl — lien **rétroactif**)
+
+Amendement 2 avait re-sourcé le lien « Voir la déclaration » depuis l'**événement** `DocumentEReported`
+(extraction de l'`emissionBatchId` dans le `Detail`). **Défaut décelé en recette** : les documents
+**déjà e-reportés** avant le déploiement du correctif ont été basculés en `EReported` par le **backfill V012**
+(`UPDATE documents.state`), qui **n'écrit aucun événement** `DocumentEReported` (cf. §7 : leur audit d'émission
+vit dans `pipeline.b2c_margin_emissions`, pas dans le journal du document). Pour eux, l'extraction par événement
+renvoie `null` → **badge « E-reporté » présent, mais lien absent** : Karl voit l'état, perd la navigation.
+
+**Décision (supersède le re-sourçage d'Amendement 2)** : le lot est résolu depuis la **source de vérité de la
+liaison document→lot** — le journal d'émission (`pipeline.b2c_margin_emissions.emission_batch_id`, colonne V007),
+via une lecture Contracts **`IB2cMarginEmissionQueries.GetEmissionBatchIdForDocumentAsync(documentId)`** (dernière
+entrée `Issued` du document). Cette liaison existe pour **tout** document e-reporté — job (frais) **comme** backfill
+V012 (rétroactif) —, couvre les **4 canaux B2C** (table commune), et supprime le **parsing fragile** d'une phrase
+française. C'est une lecture read-time **tenant-scopée**, **de présentation** (déclenchée **seulement** si
+`documents.state == EReported`), **graceful** (une panne omet le lien, ne casse jamais le détail) et **sans écriture
+ni schéma**. L'événement `DocumentEReported` **reste** la trace d'audit dans le journal du document (inchangé) ;
+il n'est simplement **plus** la source machine du lien. L'état reste piloté par `documents.state` (INV-DOC-ER-01
+intact). Aucun impact fiscal.
 
 ## Alternatives rejetées
 

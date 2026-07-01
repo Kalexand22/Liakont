@@ -30,4 +30,14 @@ public interface IB2cMarginEmissionQueries
     /// le lot est introuvable (autre tenant, ou identifiant inconnu). Tenant-scopé par construction.
     /// </summary>
     Task<B2cMarginEmissionDetailDto?> GetEmissionDetailAsync(Guid emissionBatchId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lot d'émission (une transmission = un POST) auquel APPARTIENT un document e-reporté : la DERNIÈRE
+    /// transmission <c>Issued</c> qui l'a inclus (<c>emission_batch_id</c>). <c>null</c> si le document n'a jamais
+    /// été e-reporté avec succès (aucune entrée <c>Issued</c>). C'est la SOURCE DE VÉRITÉ de la liaison
+    /// document→lot : elle existe pour TOUT document e-reporté — qu'il l'ait été par le job (frais) OU rétro-corrigé
+    /// par le backfill V012 (aucun événement d'audit requis, contrairement au journal du document). Consommée par le
+    /// lien « Voir la déclaration » de la fiche détail (BUG-24, ADR-0037 §4). Tenant-scopée par construction.
+    /// </summary>
+    Task<Guid?> GetEmissionBatchIdForDocumentAsync(Guid documentId, CancellationToken cancellationToken = default);
 }
