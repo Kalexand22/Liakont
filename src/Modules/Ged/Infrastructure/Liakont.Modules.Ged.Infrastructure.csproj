@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Microsoft.Extensions.* (DI, Options, Logging) du framework partagé — aucun package NuGet nouveau,
+         aucun ADR (repo-standards §4). Le scaffold GED ne porte aucun secret. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.Ged.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Modules.Ged.Tests.Integration" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Ged.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.Ged.Application.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.Ged.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Abstractions/Stratum.Common.Abstractions.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

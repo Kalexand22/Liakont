@@ -30,6 +30,7 @@ using Liakont.Modules.Documents.Web;
 using Liakont.Modules.FacturX.Infrastructure;
 using Liakont.Modules.FleetSupervision.Application;
 using Liakont.Modules.FleetSupervision.Infrastructure;
+using Liakont.Modules.Ged.Infrastructure;
 using Liakont.Modules.Ingestion.Application;
 using Liakont.Modules.Ingestion.Infrastructure;
 using Liakont.Modules.Ingestion.Web;
@@ -407,6 +408,14 @@ public static class AppBootstrap
         // À la différence du SendAllTrigger planifié (fan-out tous-tenants, cron), il rétablit le SEUL tenant
         // de l'opérateur via ITenantScopeFactory.Create — aucune itération multi-tenant (CLAUDE.md n°9).
         builder.Services.AddJobHandler<SendTenantTrigger, SendTenantFanInHandler>("Envoi des documents (tenant courant)");
+
+        // Module GED (GED02, F19 §2.1) : GED dynamique & coffre-fort documentaire, AU-DESSUS du coffre WORM
+        // existant, SANS toucher le flux fiscal. À ce stade (scaffold), AddGedModule ne fait QUE déclarer
+        // l'assembly d'Infrastructure au runner de migrations DbUp — les 3 schémas sont créés VIDES :
+        // ged_catalog + ged_index (base tenant), ged_ingestion (base système, atomique avec l'outbox comme
+        // ingestion.received_documents). Aucune table métier, aucun handler, aucun job ici (GED03+). Le module
+        // est un SILO isolé : aucun module fiscal ne référence Ged.* (frontière F19 §7, garde NetArchTest).
+        builder.Services.AddGedModule();
 
         // Stockage des PDF reçus (PIV04) : chemin racine = PARAMÉTRAGE de déploiement (jamais en dur,
         // CLAUDE.md n°7). Lié depuis la config ; à défaut, repli sous le content root de l'instance.

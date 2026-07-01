@@ -110,6 +110,13 @@
     <ProjectReference Include="..\..\Modules\Validation\Infrastructure\Liakont.Modules.Validation.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Pipeline\Infrastructure\Liakont.Modules.Pipeline.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Pipeline\Web\Liakont.Modules.Pipeline.Web.csproj" />
+    <!-- Module GED (F19, GED02 scaffold) : GED dynamique & coffre-fort documentaire, AU-DESSUS du coffre WORM,
+         SANS toucher le flux fiscal. Le Host enregistre AddGedModule (déclaration des migrations DbUp : schémas
+         ged_catalog + ged_index en base tenant, ged_ingestion en base système). Silo isolé — aucun module
+         fiscal ne référence Ged.* (F19 §7). La couche Web (pages /ged/* GED09a+) est référencée pour le
+         portail à venir ; à ce stade elle n'expose qu'un marqueur d'assembly. -->
+    <ProjectReference Include="..\..\Modules\Ged\Infrastructure\Liakont.Modules.Ged.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Ged\Web\Liakont.Modules.Ged.Web.csproj" />
     <ProjectReference Include="..\..\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
     <!-- Formule de réconciliation BR-CO-13 (PivotReconciliation) partagée avec la validation : le contrôle
          de cohérence affiché (DocumentLineProjection, FIX205) est le MIROIR de LineTotalsRule via la même

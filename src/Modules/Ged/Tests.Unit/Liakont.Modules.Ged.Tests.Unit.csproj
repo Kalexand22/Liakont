@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+    <!-- Gardes de frontière du module GED (Contracts-only ; flux fiscal ⇏ Ged) — F19 §7/§8, module-rules §3. -->
+    <PackageReference Include="NetArchTest.Rules" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- ServiceCollection / IOptions pour tester AddGedModule (même patron que Signature.Tests.Unit). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Contracts/Liakont.Modules.Ged.Contracts.csproj" />
+    <ProjectReference Include="../Domain/Liakont.Modules.Ged.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.Ged.Application.csproj" />
+    <ProjectReference Include="../Infrastructure/Liakont.Modules.Ged.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>
