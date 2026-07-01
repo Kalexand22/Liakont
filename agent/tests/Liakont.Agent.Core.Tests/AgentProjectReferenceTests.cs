@@ -32,9 +32,12 @@ public class AgentProjectReferenceTests
 
         csprojs.Should().NotBeEmpty("les .csproj de l'agent doivent etre localisables depuis le repertoire de test");
 
+        // Contrats partages agent<->plateforme autorises (netstandard2.0, PAS des projets plateforme) :
+        // le contrat de base ET le contrat GED (Liakont.Agent.Contracts.Ged, F19 §4.2/§4.6, item GED05a).
         bool IsAllowed(string resolvedSlash) =>
             resolvedSlash.StartsWith(agentRootSlash + "/", StringComparison.OrdinalIgnoreCase) ||
-            resolvedSlash.EndsWith("/src/Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj", StringComparison.OrdinalIgnoreCase);
+            resolvedSlash.EndsWith("/src/Contracts/Liakont.Agent.Contracts/Liakont.Agent.Contracts.csproj", StringComparison.OrdinalIgnoreCase) ||
+            resolvedSlash.EndsWith("/src/Contracts/Liakont.Agent.Contracts.Ged/Liakont.Agent.Contracts.Ged.csproj", StringComparison.OrdinalIgnoreCase);
 
         var violations = (
             from csproj in csprojs

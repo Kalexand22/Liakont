@@ -120,6 +120,23 @@ public sealed class CanonicalJsonWriter
         AppendEscapedString(value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
 
     /// <summary>
+    /// Écrit un HORODATAGE UTC au format canonique <c>yyyy-MM-ddTHH:mm:ssZ</c> (culture invariante,
+    /// précision seconde), format anticipé par <c>ADR-0007</c> pour les horodatages (« hors périmètre
+    /// PIV02 : yyyy-MM-ddTHH:mm:ssZ »). Comme <see cref="WriteDate"/>, les composantes calendaires et
+    /// horaires (Year..Second) sont émises VERBATIM et le <see cref="DateTimeKind"/> est IGNORÉ (aucune
+    /// conversion de fuseau : deux <see cref="DateTime"/> de mêmes composantes mais de Kind différent
+    /// produisent le MÊME octet) ; le suffixe <c>Z</c> est un littéral déclarant la convention UTC du
+    /// contrat, PAS une conversion. La source est responsable de fournir un instant UTC déterministe
+    /// (ADR-0007 §traçabilité). Les sous-secondes sont TRONQUÉES (précision seconde figée du contrat) —
+    /// deux instants de même seconde sont indiscernables, comme deux dates de même jour pour
+    /// <see cref="WriteDate"/>. Le premier consommateur est le canal GED (<c>GedCanonicalJson</c>,
+    /// F19 §4.2) ; le pivot fiscal ne l'utilise pas (son empreinte figée reste inchangée).
+    /// </summary>
+    /// <param name="value">L'horodatage (ses composantes date+heure à la seconde sont retenues).</param>
+    public void WriteDateTimeUtc(DateTime value) =>
+        AppendEscapedString(value.ToString("yyyy-MM-ddTHH:mm:ss'Z'", CultureInfo.InvariantCulture));
+
+    /// <summary>
     /// Écrit une énumération par son NOM (règle 4 d'<c>ADR-0007</c> : « émis par leur NOM »),
     /// GARDÉE par <see cref="Enum.IsDefined(Type, object)"/> : une valeur hors plage LÈVE au lieu
     /// d'émettre le NOMBRE muet que produirait <c>ToString()</c> (les enums du contrat commencent à 1 ;

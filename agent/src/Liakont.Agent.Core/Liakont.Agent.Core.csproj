@@ -10,6 +10,10 @@
        jamais un projet de la plateforme (src/Host, src/Modules, src/Common). -->
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
+    <!-- Canal GED (F19 §4.2/§4.6) : IManagedExtractor (Core) consomme les DTO purs de Contracts.Ged
+         (IngestedDocumentDto, ManagedExtractorCapabilitiesDto). Même frontière que le contrat de base
+         (préfixe Liakont.Agent.* — liste blanche AgentBoundaryTests). -->
+    <ProjectReference Include="..\..\..\src\Contracts\Liakont.Agent.Contracts.Ged\Liakont.Agent.Contracts.Ged.csproj" />
   </ItemGroup>
 
   <!-- File locale (F12 §2.3) + sérialiseur JSON de la configuration agent (Newtonsoft, net48 —

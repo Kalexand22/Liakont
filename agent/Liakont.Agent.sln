@@ -39,6 +39,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Agent.Adapters.Demo
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Agent.Adapters.DemoErpB.Tests", "tests\Liakont.Agent.Adapters.DemoErpB.Tests\Liakont.Agent.Adapters.DemoErpB.Tests.csproj", "{C430A51E-7DA1-4B3C-B442-C1FB5A8A3099}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Agent.Contracts.Ged", "..\src\Contracts\Liakont.Agent.Contracts.Ged\Liakont.Agent.Contracts.Ged.csproj", "{A06048CB-EDB1-48F1-A482-7DDC86A9A790}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -241,6 +243,18 @@ Global
 		{C430A51E-7DA1-4B3C-B442-C1FB5A8A3099}.Release|x64.Build.0 = Release|x64
 		{C430A51E-7DA1-4B3C-B442-C1FB5A8A3099}.Release|x86.ActiveCfg = Release|x86
 		{C430A51E-7DA1-4B3C-B442-C1FB5A8A3099}.Release|x86.Build.0 = Release|x86
+		{A06048CB-EDB1-48F1-A482-7DDC86A9A790}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A06048CB-EDB1-48F1-A482-7DDC86A9A790}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A06048CB-EDB1-48F1-A482-7DDC86A9A790}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{A06048CB-EDB1-48F1-A482-7DDC86A9A790}.Debug|x64.Build.0 = Debug|Any CPU
+		{A06048CB-EDB1-48F1-A482-7DDC86A9A790}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{A06048CB-EDB1-48F1-A482-7DDC86A9A790}.Debug|x86.Build.0 = Debug|Any CPU
+		{A06048CB-EDB1-48F1-A482-7DDC86A9A790}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A06048CB-EDB1-48F1-A482-7DDC86A9A790}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A06048CB-EDB1-48F1-A482-7DDC86A9A790}.Release|x64.ActiveCfg = Release|Any CPU
+		{A06048CB-EDB1-48F1-A482-7DDC86A9A790}.Release|x64.Build.0 = Release|Any CPU
+		{A06048CB-EDB1-48F1-A482-7DDC86A9A790}.Release|x86.ActiveCfg = Release|Any CPU
+		{A06048CB-EDB1-48F1-A482-7DDC86A9A790}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

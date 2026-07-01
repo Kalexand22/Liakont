@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- netstandard2.0 : consommable par la plateforme (net10) ET l'agent (net48), exactement comme
+         Liakont.Agent.Contracts. Canal GED (F19 §4.2/§4.6) : DTO PURS d'ingestion générique, DISJOINTS
+         du pivot fiscal (PivotDocumentDto), AUCUNE logique métier. AUCUNE dépendance hors BCL — la seule
+         référence admise est le contrat de base Liakont.Agent.Contracts (writer canonique partagé). -->
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <!-- « Zéro PackageReference » (même pureté que Liakont.Agent.Contracts) : on retire l'analyseur StyleCop
+       hérité du Directory.Build.props racine. La pureté (BCL + Liakont.Agent.Contracts seul) est gardée par
+       AgentBoundaryTests + ContractCouplingGuardTests (agent/tests/Liakont.Agent.Core.Tests). -->
+  <ItemGroup>
+    <PackageReference Remove="StyleCop.Analyzers" />
+  </ItemGroup>
+
+  <!-- Réutilise le writer canonique UNIQUE (CanonicalJsonWriter, ADR-0007) du contrat de base : GedCanonicalJson
+       s'appuie dessus (mêmes règles de format figées, sortie identique octet par octet net48/.NET 10). Seule
+       arête autorisée hors BCL (préfixe Liakont.Agent.* — liste blanche AgentBoundaryTests). -->
+  <ItemGroup>
+    <ProjectReference Include="..\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>
