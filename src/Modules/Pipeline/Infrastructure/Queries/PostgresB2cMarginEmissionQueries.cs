@@ -146,28 +146,6 @@ public sealed class PostgresB2cMarginEmissionQueries : IB2cMarginEmissionQueries
         };
     }
 
-    public async Task<Guid?> GetIssuedEmissionBatchForDocumentAsync(Guid documentId, CancellationToken cancellationToken = default)
-    {
-        using var conn = await _connectionFactory.OpenAsync(cancellationToken);
-
-        // Le document est e-reporté quand une entrée Issued le référence (agrégat CRÉÉ côté PA). On retourne le lot
-        // de la DERNIÈRE émission Issued (created_utc, seq) — déterministe si le document figure dans plusieurs
-        // (document tardif → nouvel agrégat). Statut comparé au NOM d'énumération (cohérent avec l'écriture du store,
-        // PostgresB2cMarginEmissionStore). Lecture seule, tenant-scopée par construction.
-        const string sql = """
-            SELECT emission_batch_id
-            FROM pipeline.b2c_margin_emissions
-            WHERE document_id = @DocumentId AND status = @IssuedStatus
-            ORDER BY created_utc DESC, seq DESC
-            LIMIT 1
-            """;
-
-        return await conn.QueryFirstOrDefaultAsync<Guid?>(new CommandDefinition(
-            sql,
-            new { DocumentId = documentId, IssuedStatus = nameof(B2cMarginEmissionStatus.Issued) },
-            cancellationToken: cancellationToken));
-    }
-
     private static B2cMarginEmissionAggregateDto Map(dynamic row)
     {
         return new B2cMarginEmissionAggregateDto

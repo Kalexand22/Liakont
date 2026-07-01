@@ -84,48 +84,6 @@ public sealed class B2cMarginEmissionDetailQueryIntegrationTests
         (await queries.GetEmissionDetailAsync(Guid.NewGuid())).Should().BeNull();
     }
 
-    [Fact]
-    public async Task GetIssuedEmissionBatchForDocument_Returns_The_Batch_Of_An_Issued_Document()
-    {
-        // BUG-24 : un document RÉELLEMENT déclaré (entrée Issued après l'entrée Pending) est e-reporté → la query
-        // retourne le lot de son émission. L'entrée Pending seule ne suffit PAS (déclaration encore inconnue).
-        var factory = _fixture.CreateConnectionFactory();
-        var store = new PostgresB2cMarginEmissionStore(factory);
-        var queries = new PostgresB2cMarginEmissionQueries(factory);
-
-        var batchId = Guid.NewGuid();
-        var doc = Guid.NewGuid();
-        var date = new DateOnly(2099, 8, 15);
-
-        await store.AppendAsync(Entry(doc, "encheresv6:ba:9000010", batchId, date, B2cMarginEmissionStatus.Pending));
-        await store.AppendAsync(Entry(doc, "encheresv6:ba:9000010", batchId, date, B2cMarginEmissionStatus.Issued, paEmissionId: "601"));
-
-        var resolved = await queries.GetIssuedEmissionBatchForDocumentAsync(doc);
-
-        resolved.Should().Be(batchId, "le document est e-reporté → on remonte le lot de sa transmission");
-    }
-
-    [Fact]
-    public async Task GetIssuedEmissionBatchForDocument_Returns_Null_When_The_Document_Was_Only_Attempted_Or_Rejected()
-    {
-        // Tenté (Pending) puis rejeté (RejectedByPa) : rien n'a été créé côté PA → le document n'est PAS e-reporté.
-        // La fiche détail garde alors « À envoyer » (et la garde D1 reste le filet réel côté serveur).
-        var factory = _fixture.CreateConnectionFactory();
-        var store = new PostgresB2cMarginEmissionStore(factory);
-        var queries = new PostgresB2cMarginEmissionQueries(factory);
-
-        var batchId = Guid.NewGuid();
-        var doc = Guid.NewGuid();
-        var date = new DateOnly(2099, 8, 16);
-
-        await store.AppendAsync(Entry(doc, "encheresv6:ba:9000011", batchId, date, B2cMarginEmissionStatus.Pending));
-        await store.AppendAsync(Entry(doc, "encheresv6:ba:9000011", batchId, date, B2cMarginEmissionStatus.RejectedByPa,
-            detail: "[SPDP_B2C_REJECTED] Rejet de l'agrégat."));
-
-        (await queries.GetIssuedEmissionBatchForDocumentAsync(doc)).Should().BeNull("aucune entrée Issued → document non e-reporté");
-        (await queries.GetIssuedEmissionBatchForDocumentAsync(Guid.NewGuid())).Should().BeNull("document inconnu → non e-reporté");
-    }
-
     private static B2cMarginEmissionEntry Entry(
         Guid documentId,
         string sourceReference,

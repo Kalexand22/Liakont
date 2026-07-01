@@ -32,20 +32,17 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
     private readonly IDocumentQueries _documents;
     private readonly IDocumentContentReplayService _contentReplay;
     private readonly ISender _sender;
-    private readonly IB2cMarginEmissionQueries _emissions;
     private readonly ILogger<DocumentDetailConsoleQueryService> _logger;
 
     public DocumentDetailConsoleQueryService(
         IDocumentQueries documents,
         IDocumentContentReplayService contentReplay,
         ISender sender,
-        IB2cMarginEmissionQueries emissions,
         ILogger<DocumentDetailConsoleQueryService> logger)
     {
         _documents = documents;
         _contentReplay = contentReplay;
         _sender = sender;
-        _emissions = emissions;
         _logger = logger;
     }
 
@@ -86,13 +83,6 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
         // (cœurs e-reporting réutilisés) sur le MÊME pivot que le contenu affiché. null hors régime de la marge.
         var marginRecap = await ResolveMarginRecapAsync(id, pivot, cancellationToken).ConfigureAwait(false);
 
-        // État d'e-reporting B2C au read-time (BUG-24) : si ce document a été RÉELLEMENT déclaré (Issued) via la
-        // transmission AGRÉGÉE, on porte le lien vers son lot d'émission — la fiche affiche alors « E-reporté » au
-        // lieu de « À envoyer » et masque l'action d'envoi par la voie document (garde D1). Pure RÉFLEXION en
-        // lecture (lien doc ↔ lot), aucune transition d'état. Lecture AUXILIAIRE : sa panne ne casse jamais le
-        // détail (vérité d'audit) — on attrape, on trace, on l'omet ; seule l'annulation de requête se propage.
-        var reportedBatchId = await ResolveB2cReportedBatchAsync(id, cancellationToken).ConfigureAwait(false);
-
         return new DocumentDetailViewModel
         {
             Document = document,
@@ -102,15 +92,11 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
             MarginRecap = marginRecap,
             Archive = archive,
             IsArchived = archive is not null,
-            B2cReportedBatchId = reportedBatchId,
         };
     }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to replay document content for document {DocumentId}; falling back to the transmitted snapshot.")]
     private static partial void LogContentReplayFailed(ILogger logger, Guid documentId, Exception exception);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to resolve the B2C e-reporting status for document {DocumentId}; the e-reported link is omitted (the detail remains available).")]
-    private static partial void LogB2cReportedResolutionFailed(ILogger logger, Guid documentId, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to resolve the margin recap for document {DocumentId}; the recap is omitted (the detail remains available).")]
     private static partial void LogMarginRecapFailed(ILogger logger, Guid documentId, Exception exception);
@@ -204,26 +190,6 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             LogMarginRecapFailed(_logger, id, ex);
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Lot d'émission e-reporting B2C dans lequel ce document a été RÉELLEMENT déclaré (BUG-24,
-    /// <see cref="IB2cMarginEmissionQueries.GetIssuedEmissionBatchForDocumentAsync"/>), ou <c>null</c> s'il n'a pas
-    /// (encore) été e-reporté. Pure RÉFLEXION en lecture (lien doc ↔ lot) : aucune transition d'état (CLAUDE.md n°3).
-    /// Lecture AUXILIAIRE : sa panne (base/tenant) ne doit JAMAIS casser la lecture du détail (vérité d'audit) — on
-    /// attrape, on trace, on l'omet (miroir du récap de marge) ; seule l'annulation de requête se propage.
-    /// </summary>
-    private async Task<Guid?> ResolveB2cReportedBatchAsync(Guid id, CancellationToken cancellationToken)
-    {
-        try
-        {
-            return await _emissions.GetIssuedEmissionBatchForDocumentAsync(id, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            LogB2cReportedResolutionFailed(_logger, id, ex);
             return null;
         }
     }

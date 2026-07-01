@@ -103,4 +103,14 @@ public enum DocumentEventType
     /// d'état : le document reste <c>Sending</c> en attente de la confirmation différée.
     /// </summary>
     DocumentPaReferenceRecorded,
+
+    /// <summary>
+    /// Document passé en état <c>EReported</c> (item BUG-24, ADR-0037) : il a été inclus dans une déclaration
+    /// d'e-reporting B2C AGRÉGÉE transmise et ACCEPTÉE par la Plateforme Agréée. Transition
+    /// <c>ReadyToSend → EReported</c> posée par le hook d'émission agrégée (B2cReportingEmitter), par contribution,
+    /// après confirmation d'envoi. Le <c>Detail</c> porte l'identifiant du LOT d'émission (voie agrégée, flux 10.3)
+    /// pour la traçabilité. Événement SYSTÈME (l'émission agrégée n'est pas une action opérateur), sans snapshot
+    /// pièce (la preuve est le lot d'émission + le lien reporting↔pièce gelé).
+    /// </summary>
+    DocumentEReported,
 }

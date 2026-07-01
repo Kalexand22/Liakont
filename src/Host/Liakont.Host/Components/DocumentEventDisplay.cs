@@ -21,6 +21,7 @@ public static class DocumentEventDisplay
         "DocumentReadyToSend" => "Prêt à envoyer",
         "DocumentSending" => "Envoi engagé",
         "DocumentIssued" => "Émis",
+        "DocumentEReported" => "E-reporté",
         "DocumentRejectedByPa" => "Rejeté par la Plateforme Agréée",
         "DocumentTechnicalError" => "Erreur technique",
         "DocumentSuperseded" => "Remplacé",

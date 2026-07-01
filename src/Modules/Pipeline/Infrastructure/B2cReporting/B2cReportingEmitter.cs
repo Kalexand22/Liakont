@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Liakont.Modules.Archive.Contracts;
+using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Domain.B2cReporting;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
@@ -154,6 +155,14 @@ internal static partial class B2cReportingEmitter
                 foreach (var contribution in transaction.Contributions)
                 {
                     await FreezeReportingPieceLinkAsync(services, companyId, contribution.DocumentId, contribution.SourceReference, cancellationToken);
+
+                    // Voie e-reporting B2C AGRÉGÉE (BUG-24, ADR-0037) : le document composant l'agrégat aboutit à
+                    // EReported (ReadyToSend → EReported), à côté du gel de lien — un seul hook couvre les 4 canaux
+                    // (marge/taxable/prix-total/export). BEST-EFFORT : un échec ne fait JAMAIS retomber une émission
+                    // ACCEPTÉE en Technical. L'état résiduel (rare : crash/erreur de persistance dans la fenêtre) est
+                    // signalé (log 7461) et réconcilié hors-ligne — il n'est PAS auto-rattrapé en régime permanent
+                    // (V012 est une réconciliation one-shot, pas un job récurrent). Cf. ADR-0037 §7 + point ouvert D3.
+                    await MarkDocumentEReportedAsync(services, contribution.DocumentId, emissionBatchId, logger, cancellationToken);
                 }
             }
 
@@ -190,6 +199,33 @@ internal static partial class B2cReportingEmitter
             documentId,
             new[] { sourceReference },
             cancellationToken);
+    }
+
+    // Transitionne le document composant l'agrégat vers EReported (BUG-24, ADR-0037) APRÈS confirmation d'envoi.
+    // La transition est non-throwante côté Documents pour les cas ATTENDUS (rejeu idempotent, course) ; toute erreur
+    // INATTENDUE (persistance) est ici journalisée et AVALÉE — jamais propagée — pour qu'un POST e-reporting ACCEPTÉ
+    // ne retombe pas en Technical (mensonge inverse). L'état résiduel éventuel (fenêtre de crash) est signalé (log
+    // 7461) et réconcilié hors-ligne — pas d'auto-rattrapage en régime permanent (V012 est one-shot). ADR-0037 §7 / D3.
+    private static async Task MarkDocumentEReportedAsync(
+        IServiceProvider services,
+        Guid documentId,
+        Guid emissionBatchId,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await services.GetRequiredService<IDocumentLifecycle>()
+                .MarkEReportedAsync(documentId, emissionBatchId, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            LogDocumentEReportFailed(logger, documentId, ex);
+        }
     }
 
     private static B2cReportingTransaction MapToReportingTransaction(
@@ -278,6 +314,10 @@ internal static partial class B2cReportingEmitter
     [LoggerMessage(EventId = 7460, Level = LogLevel.Error,
         Message = "E-reporting B2C : échec d'émission de l'agrégat du {Date} ({Currency}) — entrées Pending conservées (exclues du run suivant, jamais 2 POST).")]
     private static partial void LogEmissionFailed(ILogger logger, DateOnly date, string currency, Exception exception);
+
+    [LoggerMessage(EventId = 7461, Level = LogLevel.Warning,
+        Message = "E-reporting B2C : transition du document {DocumentId} vers « E-reporté » échouée après un envoi ACCEPTÉ — l'émission reste valide (obligation e-reporting remplie), mais le document peut rester affiché « À envoyer ». Action : signaler au support pour réconcilier l'état persisté du document (BUG-24/ADR-0037).")]
+    private static partial void LogDocumentEReportFailed(ILogger logger, Guid documentId, Exception exception);
 
     /// <summary>Bilan d'émission d'un lot d'agrégats (issues terminales/non terminales).</summary>
     /// <param name="Issued">Agrégats transmis (200).</param>

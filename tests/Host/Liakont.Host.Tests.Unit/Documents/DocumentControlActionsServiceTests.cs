@@ -413,6 +413,8 @@ public sealed class DocumentControlActionsServiceTests
 
         public Task MarkTechnicalErrorAsync(Guid documentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
+        public Task MarkEReportedAsync(Guid documentId, Guid emissionBatchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
         public Task<DocumentResolutionOutcome> SupersedeAsync(Guid documentId, Guid replacementDocumentId, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 

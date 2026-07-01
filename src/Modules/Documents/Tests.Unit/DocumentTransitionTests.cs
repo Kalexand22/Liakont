@@ -437,6 +437,7 @@ public sealed class DocumentTransitionTests
         DocumentState.TechnicalError => doc.MarkTechnicalError(T0.AddMinutes(5)),
         DocumentState.Superseded => doc.Supersede("F-REMPL", "op", T0.AddMinutes(5)),
         DocumentState.ManuallyHandled => doc.MarkManuallyHandled("motif", "op", T0.AddMinutes(5)),
+        DocumentState.EReported => doc.MarkEReported(Guid.NewGuid(), T0.AddMinutes(5)),
         DocumentState.Detected => throw new InvalidOperationException("Aucune transition ne vise Detected (état initial)."),
         _ => throw new ArgumentOutOfRangeException(nameof(to)),
     };

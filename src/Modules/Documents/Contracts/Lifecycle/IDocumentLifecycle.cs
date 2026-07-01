@@ -82,6 +82,22 @@ public interface IDocumentLifecycle
     Task MarkTechnicalErrorAsync(Guid documentId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// <c>ReadyToSend → EReported</c> (voie e-reporting B2C AGRÉGÉE, item BUG-24 / ADR-0037) : le document a été
+    /// inclus dans une déclaration agrégée ACCEPTÉE par la Plateforme Agréée. Appelée par le module Pipeline au
+    /// hook d'émission unique (<c>B2cReportingEmitter.EmitOneAsync</c>), par contribution, à côté du gel du lien
+    /// reporting↔pièce. Atomique (état + événement d'audit append-only dans la même transaction tenant-scopée) et
+    /// portant l'<paramref name="emissionBatchId"/> du lot d'émission dans le fait d'audit.
+    /// <para>
+    /// NON-THROWANTE et IDEMPOTENTE (contrat particulier de cette voie) : un rejeu (document déjà <c>EReported</c>)
+    /// est un NO-OP réussi ; un document qui n'est plus <c>ReadyToSend</c> (geste concurrent) n'est PAS forcé (aucune
+    /// exception, aucun faux audit). Motif : une exception après un POST e-reporting ACCEPTÉ ferait retomber
+    /// l'émission en erreur technique (mensonge inverse) — l'état incohérent résiduel est rattrapable par le backfill
+    /// idempotent (ADR-0037 §7). Contrairement aux autres transitions, elle ne lève donc pas sur transition illégale.
+    /// </para>
+    /// </summary>
+    Task MarkEReportedAsync(Guid documentId, Guid emissionBatchId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Action OPÉRATEUR (API02c, console) : <c>Blocked</c> ou <c>RejectedByPa</c> → <c>ManuallyHandled</c>
     /// (état terminal) — le document est traité hors passerelle. Le <paramref name="reason"/> (motif, F06 §3)
     /// et l'<paramref name="operatorIdentity"/> (GUID) sont OBLIGATOIRES et inscrits dans la piste d'audit
