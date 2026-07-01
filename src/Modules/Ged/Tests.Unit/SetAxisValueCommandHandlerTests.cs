@@ -217,6 +217,10 @@ public sealed class SetAxisValueCommandHandlerTests
         public Task<Guid> AppendDocumentEntityLinkAsync(DocumentEntityLink link, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        // SetAxisValueCommandHandler n'écrit que des liens d'axe : le chemin relation (GED24) n'est pas exercé ici.
+        public Task<Guid> AppendRelationAsync(EntityRelation relation, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("RecordingUnitOfWork ne couvre que AppendAxisLinkAsync (GED04).");
+
         public Task CommitAsync(CancellationToken cancellationToken = default)
         {
             Committed = true;

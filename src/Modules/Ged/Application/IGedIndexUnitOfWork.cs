@@ -13,8 +13,8 @@ using Liakont.Modules.Ged.Domain.Index;
 /// d'INDEXATION du consommateur d'ingestion : garde de concurrence par document
 /// (<see cref="BeginDocumentIndexingAsync"/>), UPSERT de l'entité-pivot (<see cref="UpsertManagedDocumentAsync"/>),
 /// résolution idempotente d'entité (<see cref="ResolveOrCreateEntityAsync"/>) et lien document↔entité
-/// (<see cref="AppendDocumentEntityLinkAsync"/>). Les tables <c>entity_relations</c> (graphe entité↔entité) n'ont
-/// pas de producteur au mapping GED05b (fast-follow GED24) — on ne déclare pas de surface morte.
+/// (<see cref="AppendDocumentEntityLinkAsync"/>). GED24 ajoute <see cref="AppendRelationAsync"/> (relations
+/// entité↔entité append-only, V014) — on ne déclare aucune surface sans schéma sous-jacent (pas de méthode morte).
 /// </para>
 /// </summary>
 public interface IGedIndexUnitOfWork : IAsyncDisposable
@@ -64,6 +64,14 @@ public interface IGedIndexUnitOfWork : IAsyncDisposable
 
     /// <summary>Ajoute un lien document↔entité (append pur, jamais d'UPDATE — le trigger l'interdit). Rend son <c>id</c>.</summary>
     Task<Guid> AppendDocumentEntityLinkAsync(DocumentEntityLink link, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Appende une relation entité↔entité (append PUR dans <c>ged_index.entity_relations</c> — jamais d'UPDATE,
+    /// le trigger l'interdit). Le graphe est MULTI-valeur (plusieurs genres entre deux entités) : simple INSERT,
+    /// pas de garde mono-valeur. Consommé par GED24 pour matérialiser les relations dérivées
+    /// (<c>inferred</c>/<c>inherited</c>). Rend l'<c>id</c> de la ligne créée.
+    /// </summary>
+    Task<Guid> AppendRelationAsync(EntityRelation relation, CancellationToken cancellationToken = default);
 
     /// <summary>Valide la transaction (les écritures deviennent visibles et les verrous consultatifs sont relâchés).</summary>
     Task CommitAsync(CancellationToken cancellationToken = default);

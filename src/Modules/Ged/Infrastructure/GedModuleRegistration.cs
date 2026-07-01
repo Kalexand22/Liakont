@@ -1,11 +1,13 @@
 namespace Liakont.Modules.Ged.Infrastructure;
 
 using Liakont.Modules.Ged.Application;
+using Liakont.Modules.Ged.Application.Graph;
 using Liakont.Modules.Ged.Application.Ingestion;
 using Liakont.Modules.Ged.Application.Mapping;
 using Liakont.Modules.Ged.Contracts.Consultation;
 using Liakont.Modules.Ged.Contracts.Events;
 using Liakont.Modules.Ged.Infrastructure.Consultation;
+using Liakont.Modules.Ged.Infrastructure.Graph;
 using Liakont.Modules.Ged.Infrastructure.Ingestion;
 using Liakont.Modules.Ged.Infrastructure.Mapping;
 using Microsoft.Extensions.DependencyInjection;
@@ -74,6 +76,12 @@ public static class GedModuleRegistration
         // /ged/* (GED08/GED09) pour journaliser recherche, fiche, exploration, export et ouverture de paquet.
         services.AddScoped<IConsultationAuditModeProvider, DefaultConsultationAuditModeProvider>();
         services.AddScoped<IConsultationAuditWriter, PostgresConsultationAuditWriter>();
+
+        // Inférence/héritage borné des relations entité↔entité (GED24, F19 §10), tenant-scopé par IConnectionFactory :
+        // lecture des règles tenant + du voisinage asserté borné (anti-DoS). Le handler (InferEntityRelationsCommand)
+        // est découvert via AddMediatR ci-dessus ; il matérialise les relations dérivées append-only via l'UoW.
+        services.AddScoped<IRelationInferenceRuleStore, PostgresRelationInferenceRuleStore>();
+        services.AddScoped<IEntityRelationGraphReader, PostgresEntityRelationGraphReader>();
 
         return services;
     }
