@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using FluentAssertions;
 using Liakont.Modules.Ged.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,11 +14,13 @@ using Stratum.Common.Infrastructure.Database;
 using Xunit;
 
 /// <summary>
-/// Vérifie l'acceptance GED02 « trois schémas PG créés VIDES par migration, aucune table métier » au niveau
-/// de l'ARTEFACT : les scripts sont réellement embarqués (donc découverts par le filtre DbUp
-/// <c>.Migrations.</c> du <c>MigrationRunner</c> / <c>TenantProvisioningService</c>), créent chacun leur
-/// schéma, et ne créent AUCUNE table à ce stade (les tables du méta-modèle arrivent avec GED03+). Les tests
-/// base-réelle (append-only, ordre FK, etc.) sont portés par les items GED03a/b/c (F19 §8).
+/// Vérifie au niveau de l'ARTEFACT que les migrations GED sont réellement embarquées (donc découvertes par le
+/// filtre DbUp <c>.Migrations.</c> du <c>MigrationRunner</c> / <c>TenantProvisioningService</c>) et que chaque
+/// schéma GED (ged_catalog, ged_index, ged_ingestion) est créé par exactement un script <c>CREATE SCHEMA</c>.
+/// Depuis GED03a, le schéma <c>ged_catalog</c> porte ses tables de méta-modèle (entity_types, axis_definitions,
+/// axis_values, catalog_change_log) — d'où la garde anti-littéral (INV-GED-12 / règle 7) qui prouve que ces
+/// tables restent GÉNÉRIQUES (aucun vocabulaire métier en dur). Les tests base-réelle (ordre FK, append-only,
+/// arrondi half-up) sont portés par le projet Tests.Integration (GED03a/b/c, F19 §8).
 /// </summary>
 public sealed class GedMigrationScaffoldTests
 {
@@ -25,15 +28,26 @@ public sealed class GedMigrationScaffoldTests
 
     private static readonly string[] ExpectedSchemas = ["ged_catalog", "ged_index", "ged_ingestion"];
 
+    // Vocabulaire métier INTERDIT dans les migrations GED (INV-GED-12 / règle 7, F19 §3.3.2) : le méta-modèle
+    // est générique — aucun axe / type d'entité métier n'est codé en dur, ils sont du paramétrage tenant
+    // (seeds fictifs deployments/). La garde OUTILLÉE complète (tout src/Modules/Ged/** + ci.yml) arrive avec
+    // GED11 (RL-27) ; ce test couvre la surface SQL livrée par GED03a (« check anti-littéral vert »).
+    private static readonly string[] ForbiddenBusinessVocabulary =
+        ["lot", "vente", "pv", "encheres", "enchères", "adjudication", "acheteur", "bordereau"];
+
     [Fact]
-    public void The_three_ged_schemas_are_created_by_embedded_migrations()
+    public void Each_ged_schema_is_created_by_exactly_one_embedded_migration()
     {
         var migrations = LoadMigrationScripts();
 
+        var schemaCreationScripts = migrations.Values
+            .Count(sql => Contains(sql, "CREATE SCHEMA IF NOT EXISTS"));
+
         var countReason =
-            "GED02 livre exactement un script de création de schéma par schéma GED (ged_catalog, ged_index, "
-            + $"ged_ingestion) ; scripts embarqués trouvés : {string.Join(", ", migrations.Keys)}";
-        migrations.Should().HaveCount(ExpectedSchemas.Length, countReason);
+            "chaque schéma GED (ged_catalog, ged_index, ged_ingestion) est créé par exactement un script "
+            + "CREATE SCHEMA (les tables du méta-modèle vivent dans des migrations séparées) ; scripts "
+            + $"embarqués trouvés : {string.Join(", ", migrations.Keys)}";
+        schemaCreationScripts.Should().Be(ExpectedSchemas.Length, countReason);
 
         foreach (var schema in ExpectedSchemas)
         {
@@ -45,18 +59,25 @@ public sealed class GedMigrationScaffoldTests
     }
 
     [Fact]
-    public void No_ged_migration_creates_a_business_table_yet()
+    public void Ged_migrations_hardcode_no_business_vocabulary()
     {
         var migrations = LoadMigrationScripts();
 
-        var offenders = migrations
-            .Where(kvp => Contains(kvp.Value, "CREATE TABLE"))
-            .Select(kvp => kvp.Key)
-            .ToList();
+        var offenders = new List<string>();
+        foreach (var (resource, sql) in migrations)
+        {
+            foreach (var word in ForbiddenBusinessVocabulary)
+            {
+                if (Regex.IsMatch(sql, $@"\b{Regex.Escape(word)}\b", RegexOptions.IgnoreCase))
+                {
+                    offenders.Add($"{resource} → « {word} »");
+                }
+            }
+        }
 
         var reason =
-            "acceptance GED02 : les schémas sont créés VIDES, AUCUNE table métier (les tables du méta-modèle "
-            + $"arrivent avec GED03a/b/c) — scripts fautifs : {string.Join(", ", offenders)}";
+            "le méta-modèle GED est générique (INV-GED-12 / règle 7) : aucun axe / type d'entité métier n'est "
+            + $"codé en dur dans une migration (paramétrage tenant, seeds deployments/) — fautifs : {string.Join(" ; ", offenders)}";
         offenders.Should().BeEmpty(reason);
     }
 
