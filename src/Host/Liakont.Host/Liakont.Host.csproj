@@ -16,6 +16,10 @@
     <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" />
+    <!-- Épinglage SÉCURITÉ (pas une nouvelle dépendance) : Microsoft.AspNetCore.OpenApi 10.0.0 tire
+         transitivement Microsoft.OpenApi 2.0.0, frappé par l'avis GHSA-v5pm-xwqc-g5wc (NU1903, haute
+         sévérité). Référence directe pour forcer la dernière 2.x patchée (API-compatible avec 10.0.0). -->
+    <PackageReference Include="Microsoft.OpenApi" />
     <!-- Transport SMTP réel des notifications (ADR-0018, SUP03) — confiné au Host (composition root) ;
          aucun module métier ni module du socle ne référence MailKit/MimeKit. -->
     <PackageReference Include="MailKit" />
