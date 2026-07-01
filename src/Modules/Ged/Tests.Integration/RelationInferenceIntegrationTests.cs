@@ -80,12 +80,12 @@ public sealed class RelationInferenceIntegrationTests
     public async Task Handler_infers_the_transitive_closure_and_appends_it_as_inferred()
     {
         var factory = _fixture.CreateTenantDatabase();
-        var a = Guid.NewGuid();
-        var b = Guid.NewGuid();
-        var c = Guid.NewGuid();
-
+        Guid a, b, c;
         using (var connection = await factory.OpenAsync())
         {
+            a = await InsertEntityAsync(connection);
+            b = await InsertEntityAsync(connection);
+            c = await InsertEntityAsync(connection);
             await InsertRuleAsync(connection, "k", "transitive", 3);
             await InsertAssertedRelationAsync(connection, a, b, "k");
             await InsertAssertedRelationAsync(connection, b, c, "k");
@@ -104,12 +104,12 @@ public sealed class RelationInferenceIntegrationTests
     public async Task Handler_inherits_ancestor_relations_and_appends_them_as_inherited()
     {
         var factory = _fixture.CreateTenantDatabase();
-        var child = Guid.NewGuid();
-        var parent = Guid.NewGuid();
-        var target = Guid.NewGuid();
-
+        Guid child, parent, target;
         using (var connection = await factory.OpenAsync())
         {
+            child = await InsertEntityAsync(connection);
+            parent = await InsertEntityAsync(connection);
+            target = await InsertEntityAsync(connection);
             await InsertRuleAsync(connection, "h", "hierarchical", 3);
             await InsertAssertedRelationAsync(connection, child, parent, "h");   // child ─h─▶ parent
             await InsertAssertedRelationAsync(connection, parent, target, "k");  // parent ─k─▶ target
@@ -128,12 +128,12 @@ public sealed class RelationInferenceIntegrationTests
     public async Task Handler_is_idempotent_across_runs()
     {
         var factory = _fixture.CreateTenantDatabase();
-        var a = Guid.NewGuid();
-        var b = Guid.NewGuid();
-        var c = Guid.NewGuid();
-
+        Guid a, b, c;
         using (var connection = await factory.OpenAsync())
         {
+            a = await InsertEntityAsync(connection);
+            b = await InsertEntityAsync(connection);
+            c = await InsertEntityAsync(connection);
             await InsertRuleAsync(connection, "k", "transitive", 3);
             await InsertAssertedRelationAsync(connection, a, b, "k");
             await InsertAssertedRelationAsync(connection, b, c, "k");
@@ -155,13 +155,13 @@ public sealed class RelationInferenceIntegrationTests
         // A→B→C→D assertées, borne 2 : run 1 infère A→C. Un 2ᵉ run NE DOIT PAS enchaîner A→C(inféré)→D :
         // le substrat traversé est ASSERTÉ uniquement → la fermeture converge (aucune relation A→D).
         var factory = _fixture.CreateTenantDatabase();
-        var a = Guid.NewGuid();
-        var b = Guid.NewGuid();
-        var c = Guid.NewGuid();
-        var d = Guid.NewGuid();
-
+        Guid a, b, c, d;
         using (var connection = await factory.OpenAsync())
         {
+            a = await InsertEntityAsync(connection);
+            b = await InsertEntityAsync(connection);
+            c = await InsertEntityAsync(connection);
+            d = await InsertEntityAsync(connection);
             await InsertRuleAsync(connection, "k", "transitive", 2);
             await InsertAssertedRelationAsync(connection, a, b, "k");
             await InsertAssertedRelationAsync(connection, b, c, "k");
@@ -182,12 +182,12 @@ public sealed class RelationInferenceIntegrationTests
     public async Task Inferred_relations_are_append_only()
     {
         var factory = _fixture.CreateTenantDatabase();
-        var a = Guid.NewGuid();
-        var b = Guid.NewGuid();
-        var c = Guid.NewGuid();
-
+        Guid a, b, c;
         using (var connection = await factory.OpenAsync())
         {
+            a = await InsertEntityAsync(connection);
+            b = await InsertEntityAsync(connection);
+            c = await InsertEntityAsync(connection);
             await InsertRuleAsync(connection, "k", "transitive", 3);
             await InsertAssertedRelationAsync(connection, a, b, "k");
             await InsertAssertedRelationAsync(connection, b, c, "k");
@@ -206,6 +206,32 @@ public sealed class RelationInferenceIntegrationTests
             .Which.MessageText.Should().Contain("append-only");
     }
 
+    [Fact]
+    public async Task Handler_does_not_infer_through_a_confidential_intermediary()
+    {
+        // A ─k─▶ B(confidentiel) ─k─▶ C : la fermeture transitive NE DOIT PAS produire A→C, sinon la relation
+        // dérivée (extrémités A/C non confidentielles) resterait visible au read et fuiterait l'intermédiaire
+        // confidentiel B de façon irrécupérable (RL-31 / INV-GED-10, §6.5 — canal déplacé de l'axe vers le graphe).
+        var factory = _fixture.CreateTenantDatabase();
+        Guid a, b, c;
+        using (var connection = await factory.OpenAsync())
+        {
+            a = await InsertEntityAsync(connection);
+            b = await InsertEntityAsync(connection, confidential: true);
+            c = await InsertEntityAsync(connection);
+            await InsertRuleAsync(connection, "k", "transitive", 3);
+            await InsertAssertedRelationAsync(connection, a, b, "k");
+            await InsertAssertedRelationAsync(connection, b, c, "k");
+        }
+
+        var appended = await RunAsync(factory, a);
+
+        appended.Should().Be(0, "l'inférence ne traverse jamais une entité confidentielle (fail-closed, RL-31)");
+
+        var current = await CurrentRelationsAsync(factory, a);
+        current.Should().NotContain(r => r.ToEntity == c, "A→C ne doit pas être dérivé via l'intermédiaire confidentiel B");
+    }
+
     // ─────────────────────────── Helpers ───────────────────────────
 
     private static Task<int> RunAsync(IConnectionFactory factory, Guid seed)
@@ -216,6 +242,16 @@ public sealed class RelationInferenceIntegrationTests
             new PostgresGedIndexUnitOfWorkFactory(factory));
 
         return handler.Handle(new InferEntityRelationsCommand { SeedEntityId = seed, Source = "agent" }, default);
+    }
+
+    private static async Task<Guid> InsertEntityAsync(System.Data.IDbConnection connection, bool confidential = false)
+    {
+        var typeId = await connection.QuerySingleAsync<Guid>(
+            "INSERT INTO ged_catalog.entity_types (code, label, is_confidential) VALUES (@Code, 'l', @Conf) RETURNING id",
+            new { Code = "t_" + Guid.NewGuid().ToString("N"), Conf = confidential });
+        return await connection.QuerySingleAsync<Guid>(
+            "INSERT INTO ged_index.entity_instances (entity_type_id, display_name) VALUES (@Type, 'n') RETURNING id",
+            new { Type = typeId });
     }
 
     private static Task<int> InsertRuleAsync(System.Data.IDbConnection connection, string kind, string mode, int maxDepth) =>

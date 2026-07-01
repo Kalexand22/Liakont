@@ -16,7 +16,9 @@ public interface IEntityRelationGraphReader
     /// <summary>
     /// Charge le SUBSTRAT asserté (<c>relation_type</c> ∈ {<c>direct</c>, <c>extracted</c>}) du voisinage
     /// AVANT-atteignable depuis <paramref name="seedEntityId"/> dans une limite de <paramref name="maxDepth"/>
-    /// sauts (CTE récursif borné, sans OFFSET) : l'ensemble d'arêtes que le moteur traverse.
+    /// sauts (CTE récursif borné, sans OFFSET) : l'ensemble d'arêtes que le moteur traverse. Le substrat exclut
+    /// toute arête touchant une entité CONFIDENTIELLE (confidentialité héritée des <c>entity_types</c> aux deux
+    /// extrémités, RL-31/INV-GED-10, fail-closed).
     /// </summary>
     Task<IReadOnlyList<EntityRelationEdge>> LoadAssertedNeighbourhoodAsync(
         Guid seedEntityId,
