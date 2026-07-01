@@ -41,7 +41,18 @@ public sealed class GedDatabaseFixture : IAsyncLifetime
     public IConnectionFactory CreateTenantDatabase()
     {
         string databaseName = "tenant_" + Guid.NewGuid().ToString("N");
-        var builder = new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = databaseName };
+
+        // Pooling désactivé : chaque test crée sa PROPRE base tenant éphémère avec sa propre chaîne
+        // de connexion, donc son propre pool Npgsql. Avec le pooling par défaut, les connexions
+        // physiques oisives de chaque pool restent ouvertes après la fin du test (elles n'expirent
+        // qu'au bout d'un délai) ; sur toute la collection GedIntegration, l'agrégat de bases × pools
+        // dépasse max_connections du conteneur PostgreSQL partagé. Pooling=false referme la connexion
+        // physiquement au Dispose, bornant l'empreinte au nombre de connexions ACTIVES simultanées.
+        var builder = new NpgsqlConnectionStringBuilder(_container.GetConnectionString())
+        {
+            Database = databaseName,
+            Pooling = false,
+        };
         string connectionString = builder.ConnectionString;
 
         RunCommonMigrations(connectionString);
