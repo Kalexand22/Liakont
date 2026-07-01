@@ -3,7 +3,9 @@ namespace Liakont.Modules.Ged.Infrastructure;
 using Liakont.Modules.Ged.Application;
 using Liakont.Modules.Ged.Application.Ingestion;
 using Liakont.Modules.Ged.Application.Mapping;
+using Liakont.Modules.Ged.Contracts.Consultation;
 using Liakont.Modules.Ged.Contracts.Events;
+using Liakont.Modules.Ged.Infrastructure.Consultation;
 using Liakont.Modules.Ged.Infrastructure.Ingestion;
 using Liakont.Modules.Ged.Infrastructure.Mapping;
 using Microsoft.Extensions.DependencyInjection;
@@ -65,6 +67,13 @@ public static class GedModuleRegistration
         // ITenantScopeFactory du Host). Correspondance type d'événement → payload CLR pour le worker d'outbox.
         services.AddScoped<IIntegrationEventConsumer<ManagedDocumentReceivedV1>, ManagedDocumentReceivedConsumer>();
         services.AddHostedService<GedEventTypeRegistrar>();
+
+        // Journal de consultation GED append-only (GED13, F19 §6.6, ADR-0036), tenant-scopé par IConnectionFactory
+        // (JAMAIS ISystemConnectionFactory). Le seam de régime (best-effort par défaut / probant activable) résout la
+        // capacité tenant ; l'implémentation par défaut renvoie BestEffort (D8 non tranché). CONSOMMÉ par les pages
+        // /ged/* (GED08/GED09) pour journaliser recherche, fiche, exploration, export et ouverture de paquet.
+        services.AddScoped<IConsultationAuditModeProvider, DefaultConsultationAuditModeProvider>();
+        services.AddScoped<IConsultationAuditWriter, PostgresConsultationAuditWriter>();
 
         return services;
     }

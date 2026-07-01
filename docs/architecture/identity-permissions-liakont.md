@@ -18,6 +18,9 @@ des champs `public const string`.
 | `liakont.settings` | `LiakontPermissions.Settings` | Paramétrage fiscal du tenant : table TVA, mappings, comptes Plateforme Agréée, seuils. |
 | `liakont.supervision` | `LiakontPermissions.Supervision` | Supervision : vues cross-tenant en lecture seule (module Supervision) **et administration d'instance** (OPS03 : écran Clients — création de tenants, suspension/réactivation ; les actions dispatchent in-process dans le scope du tenant cible, la garde de page est l'unique contrôle de ce chemin, parité WEB09). |
 | `liakont.fleet` | `LiakontPermissions.Fleet` | Méta-supervision de flotte (OPS04) : dashboard cross-**instance** d'IT Innovations (état des instances, versions, alertes). Niveau au-dessus de `liakont.supervision`. |
+| `liakont.ged.read` | `LiakontPermissions.GedRead` | GED (option/upsell par tenant, F19) — consultation : recherche multidimensionnelle, fiche document, exploration de graphe (F19 §6.5, ADR-0035). Lecture de la GED, distincte de la consultation fiscale `liakont.read`. N'ouvre pas les axes/entités confidentiels. |
+| `liakont.ged.export` | `LiakontPermissions.GedExport` | GED — export : extraction/réversibilité (action `export` journalisée, ADR-0036 §4), gardée **séparément** de `liakont.ged.read` (consulter n'autorise pas à exporter). L'export masque toujours les valeurs confidentielles. |
+| `liakont.ged.confidential` | `LiakontPermissions.GedConfidential` | GED — accès aux axes/entités marqués confidentiels (`is_confidential`). Sans elle, le masquage server-side (§6.5, ADR-0035 INV-GED-10) les exclut de tous les canaux (recherche, facette, graphe, export, log). Permission la plus sensible de la GED. |
 
 ## 2. Rôles standard (realm Keycloak)
 
@@ -41,9 +44,41 @@ défaut attribué à tout nouvel utilisateur est `lecture`.
 | `liakont.actions` |  | ✔ | ✔ | ✔ |
 | `liakont.settings` |  |  | ✔ | ✔ |
 | `liakont.supervision` |  |  |  | ✔ |
+| `liakont.ged.read` | ✔ | ✔ | ✔ | ✔ |
+| `liakont.ged.export` |  | ✔ | ✔ | ✔ |
+| `liakont.ged.confidential` |  |  |  | ✔ |
 
 Résumé : `lecture` → read ; `operateur` → read + actions ; `parametrage` → read + actions
-+ settings ; `superviseur` → les quatre permissions.
++ settings ; `superviseur` → les quatre permissions. **GED** (option/upsell par tenant) : chaque
+rôle éditeur reçoit `ged.read` (consultation) ; `ged.export` à partir d'`operateur` ;
+`ged.confidential` au seul `superviseur`.
+
+> **Colonnes GED (amendement GED06 — F19 §6.5, ADR-0032/0035/0036).** Les 3 permissions GED sont
+> **matérialisées en code** (`RolePermissionCatalog` + `const` — RL-35), **pas** du paramétrage
+> tenant, **pas** une règle fiscale inventée ; **jamais** une permission socle accordée à un rôle
+> Liakont (FIX07c/RL-35). Les tiers ci-dessus sont dérivés en **moindre privilège** du modèle §3 —
+> les ADR fixent la *sémantique* de chaque permission et confient l'amendement de la matrice à GED06,
+> sans marquer les tiers comme arbitrage ouvert (contrairement à D8/D9, `❓ NON TRANCHÉ`) :
+> - `ged.read` = **consultation** GED (recherche, fiche, graphe) → tier consultation, comme
+>   `liakont.read`, accordé dès `lecture` (« consultation seule ») ;
+> - `ged.export` = **export** journalisé, gardé *séparément* de la lecture (ADR-0036 §4) → à partir
+>   d'`operateur` (le tier qui introduit les actions) ; `lecture` (consultation pure) ne l'a pas ;
+> - `ged.confidential` = accès aux **axes/entités confidentiels**, le plus sensible (ADR-0035
+>   INV-GED-10) → `superviseur` seul. Élargir ce droit est un **avenant délibéré** de ce document
+>   (jamais un rétrécissement après fuite) : le sens sûr sous ambiguïté résiduelle est le refus.
+>
+> Le masquage server-side qui *consomme* `ged.confidential` (prédicat SQL en recherche/facette/graphe/
+> export/log) est porté par **GED08** (index) et les pages **GED09** — GED06 ne pose que la
+> **permission**. `ged.confidential` reste **hors** de `SensitivePermissions` (fenêtre de révocation
+> bornée RDF10, réservée à `liakont.actions`/`liakont.settings`) : tant qu'AUCUNE surface ne restitue
+> de donnée confidentielle, l'y classer serait à la fois **prématuré** (aucun consommateur en V1) et
+> **non testable** — la garde CI `SensitivePermissionE2ECoverageTests` exige ≥ 1 E2E non-super-admin
+> par permission sensible, or l'E2E de restitution confidentielle n'existe qu'avec GED08/GED09.
+> **Décision DIFFÉRÉE à GED08/GED09** (qui introduisent la restitution masquée et son E2E) : y trancher
+> si l'accès en *lecture* aux données confidentielles doit être borné en révocation comme les permissions
+> fiscales sensibles (`liakont.actions`/`liakont.settings`). Jusque-là, la fenêtre de révocation d'un
+> `ged.confidential` révoqué suit le défaut glissant 8 h (ADR-0017 §Négatif) — sans effet réel en V1
+> puisqu'aucune surface ne restitue encore de donnée confidentielle sur ce claim.
 
 > La supervision cross-tenant reste en **lecture seule** (CLAUDE.md n.9 : seul le module
 > Supervision a des vues cross-tenant ; toute autre requête métier est tenant-scopée).
