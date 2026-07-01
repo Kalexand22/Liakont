@@ -20,6 +20,10 @@ internal sealed class PostgresGedIndexUnitOfWork : IGedIndexUnitOfWork
     // l'écrivain concurrent attend la fin de CETTE transaction avant de lire à son tour la valeur courante.
     private const string AdvisoryLockSql = "SELECT pg_advisory_xact_lock(hashtext(@LockKey))";
 
+    // RL-02 — la supersession suivante est un read-modify-write (verrou → lire la courante → superséder) qui n'est
+    // correcte que sous READ COMMITTED ; épinglé explicitement, cf. commentaire dans AppendAxisLinkAsync.
+    private const string EnsureReadCommittedSql = "SET TRANSACTION ISOLATION LEVEL READ COMMITTED";
+
     // Valeur courante d'un axe MONO pour ce document (au plus une ligne sous la garde) — cible du supersedes_id.
     private const string CurrentAxisValueSql = """
         SELECT id
@@ -60,6 +64,17 @@ internal sealed class PostgresGedIndexUnitOfWork : IGedIndexUnitOfWork
         if (isSingleValued)
         {
             var lockKey = FormattableString.Invariant($"{link.ManagedDocumentId:D}:{link.AxisId:D}");
+
+            // RL-02 — la supersession est un read-modify-write (verrou → lire la courante → superséder) : elle
+            // n'est correcte que sous READ COMMITTED, où le SELECT qui suit le verrou prend un snapshot FRAIS voyant
+            // la ligne validée par l'écrivain précédent. Sous REPEATABLE READ/SERIALIZABLE le snapshot serait figé au
+            // début de la transaction → deux écrivains superséderaient la même courante = DOUBLE valeur courante
+            // permanente. On épingle donc explicitement l'isolation en tout premier statement de la transaction,
+            // indépendamment du default serveur/rôle (TransactionScope, socle vendored, ouvre sans niveau explicite).
+            await _txn.Connection.ExecuteAsync(new CommandDefinition(
+                EnsureReadCommittedSql,
+                transaction: _txn.Transaction,
+                cancellationToken: cancellationToken));
 
             await _txn.Connection.ExecuteAsync(new CommandDefinition(
                 AdvisoryLockSql,
