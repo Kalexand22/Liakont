@@ -81,8 +81,10 @@ public static class ValueNormalizer
         }
 
         // Arrondi commercial half-up à l'échelle de l'axe (jamais double/float). Échelle null = valeur brute.
-        // Forme canonique de tri/facette : échelle FIXE (« F{scale} ») quand l'axe déclare une échelle (largeur
-        // déterministe) — Math.Round ne matérialise pas les zéros de fin (1234,5 arrondi à 2 resterait « 1234.5 »).
+        // Forme canonique d'affichage/dédup : échelle FIXE (« F{scale} ») quand l'axe déclare une échelle
+        // (largeur déterministe) — Math.Round ne matérialise pas les zéros de fin (1234,5 arrondi à 2 resterait
+        // « 1234.5 »). Ce n'est PAS une clé lexicale : le tri/la plage numérique se font sur la colonne typée
+        // value_number (decimal), jamais sur cette chaîne.
         if (valueScale is int scale)
         {
             var rounded = Math.Round(parsed, scale, MidpointRounding.AwayFromZero);
