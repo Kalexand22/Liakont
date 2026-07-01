@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS ged_index.entity_relations (
 
 CREATE INDEX IF NOT EXISTS ix_er_from ON ged_index.entity_relations (from_entity_id, relation_kind);
 CREATE INDEX IF NOT EXISTS ix_er_to   ON ged_index.entity_relations (to_entity_id, relation_kind);
+CREATE INDEX IF NOT EXISTS ix_er_supersedes ON ged_index.entity_relations (supersedes_id) WHERE supersedes_id IS NOT NULL;
 
 -- Relations COURANTES = ni rétractées ni superséedées (consommée par la traversée §6.4, RL-24). La courante
 -- est un calcul de chaîne (dernière non superséedée), pas une colonne mutable — cohérent avec l'append-only pur.

@@ -87,6 +87,51 @@ public sealed class GedIndexGraphMigrationsIntegrationTests
     }
 
     [Fact]
+    public async Task Entity_relations_reject_a_source_outside_the_closed_vocabulary()
+    {
+        var factory = _fixture.CreateTenantDatabase();
+        using var connection = await factory.OpenAsync();
+
+        Func<Task> insert = () => connection.ExecuteAsync(
+            "INSERT INTO ged_index.entity_relations (from_entity_id, to_entity_id, relation_kind, relation_type, source) "
+            + "VALUES (@From, @To, 'k', 'direct', 'bogus')",
+            new { From = Guid.NewGuid(), To = Guid.NewGuid() });
+
+        (await insert.Should().ThrowAsync<PostgresException>())
+            .Which.SqlState.Should().Be(PostgresErrorCodes.CheckViolation);
+    }
+
+    [Fact]
+    public async Task Entity_relations_reject_a_relation_type_outside_the_closed_vocabulary()
+    {
+        var factory = _fixture.CreateTenantDatabase();
+        using var connection = await factory.OpenAsync();
+
+        Func<Task> insert = () => connection.ExecuteAsync(
+            "INSERT INTO ged_index.entity_relations (from_entity_id, to_entity_id, relation_kind, relation_type, source) "
+            + "VALUES (@From, @To, 'k', 'bogus', 'manual')",
+            new { From = Guid.NewGuid(), To = Guid.NewGuid() });
+
+        (await insert.Should().ThrowAsync<PostgresException>())
+            .Which.SqlState.Should().Be(PostgresErrorCodes.CheckViolation);
+    }
+
+    [Fact]
+    public async Task Entity_relations_reject_a_confidence_score_out_of_range()
+    {
+        var factory = _fixture.CreateTenantDatabase();
+        using var connection = await factory.OpenAsync();
+
+        Func<Task> insert = () => connection.ExecuteAsync(
+            "INSERT INTO ged_index.entity_relations (from_entity_id, to_entity_id, relation_kind, relation_type, source, confidence_score) "
+            + "VALUES (@From, @To, 'k', 'direct', 'manual', 2)",
+            new { From = Guid.NewGuid(), To = Guid.NewGuid() });
+
+        (await insert.Should().ThrowAsync<PostgresException>())
+            .Which.SqlState.Should().Be(PostgresErrorCodes.CheckViolation);
+    }
+
+    [Fact]
     public async Task Entity_relations_retraction_requires_a_supersedes_target()
     {
         var factory = _fixture.CreateTenantDatabase();
@@ -221,6 +266,51 @@ public sealed class GedIndexGraphMigrationsIntegrationTests
             "INSERT INTO ged_index.document_entity_links "
             + "(managed_document_id, entity_id, role, relation_type, source, is_retraction) "
             + "VALUES (@Doc, @Entity, 'r', 'direct', 'manual', true)",
+            new { Doc = Guid.NewGuid(), Entity = Guid.NewGuid() });
+
+        (await insert.Should().ThrowAsync<PostgresException>())
+            .Which.SqlState.Should().Be(PostgresErrorCodes.CheckViolation);
+    }
+
+    [Fact]
+    public async Task Document_entity_links_reject_a_source_outside_the_closed_vocabulary()
+    {
+        var factory = _fixture.CreateTenantDatabase();
+        using var connection = await factory.OpenAsync();
+
+        Func<Task> insert = () => connection.ExecuteAsync(
+            "INSERT INTO ged_index.document_entity_links (managed_document_id, entity_id, role, relation_type, source) "
+            + "VALUES (@Doc, @Entity, 'r', 'direct', 'bogus')",
+            new { Doc = Guid.NewGuid(), Entity = Guid.NewGuid() });
+
+        (await insert.Should().ThrowAsync<PostgresException>())
+            .Which.SqlState.Should().Be(PostgresErrorCodes.CheckViolation);
+    }
+
+    [Fact]
+    public async Task Document_entity_links_reject_a_relation_type_outside_the_closed_vocabulary()
+    {
+        var factory = _fixture.CreateTenantDatabase();
+        using var connection = await factory.OpenAsync();
+
+        Func<Task> insert = () => connection.ExecuteAsync(
+            "INSERT INTO ged_index.document_entity_links (managed_document_id, entity_id, role, relation_type, source) "
+            + "VALUES (@Doc, @Entity, 'r', 'bogus', 'manual')",
+            new { Doc = Guid.NewGuid(), Entity = Guid.NewGuid() });
+
+        (await insert.Should().ThrowAsync<PostgresException>())
+            .Which.SqlState.Should().Be(PostgresErrorCodes.CheckViolation);
+    }
+
+    [Fact]
+    public async Task Document_entity_links_reject_a_confidence_score_out_of_range()
+    {
+        var factory = _fixture.CreateTenantDatabase();
+        using var connection = await factory.OpenAsync();
+
+        Func<Task> insert = () => connection.ExecuteAsync(
+            "INSERT INTO ged_index.document_entity_links (managed_document_id, entity_id, role, relation_type, source, confidence_score) "
+            + "VALUES (@Doc, @Entity, 'r', 'direct', 'manual', 2)",
             new { Doc = Guid.NewGuid(), Entity = Guid.NewGuid() });
 
         (await insert.Should().ThrowAsync<PostgresException>())

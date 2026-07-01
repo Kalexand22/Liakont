@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS ged_index.document_entity_links (
 
 CREATE INDEX IF NOT EXISTS ix_del_doc    ON ged_index.document_entity_links (managed_document_id, role);
 CREATE INDEX IF NOT EXISTS ix_del_entity ON ged_index.document_entity_links (entity_id, role);
+CREATE INDEX IF NOT EXISTS ix_del_supersedes ON ged_index.document_entity_links (supersedes_id) WHERE supersedes_id IS NOT NULL;
 
 -- Liens doc↔entité COURANTS = ni rétractés ni superséedés (consommés par la traversée §6.4, RL-24).
 CREATE OR REPLACE VIEW ged_index.current_document_entity_links AS
