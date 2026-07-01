@@ -35,15 +35,34 @@ Source : F19 §6.1-§6.4 + ADR-0035. Dépend de GED04 (UoW/liens d'axe) + GED07 
 
 ## Étapes
 
-- [ ] V020__create_ged_index_document_search.sql (extension unaccent + wrapper IMMUTABLE + table + GIN)
-- [ ] Application/Index : IDocumentSearchIndex + DocumentSearchQuery/Result + GraphExplorationQuery/Result + AxisFilter/Facet
-- [ ] Infrastructure/Index/PostgresDocumentSearchIndex.cs (RefreshDocumentAsync + SearchAsync + ExploreGraphAsync)
-- [ ] Infrastructure/Index/ManagedDocumentSearchProjector.cs (2e consumer, tenant-scope, appelle RefreshDocumentAsync)
-- [ ] GedModuleRegistration : enregistrer IDocumentSearchIndex + le projector APRÈS l'indexeur
-- [ ] Tests.Unit : bits purs (clamp profondeur, construction critères) si extraits
-- [ ] Tests.Integration : projection, multi-axes (faux positif multi-valeur), confidentialité (axe+facette+graphe),
+- [x] V020__create_ged_index_document_search.sql (extension unaccent + wrapper IMMUTABLE + table + GIN)
+- [x] Application/Index : IDocumentSearchIndex + DocumentSearchQuery/Result + GraphExplorationQuery/Result + AxisFilter/Facet
+- [x] Infrastructure/Index/PostgresDocumentSearchIndex.cs (RefreshDocumentAsync + SearchAsync + ExploreGraphAsync)
+- [x] Infrastructure/Index/ManagedDocumentSearchProjector.cs (2e consumer, tenant-scope, appelle RefreshDocumentAsync)
+- [x] GedModuleRegistration : enregistrer IDocumentSearchIndex + le projector APRÈS l'indexeur
+- [x] Tests.Integration : projection, multi-axes (faux positif multi-valeur), confidentialité (axe+facette+graphe),
       unaccent (accent-insensible), graphe borné/anti-cycle/bidirectionnel, reconstructible (DELETE+rebuild),
-      isolation tenant (≥ 2 bases)
-- [ ] verify-fast + run-tests verts ; codex-review propre
+      isolation tenant (≥ 2 bases), + test de bout-en-bout via le vrai dispatcher socle
+- [x] verify-fast + run-tests verts ; codex-review propre (round 3 CLEAN)
 
-## Review (rempli en fin de session)
+## Review (fin de session)
+
+**Livré** (commits 7a134fbc + e76d9ce4, mergés dans feat/ged @ ecccbf56) :
+- Migration V020 : `CREATE EXTENSION unaccent` + wrapper IMMUTABLE `ged_index.immutable_unaccent` (RL-13) +
+  table dérivée reconstructible `ged_index.document_search` (PK managed_document_id, search_vector tsvector, GIN).
+- `IDocumentSearchIndex` (Application/Index) + DTOs ; `PostgresDocumentSearchIndex` : projection async
+  `RefreshDocumentAsync` (titre A + axes searchables non-conf B, 'french', unaccent), recherche multi-axes robuste
+  au multi-valeur (CASE code+valeur), facettes, prédicat de confidentialité matérialisé (RL-31, anti-oracle),
+  traversée graphe bidirectionnelle bornée (borne dure de profondeur, anti-cycle, keyset).
+- `ManagedDocumentSearchProjector` : 2e consumer de ManagedDocumentReceivedV1 après l'indexeur (§6.1).
+- 18 tests d'intégration GED nouveaux (17 recherche/graphe + 1 pipeline dispatcher réel) ; SCENARIOS.md/INVARIANTS.md à jour.
+
+**Vérif** : verify-fast PASS (plateforme .NET 10 + agent net48 + onsite-client) ; run-tests PASS (7583 tests, 0 échec) ;
+codex-review round 1 = 0 P1 / 2 P2 → corrigés → round 3 CLEAN.
+
+**P2 accepté et documenté** (round 2) : la matérialisation du CTE récursif d'exploration de graphe n'est pas bornée
+en NOMBRE de chemins simples (le tableau de chemin ne borne que la longueur/termine les cycles). Acceptée pour V1 :
+la borne DURE de profondeur (MaxAllowedDepth=8) rend l'ensemble FINI ; rayon d'impact = un seul tenant, écran
+opérateur authentifié (pas un vecteur DoS anonyme) ; le passage à l'échelle sur gros corpus est le backend OpenSearch
+derrière `IDocumentSearchIndex` (GED21). Commentaire du code rendu exact. Un cap de lignes rendrait des résultats
+partiels/faux ; un dedup visited-set n'est pas exprimable en CTE récursif standard.
