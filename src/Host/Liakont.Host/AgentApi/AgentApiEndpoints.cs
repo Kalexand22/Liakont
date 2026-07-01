@@ -1,7 +1,9 @@
 namespace Liakont.Host.AgentApi;
 
 using Liakont.Agent.Contracts;
+using Liakont.Agent.Contracts.Ged;
 using Liakont.Agent.Contracts.Transport;
+using Liakont.Modules.Ged.Contracts.Commands;
 using Liakont.Modules.Ingestion.Contracts;
 using Liakont.Modules.Ingestion.Contracts.Commands;
 using Liakont.Modules.Ingestion.Contracts.Queries;
@@ -128,6 +130,38 @@ internal static class AgentApiEndpoints
                     Documents = request.Documents,
                     SourceTaxRegimes = request.SourceTaxRegimes,
                     ExtractorCapabilities = request.ExtractorCapabilities,
+                },
+                ct);
+            return Results.Ok(response);
+        }).AddEndpointFilter<TenantSuspendedPushFilter>().RequireRateLimiting(IngestionRateLimiterPolicy);
+
+        // POST /api/agent/v1/managed-documents/batch — push d'un lot de documents GÉRÉS (canal GED, F19 §2.4,
+        // GED05b). DISJOINT du canal fiscal documents/batch : DTO propres, registre GED dédié, AUCUN Document fiscal
+        // créé. Résultat INDIVIDUEL par document (jamais de rejet global du lot pour un seul document invalide).
+        group.MapPost("/managed-documents/batch", async (
+            ManagedDocumentBatchRequestDto? request,
+            HttpContext http,
+            ISender sender,
+            CancellationToken ct) =>
+        {
+            // Corps absent ou non conforme aux DTOs → 400 (jamais d'acceptation partielle d'un lot malformé).
+            if (request is null)
+            {
+                return Results.BadRequest("Corps de requête absent ou non conforme au contrat.");
+            }
+
+            // Lot trop gros → 413 (même limite d'ingestion que le canal fiscal — F12 §3.3).
+            if (request.Documents.Count > MaxBatchDocuments)
+            {
+                return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
+            }
+
+            var identity = AgentApiContext.GetIdentity(http);
+            var response = await sender.Send(
+                new IngestManagedDocumentBatchCommand
+                {
+                    TenantId = identity.TenantId,
+                    Documents = request.Documents,
                 },
                 ct);
             return Results.Ok(response);

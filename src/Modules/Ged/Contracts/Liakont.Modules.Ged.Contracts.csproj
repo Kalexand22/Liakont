@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../../../Common/Abstractions/Stratum.Common.Abstractions.csproj" />
+    <!-- Canal GED (F19 §4.6) : la commande d'ingestion GED porte les DTO PURS du contrat agent GED
+         (IngestedDocumentDto + ManagedExtractorCapabilitiesDto), disjoints du pivot fiscal. -->
+    <ProjectReference Include="../../../Contracts/Liakont.Agent.Contracts.Ged/Liakont.Agent.Contracts.Ged.csproj" />
   </ItemGroup>
 </Project>

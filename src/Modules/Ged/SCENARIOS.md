@@ -59,6 +59,17 @@ Deux niveaux complémentaires : **NetArchTest (IL, usage effectif des types)** +
   code d'axe **dupliqué**, sélecteur mal formé, validation incohérente) ; sémantique **validé / non validé**
   (miroir `MappingTable` : jamais appliqué non validé ; `Invalidate` retombe non validé).
 
+### Ingestion générique — GED05b (F19 §4.3, INV-GED-06, RL-01)
+
+- `GedIngestionDecisionTests` (`Domain.Ingestion.GedIngestionDecision`) — **golden 3 cas** de l'anti-doublon GED
+  (`AcceptedNew` / `AcceptedAltered` / `Duplicate`) et l'**ordre d'évaluation** (doublon strict testé AVANT
+  l'altération : un renvoi du même contenu n'est jamais une fausse altération). Logique RE-COPIÉE du canal fiscal
+  (RL-01), testée indépendamment.
+- `GedCanonicalJsonReaderTests` (`Infrastructure.Serialization.GedCanonicalJsonReader`) — **round-trip** octet par
+  octet `GedCanonicalJson.Serialize(Read(json)) == json` (document riche ET minimal : optionnels omis, `SourceFields`
+  objet vide) ; le lecteur reconstruit fidèlement champs/axes/entités/relations (libellé optionnel absent → null) pour
+  que le mapping aval voie un pivot exact.
+
 ## Integration (`Liakont.Modules.Ged.Tests.Integration`, PostgreSQL réel via Testcontainers)
 
 Les scénarios base-réelle sont portés par les items qui livrent le comportement correspondant (F19 §8) :
@@ -82,8 +93,17 @@ Les scénarios base-réelle sont portés par les items qui livrent le comporteme
 - **GED03c** — graphe append-only + vues `current_*` ; `ck_er_no_self` ; rétractation multi-valeur (RL-24) ;
   `attributes` présentation-only (INV-GED-04).
 - **GED04** — mono-valeur **sous concurrence** (INV-GED-03, RL-02 ; deux écritures simultanées ⇒ 1 valeur).
-- **GED05b** — ingestion atomique (registre GED + événement) ; idempotence replay ET concurrence (RL-04) ;
-  aucune ligne `documents.documents`.
+- **GED05b — LIVRÉ** (`ManagedDocumentIngestionIntegrationTests`, collection `GedIntegration`, base isolée par
+  test) : (1) un document non-facture accepté écrit ATOMIQUEMENT le registre GED (`ged_ingestion.ged_received_documents`,
+  base système) ET l'événement `ManagedDocumentReceivedV1` (outbox), la ré-ingestion du même contenu étant un
+  **Duplicate** idempotent (aucune 2ᵉ ligne, aucun 2ᵉ événement — anti-doublon `(tenant, hash)`, INV-GED-06) ; (2) le
+  consommateur relit le pivot stagé, mappe (**GedMapper**) et écrit `managed_documents` (`status='indexed'`) + le lien
+  d'axe, un **replay** étant un NO-OP (`ON CONFLICT (id) DO NOTHING` + garde de statut, RL-04) ; (3) **deux livraisons
+  SIMULTANÉES** de l'événement écrivent les liens **UNE SEULE FOIS** (verrou consultatif par document + garde de statut,
+  RL-04 — un test séquentiel serait un faux-vert) ; (4) un document **sans profil validé** est rangé `deferred` avec un
+  motif français actionnable (`defer_reason`, INV-GED-05) et n'écrit aucun lien ; (5) l'indexation est **tenant-scopée**
+  par la connexion (≥ 2 bases : le tenant B reste vide). AUCUN Document/état fiscal n'est atteint (le canal GED n'appelle
+  jamais `IDocumentIntake`, l'événement est disjoint de `DocumentReceivedV1`).
 - **GED07** — rangement WORM `_ged/` (option C) ; hash facture inchangé (INV-ARCH-GED-1/2, P1).
 - **GED08** — recherche multi-axes correcte ; prédicat de confidentialité MATÉRIALISÉ (RL-31) ; graphe borné
   bidirectionnel (INV-GED-09) ; isolation cross-tenant.

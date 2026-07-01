@@ -21,5 +21,9 @@
     <ProjectReference Include="../Contracts/Liakont.Modules.Ged.Contracts.csproj" />
     <ProjectReference Include="../../../Common/Abstractions/Stratum.Common.Abstractions.csproj" />
     <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+    <!-- Ingestion GED (GED05b) : le handler stage le pivot canonique et le consommateur le relit, via l'abstraction
+         de staging (ADR-0014). Dépendance aux CONTRACTS du module Staging seulement (frontière F19 §6), jamais à
+         Ingestion (le canal GED est disjoint du canal fiscal, RL-01). -->
+    <ProjectReference Include="../../Staging/Contracts/Liakont.Modules.Staging.Contracts.csproj" />
   </ItemGroup>
 </Project>

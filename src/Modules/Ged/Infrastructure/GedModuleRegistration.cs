@@ -1,9 +1,13 @@
 namespace Liakont.Modules.Ged.Infrastructure;
 
 using Liakont.Modules.Ged.Application;
+using Liakont.Modules.Ged.Application.Ingestion;
 using Liakont.Modules.Ged.Application.Mapping;
+using Liakont.Modules.Ged.Contracts.Events;
+using Liakont.Modules.Ged.Infrastructure.Ingestion;
 using Liakont.Modules.Ged.Infrastructure.Mapping;
 using Microsoft.Extensions.DependencyInjection;
+using Stratum.Common.Abstractions.Events;
 using Stratum.Common.Infrastructure.Database;
 
 /// <summary>
@@ -47,6 +51,20 @@ public static class GedModuleRegistration
         // Surface consommée par le consommateur d'ingestion GED (GED05b) : pour chaque document ingéré, il
         // charge le profil VALIDÉ de son documentType et applique GedMapper (mappé) ou range en `deferred`.
         services.AddScoped<IGedMappingProfileStore, GedMappingProfileRepository>();
+
+        // ── Ingestion GED (GED05b, F19 §2.4/§4.3) ──
+        // Registre de réception GED en BASE SYSTÈME, co-localisé avec l'outbox (ISystemConnectionFactory + IOutboxWriter
+        // fournis par le Host) : INSERT registre + WriteEvent ManagedDocumentReceivedV1 atomiques (RL-03). Le handler
+        // d'ingestion (IngestManagedDocumentBatchCommand) est enregistré par AddMediatR ci-dessus (assembly Infrastructure).
+        services.AddScoped<IGedReceivedDocumentUnitOfWorkFactory, PostgresGedReceivedDocumentUnitOfWorkFactory>();
+
+        // Catalogue de TYPES d'entité (résolution §4.4), tenant-scopé par IConnectionFactory — symétrique d'IAxisCatalog.
+        services.AddScoped<IEntityCatalog, PostgresEntityCatalog>();
+
+        // Consommateur DURABLE de l'événement : relit le staging, mappe et écrit l'index GED (base tenant, via le seam
+        // ITenantScopeFactory du Host). Correspondance type d'événement → payload CLR pour le worker d'outbox.
+        services.AddScoped<IIntegrationEventConsumer<ManagedDocumentReceivedV1>, ManagedDocumentReceivedConsumer>();
+        services.AddHostedService<GedEventTypeRegistrar>();
 
         return services;
     }
