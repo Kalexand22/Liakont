@@ -32,9 +32,15 @@ internal sealed class PostgresGedIndexUnitOfWork : IGedIndexUnitOfWork
     private const string DocumentStatusSql = "SELECT status FROM ged_index.managed_documents WHERE id = @Id";
 
     // UPSERT de l'entité-pivot au statut FINAL (indexed/deferred) : ON CONFLICT (id) DO NOTHING = idempotence RL-04.
+    // Les soft-links (fiscal_document_id/archive_entry_id/archive_path/content_hash) sont NULL pour le canal GED pur
+    // (GED05b) et renseignés par le backfill du corpus fiscal (GED10) ; colonnes déjà présentes en base (V008).
     private const string UpsertManagedDocumentSql = """
-        INSERT INTO ged_index.managed_documents (id, title, doc_kind, status, retention_class, defer_reason)
-        VALUES (@Id, @Title, @DocKind, @Status, @RetentionClass, @DeferReason)
+        INSERT INTO ged_index.managed_documents
+            (id, title, doc_kind, status, retention_class, defer_reason,
+             fiscal_document_id, archive_entry_id, archive_path, content_hash)
+        VALUES
+            (@Id, @Title, @DocKind, @Status, @RetentionClass, @DeferReason,
+             @FiscalDocumentId, @ArchiveEntryId, @ArchivePath, @ContentHash)
         ON CONFLICT (id) DO NOTHING
         """;
 
@@ -145,6 +151,10 @@ internal sealed class PostgresGedIndexUnitOfWork : IGedIndexUnitOfWork
                 document.Status,
                 document.RetentionClass,
                 document.DeferReason,
+                document.FiscalDocumentId,
+                document.ArchiveEntryId,
+                document.ArchivePath,
+                document.ContentHash,
             },
             _txn.Transaction,
             cancellationToken: cancellationToken));

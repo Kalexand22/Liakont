@@ -26,13 +26,25 @@ public sealed class ManagedDocument
     public static readonly IReadOnlyList<string> AllowedRetentionClasses = ["legal_hold", "tenant_bounded", "erasable"];
 
     /// <summary>Crée l'entité-pivot d'index à upserter. <paramref name="title"/> obligatoire (contrainte NOT NULL).</summary>
+    /// <remarks>
+    /// Les liens souples (<paramref name="fiscalDocumentId"/>/<paramref name="archiveEntryId"/>/
+    /// <paramref name="archivePath"/>/<paramref name="contentHash"/>) sont OPTIONNELS et par défaut <see langword="null"/> :
+    /// le canal d'ingestion GED (GED05b) n'en pose AUCUN (l'identité primaire est la clé GED). Ils sont renseignés par le
+    /// backfill rétroactif du corpus fiscal déjà scellé (GED10, F19 §10/§11 D12) : soft-links LOGIQUES vers
+    /// <c>documents.documents</c>/<c>documents.archive_entries</c> (aucune FK cross-schéma, F19 §3.4.1). Additifs :
+    /// ne changent RIEN au comportement des appelants existants (colonnes déjà présentes en base, V008).
+    /// </remarks>
     public ManagedDocument(
         Guid id,
         string title,
         string? docKind,
         string status,
         string retentionClass = DefaultRetentionClass,
-        string? deferReason = null)
+        string? deferReason = null,
+        Guid? fiscalDocumentId = null,
+        Guid? archiveEntryId = null,
+        string? archivePath = null,
+        string? contentHash = null)
     {
         if (id == Guid.Empty)
         {
@@ -63,6 +75,10 @@ public sealed class ManagedDocument
         Status = status;
         RetentionClass = retentionClass;
         DeferReason = deferReason;
+        FiscalDocumentId = fiscalDocumentId;
+        ArchiveEntryId = archiveEntryId;
+        ArchivePath = archivePath;
+        ContentHash = contentHash;
     }
 
     /// <summary>Identité GED du document (clé primaire, attribuée à l'ingestion, portée par l'événement).</summary>
@@ -82,4 +98,16 @@ public sealed class ManagedDocument
 
     /// <summary>Motif humain de déférement (français, actionnable), ou <see langword="null"/> si le document est indexé.</summary>
     public string? DeferReason { get; }
+
+    /// <summary>Soft-link LOGIQUE vers <c>documents.documents.id</c> (backfill fiscal GED10), ou <see langword="null"/> (canal GED pur).</summary>
+    public Guid? FiscalDocumentId { get; }
+
+    /// <summary>Soft-link LOGIQUE vers <c>documents.archive_entries.id</c> — clé d'idempotence du backfill (GED10), ou <see langword="null"/>.</summary>
+    public Guid? ArchiveEntryId { get; }
+
+    /// <summary>Chemin du paquet WORM déjà scellé (chaîne fiscale <c>{année}/…</c> ou <c>_ged/…</c>), ou <see langword="null"/>.</summary>
+    public string? ArchivePath { get; }
+
+    /// <summary>Empreinte du paquet déjà scellé (recopiée du coffre, jamais recalculée ici — GED10), ou <see langword="null"/>.</summary>
+    public string? ContentHash { get; }
 }

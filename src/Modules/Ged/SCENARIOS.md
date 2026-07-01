@@ -107,6 +107,18 @@ Les scénarios base-réelle sont portés par les items qui livrent le comporteme
 - **GED07** — rangement WORM `_ged/` (option C) ; hash facture inchangé (INV-ARCH-GED-1/2, P1).
 - **GED08** — recherche multi-axes correcte ; prédicat de confidentialité MATÉRIALISÉ (RL-31) ; graphe borné
   bidirectionnel (INV-GED-09) ; isolation cross-tenant.
+- **GED10 — LIVRÉ** (backfill rétroactif du corpus fiscal + démo enchères/BTP). Foyer d'écriture UNIQUE
+  `IGedDocumentIndexer` (extrait du consommateur GED05b, partagé avec le backfill — un seul chemin de statut).
+  - `GedArchivedDocumentBackfillIntegrationTests` (collection `GedIntegration`) : un document dont le type n'a **pas**
+    de profil validé est **déféré** avec les soft-links posés (`archive_entry_id`/`fiscal_document_id`/`archive_path`/
+    `content_hash`) ; le re-passage est **idempotent** (identité GED DÉTERMINISTE dérivée de `archive_entry_id`, RL-21) ;
+    un type **avec** profil validé est indexé (liens d'axe, source `import`). L'orchestration cross-module vit au Host
+    (`GedCorpusBackfillTenantJob`, testé en unité avec doubles) — la GED reste un silo, l'archive n'a pas le droit de la
+    référencer.
+  - `GedGenericityDemoIntegrationTests` : les seeds FICTIFS de `deployments/demo-ged/` (enchères + BTP) sont appliqués
+    tels quels ; filtrer par `numero_lot` remonte TOUS les documents du lot **sans faux positif** sur un axe multi-valeur
+    (patron F19 §6.2) ; le MÊME `document_axis_links` porte un montant **EUR** (échelle 2) ET un avancement **%** (échelle 0)
+    **sans un seul ALTER TABLE** (généricité prouvée par configuration, F19 §11 D12). Aucun vocabulaire métier en dur (n°7).
 - **GED11** — lints anti-littéral + SQL cross-schéma, chacun avec self-test (RL-27).
 - **GED12 — LIVRÉ** (`GedMappingProfileMigrationsIntegrationTests`, collection `GedIntegration`, base isolée
   par test) : un profil **VALIDÉ** fait un round-trip (règles axe/entité/relation préservées via jsonb) ; un

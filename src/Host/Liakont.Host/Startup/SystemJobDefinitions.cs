@@ -1,5 +1,6 @@
 namespace Liakont.Host.Startup;
 
+using Liakont.Host.Backfill;
 using Liakont.Modules.Archive.Infrastructure;
 using Liakont.Modules.Mandats.Infrastructure.TacitAcceptance;
 using Liakont.Modules.Pipeline.Contracts.Jobs;
@@ -118,6 +119,12 @@ internal static class SystemJobDefinitions
             ScheduleName: "Drain des webhooks de signature (rapatriement WORM)",
             CronExpression: null,
             Label: "Drain des webhooks de signature, rapatriement WORM (SIG09)",
+            Class: SystemJobClass.DeploymentCadence),
+        new SystemJobDefinition(
+            JobType: typeof(GedCorpusBackfillTrigger).FullName!,
+            ScheduleName: "Rétrofit GED du corpus fiscal (tous les tenants)",
+            CronExpression: null,
+            Label: "Backfill rétroactif GED du corpus fiscal déjà scellé (GED10, geste opéré, idempotent)",
             Class: SystemJobClass.DeploymentCadence),
     ];
 }
