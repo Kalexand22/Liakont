@@ -46,6 +46,12 @@ public static class ArchiveModuleRegistration
         services.AddScoped<IArchiveEntryStore, PostgresArchiveEntryStore>();
         services.AddScoped<IArchiveService, ArchiveService>();
 
+        // Surface d'archivage GÉNÉRIQUE (GED07, F19 §5.1, option C) : range un document NON fiscal write-once
+        // sous _ged/, HORS de la chaîne de hashes fiscale — ne touche JAMAIS documents.archive_entries
+        // (INV-ARCH-GED-1). Horloge partagée pour l'horodatage du manifest (TimeProvider, cohérent AppBootstrap).
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddScoped<IGenericArchiveService, GenericArchiveService>();
+
         // Traçabilité reporting↔pièces (B2C03) : lien append-only, double sens, tenant-scopé
         // (documents.reporting_piece_links, V011). Consommé par l'export contrôle fiscal.
         services.AddScoped<IReportingPieceLinkStore, PostgresReportingPieceLinkStore>();
