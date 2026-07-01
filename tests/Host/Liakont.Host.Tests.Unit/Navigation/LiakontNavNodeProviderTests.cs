@@ -175,9 +175,9 @@ public sealed class LiakontNavNodeProviderTests
         var parametrage = Node(root, "Paramétrage");
         parametrage.HasChildren.Should().BeTrue("avec liakont.settings, Paramétrage est un sous-menu");
         parametrage.Children.Select(c => c.Label).Should().Equal(
-            "Vue d'ensemble", "Profil légal", "Paramètres fiscaux", "Table TVA", "Comptes PA", "Alertes & supervision", "Agents d'extraction");
+            "Vue d'ensemble", "Profil légal", "Paramètres fiscaux", "Table TVA", "Référentiel pays", "Comptes PA", "Alertes & supervision", "Agents d'extraction");
         parametrage.Children.Select(c => c.Href).Should().Equal(
-            "/parametrage", "/parametrage/profil", "/parametrage/fiscal", "/parametrage/table-tva", "/parametrage/comptes-pa", "/parametrage/alertes", "/agents");
+            "/parametrage", "/parametrage/profil", "/parametrage/fiscal", "/parametrage/table-tva", "/parametrage/referentiel-pays", "/parametrage/comptes-pa", "/parametrage/alertes", "/agents");
     }
 
     [Fact]

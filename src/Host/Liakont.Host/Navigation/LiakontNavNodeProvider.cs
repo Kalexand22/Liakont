@@ -169,6 +169,7 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
                 new NavNode { Label = "Profil légal", Href = "/parametrage/profil" },
                 new NavNode { Label = "Paramètres fiscaux", Href = "/parametrage/fiscal" },
                 new NavNode { Label = "Table TVA", Href = "/parametrage/table-tva" },
+                new NavNode { Label = "Référentiel pays", Href = "/parametrage/referentiel-pays" },
                 new NavNode { Label = "Comptes PA", Href = "/parametrage/comptes-pa" },
                 new NavNode { Label = "Alertes & supervision", Href = "/parametrage/alertes" },
 
