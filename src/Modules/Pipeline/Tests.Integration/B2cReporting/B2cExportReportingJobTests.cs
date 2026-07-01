@@ -75,8 +75,10 @@ public sealed class B2cExportReportingJobTests : IAsyncLifetime
         emissions.Select(e => e.Status).Should().Equal("Pending", "Issued");
         emissions[^1].PaEmissionId.Should().NotBeNullOrWhiteSpace("l'id serveur de la transaction TLB1 est journalisé.");
 
-        // Le job NE transitionne PAS la machine à états du document (projection parallèle).
-        (await _harness.GetDocumentStateAsync(documentId)).Should().Be("ReadyToSend");
+        // Émission Issued ⇒ le document passe à EReported (canal B2C agrégé, voie e-reporting distincte de
+        // Issued voie document — ADR-0037/BUG-24).
+        (await _harness.GetDocumentStateAsync(documentId)).Should()
+            .Be("EReported", "l'émission de la contribution export transitionne le document vers EReported (ADR-0037).");
     }
 
     [Fact]

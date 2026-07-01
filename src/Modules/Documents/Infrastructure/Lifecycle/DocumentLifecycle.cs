@@ -146,6 +146,32 @@ internal sealed class DocumentLifecycle : IDocumentLifecycle
     public Task MarkTechnicalErrorAsync(Guid documentId, CancellationToken cancellationToken = default) =>
         TransitionAsync(documentId, (document, at) => document.MarkTechnicalError(at), cancellationToken);
 
+    public async Task MarkEReportedAsync(Guid documentId, Guid emissionBatchId, CancellationToken cancellationToken = default)
+    {
+        // Voie e-reporting B2C agrégée (BUG-24, ADR-0037) : contrat NON-THROWANT/IDEMPOTENT (cf. IDocumentLifecycle).
+        // On vérifie la légalité SOUS le verrou FOR UPDATE (pas de TOCTOU) plutôt que de laisser la transition lever :
+        // un rejeu (déjà EReported) ou une course (le doc n'est plus ReadyToSend) est un NO-OP réussi, jamais une
+        // exception — sinon un POST accepté retomberait en erreur technique (mensonge inverse). Une vraie erreur de
+        // persistance remonte (CommitAsync) : l'appelant (l'émetteur) la journalise sans faire échouer l'émission.
+        await using IDocumentUnitOfWork unitOfWork = await _unitOfWorkFactory.BeginAsync(cancellationToken);
+
+        Document? document = await unitOfWork.GetForUpdateAsync(documentId, cancellationToken);
+        if (document is null || document.State == DocumentState.EReported)
+        {
+            return; // Document inconnu (rien à transitionner) ou déjà e-reporté (rejeu idempotent) → no-op réussi.
+        }
+
+        if (!DocumentStateMachine.IsAllowed(document.State, DocumentState.EReported))
+        {
+            return; // Course : le document n'est plus ReadyToSend → on ne force pas (pas de faux audit).
+        }
+
+        DocumentEvent documentEvent = document.MarkEReported(emissionBatchId, _timeProvider.GetUtcNow());
+        await unitOfWork.UpsertDocumentAsync(document, cancellationToken);
+        await unitOfWork.AppendEventAsync(documentEvent, cancellationToken);
+        await unitOfWork.CommitAsync(cancellationToken);
+    }
+
     public async Task<DocumentResolutionOutcome> ResolveManuallyAsync(
         Guid documentId, string reason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default)
     {

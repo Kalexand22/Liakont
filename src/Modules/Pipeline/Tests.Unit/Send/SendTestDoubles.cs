@@ -185,6 +185,11 @@ internal static class SendTestDoubles
             return Task.CompletedTask;
         }
 
+        // La voie DOCUMENT (SendTenantJob) ne doit JAMAIS e-reporter (l'e-reporting B2C agrégé passe par
+        // B2cReportingEmitter, pas par ce double) : un appel ici trahit un mauvais aiguillage → on lève.
+        public Task MarkEReportedAsync(Guid documentId, Guid emissionBatchId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<DocumentResolutionOutcome> ResolveManuallyAsync(Guid documentId, string reason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 

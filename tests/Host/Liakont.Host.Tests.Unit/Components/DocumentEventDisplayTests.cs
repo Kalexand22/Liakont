@@ -12,6 +12,7 @@ public sealed class DocumentEventDisplayTests
     [InlineData("DocumentReadyToSend", "Prêt à envoyer")]
     [InlineData("DocumentSending", "Envoi engagé")]
     [InlineData("DocumentIssued", "Émis")]
+    [InlineData("DocumentEReported", "E-reporté")]
     [InlineData("DocumentRejectedByPa", "Rejeté par la Plateforme Agréée")]
     [InlineData("DocumentTechnicalError", "Erreur technique")]
     [InlineData("DocumentSuperseded", "Remplacé")]

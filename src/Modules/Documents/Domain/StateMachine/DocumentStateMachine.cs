@@ -18,11 +18,13 @@ using Liakont.Modules.Documents.Domain.Entities;
 ///   <item><c>Sending</c> → <c>Issued</c> | <c>RejectedByPa</c> | <c>TechnicalError</c></item>
 ///   <item><c>TechnicalError</c> → <c>ReadyToSend</c> (re-tentable au prochain traitement)</item>
 ///   <item><c>RejectedByPa</c> → <c>Superseded</c> (remplacé après rejet) | <c>ManuallyHandled</c> (action opérateur) | <c>ReadyToSend</c> (re-vérifié après correction) | <c>Blocked</c> (re-vérifié, cause non corrigée)</item>
+///   <item><c>ReadyToSend</c> → <c>EReported</c> (voie e-reporting B2C AGRÉGÉE acceptée par la PA — BUG-24/ADR-0037)</item>
 /// </list>
-/// <c>Issued</c>, <c>Superseded</c> et <c>ManuallyHandled</c> n'ont AUCUNE transition sortante : ce sont des
-/// états sans suite (les deux derniers sont les états terminaux déclarés, F06 §3 ; <c>Issued</c> est l'état
-/// d'émission réussie — un document émis n'est plus déplacé par la machine, l'anti-doublon et la détection
-/// d'altération après émission de TRK03 opèrent par ÉVÉNEMENTS, jamais par transition d'état).
+/// <c>Issued</c>, <c>EReported</c>, <c>Superseded</c> et <c>ManuallyHandled</c> n'ont AUCUNE transition sortante :
+/// ce sont des états sans suite (les deux derniers sont les états terminaux déclarés, F06 §3 ; <c>Issued</c> est
+/// l'état d'émission réussie de la voie document ; <c>EReported</c> celui de la voie e-reporting B2C agrégée — un
+/// document abouti n'est plus déplacé par la machine, l'anti-doublon et la détection d'altération après émission
+/// de TRK03 opèrent par ÉVÉNEMENTS, jamais par transition d'état).
 /// </remarks>
 public static class DocumentStateMachine
 {
@@ -46,6 +48,13 @@ public static class DocumentStateMachine
         // (« bloquer plutôt qu'envoyer faux », CLAUDE.md n°3). Réutilise le mécanisme de re-vérification (FIX02).
         (DocumentState.RejectedByPa, DocumentState.ReadyToSend),
         (DocumentState.RejectedByPa, DocumentState.Blocked),
+
+        // Voie e-reporting B2C AGRÉGÉE (BUG-24, ADR-0037) : un document validé (ReadyToSend) inclus dans une
+        // déclaration agrégée (jour × devise × taux) ACCEPTÉE par la PA aboutit à EReported. Il ne passe JAMAIS
+        // par Sending/Issued (réservés à la voie document, transmission pièce-à-pièce). EReported est sans
+        // transition sortante (comme Issued). Déclenché au hook d'émission unique B2cReportingEmitter.EmitOneAsync,
+        // par contribution, après confirmation d'envoi.
+        (DocumentState.ReadyToSend, DocumentState.EReported),
     };
 
     /// <summary>Indique si la transition <paramref name="from"/> → <paramref name="to"/> est autorisée.</summary>

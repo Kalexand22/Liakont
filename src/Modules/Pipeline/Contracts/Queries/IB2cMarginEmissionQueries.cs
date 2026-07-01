@@ -32,13 +32,12 @@ public interface IB2cMarginEmissionQueries
     Task<B2cMarginEmissionDetailDto?> GetEmissionDetailAsync(Guid emissionBatchId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Lot d'émission dans lequel ce DOCUMENT a été RÉELLEMENT déclaré (statut <c>Issued</c>) — sa transmission
-    /// agrégée e-reporting B2C (BUG-24). <c>null</c> si le document n'a pas (encore) été e-reporté avec succès
-    /// (jamais émis, ou seulement tenté/rejeté). Permet à la fiche détail de REFLÉTER l'état d'e-reporting au
-    /// read-time (lien doc ↔ lot d'émission) SANS toucher la machine à états du document : un document e-reporté
-    /// reste techniquement « prêt à l'envoi » côté domaine, mais la voie document ne le concerne plus (garde D1).
-    /// Si le document figure dans plusieurs émissions Issued (document tardif → nouvel agrégat), la PLUS RÉCENTE
-    /// prime. Tenant-scopé par construction (la connexion EST le tenant).
+    /// Lot d'émission (une transmission = un POST) auquel APPARTIENT un document e-reporté : la DERNIÈRE
+    /// transmission <c>Issued</c> qui l'a inclus (<c>emission_batch_id</c>). <c>null</c> si le document n'a jamais
+    /// été e-reporté avec succès (aucune entrée <c>Issued</c>). C'est la SOURCE DE VÉRITÉ de la liaison
+    /// document→lot : elle existe pour TOUT document e-reporté — qu'il l'ait été par le job (frais) OU rétro-corrigé
+    /// par le backfill V012 (aucun événement d'audit requis, contrairement au journal du document). Consommée par le
+    /// lien « Voir la déclaration » de la fiche détail (BUG-24, ADR-0037 §4). Tenant-scopée par construction.
     /// </summary>
-    Task<Guid?> GetIssuedEmissionBatchForDocumentAsync(Guid documentId, CancellationToken cancellationToken = default);
+    Task<Guid?> GetEmissionBatchIdForDocumentAsync(Guid documentId, CancellationToken cancellationToken = default);
 }

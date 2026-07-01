@@ -319,3 +319,50 @@ est toujours sérialisée).
 - **Récidive PA-concret** : une limite/feature d'un PA passe TOUJOURS par `PaCapabilities` (générique,
   validée à l'envoi) ; l'état d'intégration d'un plug-in (ticket fournisseur) n'est jamais un blocage
   produit. C'est la 3e consignation du même point — appliquer, pas re-apprendre.
+
+---
+
+## 2026-07-01 — « reset » a wipé une base de démo que je n'avais pas créée
+
+**Symptôme :** Karl demande de « rebuild l'env Isatech avec les dernières modifs ». Je lance
+`demo.ps1 reset` (= `docker compose down **-v**` + `up --build`), ce qui **supprime les volumes** de
+la stack isatech → base plateforme (tenants, mapping, comptes PA, agents, docs ingérés) + app-data +
+keycloak-db effacés. Karl : « arf, tu as viré la donnée existante ? pourquoi ? ». Je n'avais **pas
+vérifié** qu'il y avait de la donnée dedans, ni distingué « rebuild code » de « base propre ».
+
+**Règles pour l'avenir :**
+- **Rebuild ≠ reset.** Pour embarquer du nouveau code sans perdre les données : **`up -d --build`**
+  (garde les volumes). N'utiliser `reset` / `down -v` que si l'objectif EXPLICITE est une base vierge.
+- **Avant toute action destructive sur un état que je n'ai pas créé** (volume, base, dossier de démo) :
+  regarder ce qu'il y a dedans et/ou demander. Le caveat harness le dit — un `down -v` est irréversible.
+- **Ne pas substituer mon cadrage à la demande.** « env à jour » ≠ « base propre » : Karl a dit rebuild,
+  pas wipe. Si je pense qu'une base propre est utile, je le **propose**, je ne l'impose pas.
+- Ce qui a sauvé la mise : la base **source** `EncheresV6_Demo` est sur un SQL Server séparé, hors
+  périmètre du reset Docker (CLAUDE.md n°5, lecture seule) — la vraie data n'a pas bougé. Cf.
+  [[recette-isatech-env-encheres-svv]].
+
+---
+
+## 2026-07-01 — Ne pas re-formuler en « question ouverte » un point déjà tranché par le principe produit
+
+**Symptôme :** Karl signale qu'il n'a AUCUN accès console à la table de correspondance pays (ex. `BEL→BE`).
+J'ai répondu en présentant l'emplacement comme un choix de design ouvert (« l'agent n'est pas le bon
+endroit, la bonne place SERAIT… ») et en défendant l'implémentation actuelle (« normalisation de donnée,
+pas fiscal »). Karl : « n'importe quoi, on doit avoir ça dans la Supervision, ce n'est pas ce qui était
+demandé ». En vérifiant : la table est codée en dur dans l'AGENT, ce qui **contredit un principe DÉJÀ
+écrit** — `F04 §2.4` : une table de correspondance qui varie par source est du paramétrage, « JAMAIS
+devinée ni codée en dur » (comme `SourceDocumentKind`/table TVA). BUG-18 l'a appelée « table » mais
+laissée dans le code.
+
+**Règles pour l'avenir :**
+- Quand Karl dit « ça devait être en X / ce n'est pas ce qui était demandé » : **vérifier le terrain
+  (spec F*.md + ADR + code) AVANT de répondre**, et chercher si un PRINCIPE produit tranche déjà la
+  question — ne pas la re-présenter comme ouverte. Cf. [[verifier-terrain-pas-commentaire-perime]],
+  [[ne-pas-prendre-karl-pour-un-demeure]].
+- Une **table de correspondance codée en dur** (pays, type doc, régime…) est un **anti-pattern** dans ce
+  repo, même « extensible » : par principe elle est du paramétrage. Un référentiel **technique et
+  universel non fiscal** (ISO 3166 pays) = **cross-tenant en Supervision** (opérateur d'instance),
+  appliqué à l'ingestion, agent transporte le brut ; un référentiel **fiscal per-tenant** (TVA,
+  facture/avoir) = table tenant validée par l'EC.
+- Ne pas défendre une implémentation existante en la ré-étiquetant (« c'est de la donnée, pas du
+  métier ») quand le principe écrit dit le contraire.

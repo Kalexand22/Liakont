@@ -109,6 +109,13 @@
     margin: 0 0 0.75rem;
 }
 
+/* Lien « Voir la déclaration » posé à côté du badge d'état E-reporté (ADR-0037 §4, retour recette). */
+.liakont-doc-detail__ereported-link {
+    margin-left: 0.75rem;
+    font-size: 0.875rem;
+    white-space: nowrap;
+}
+
 /* ── Piste d'audit : entrées structurées date · type · auteur, détail en dessous ─────────────
    (fix « textes collés » : les spans se rendaient inline sans le moindre séparateur). */
 
