@@ -56,8 +56,15 @@ Les scénarios base-réelle sont portés par les items qui livrent le comporteme
   `entity` sans cible / `value_scale` hors [0..9] rejetés ; `catalog_change_log` **append-only** (UPDATE /
   DELETE / TRUNCATE rejetés par trigger). L'arrondi half-up decimal est couvert côté Domain
   (`ValueNormalizerTests`), l'anti-littéral côté scan de migrations (`GedMigrationScaffoldTests`).
-- **GED03b** — `document_axis_links` append-only PUR + `current_axis_links` (rétractées/superséedées
-  exclues) ; `ck_dal_value_or_retraction` ; anti-EAV (INV-GED-01).
+- **GED03b — LIVRÉ** (`GedIndexMigrationsIntegrationTests`, collection `GedIntegration`, base isolée par
+  test) : `document_axis_links` **append-only PUR** (UPDATE / DELETE / TRUNCATE rejetés par trigger,
+  INV-GED-02) ; `ck_dal_value_or_retraction` (lien normal = exactement 1 valeur typée — 0 ou 2 rejetées ;
+  rétractation = 0 valeur + `supersedes_id` obligatoire, valeur portée rejetée) ; vue `current_axis_links`
+  qui **exclut** une ligne superséedée (révision **par chaînage** `supersedes_id`, jamais d'UPDATE) ET une
+  rétractation ET sa cible (RL-24) ; **anti-EAV (INV-GED-01)** structurel : colonnes de valeur TYPÉES,
+  **aucune** colonne fourre-tout (`value`/`value_text`), `value_number` = `numeric` (decimal exact, round-trip
+  testé — jamais double), `managed_documents` **sans** colonne `search_vector` (foyer FTS unique = GED08) ;
+  `managed_document_change_log` **append-only** (UPDATE / DELETE / TRUNCATE rejetés).
 - **GED03c** — graphe append-only + vues `current_*` ; `ck_er_no_self` ; rétractation multi-valeur (RL-24) ;
   `attributes` présentation-only (INV-GED-04).
 - **GED04** — mono-valeur **sous concurrence** (INV-GED-03, RL-02 ; deux écritures simultanées ⇒ 1 valeur).
