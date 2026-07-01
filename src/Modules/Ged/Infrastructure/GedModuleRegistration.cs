@@ -2,12 +2,14 @@ namespace Liakont.Modules.Ged.Infrastructure;
 
 using Liakont.Modules.Ged.Application;
 using Liakont.Modules.Ged.Application.Graph;
+using Liakont.Modules.Ged.Application.Index;
 using Liakont.Modules.Ged.Application.Ingestion;
 using Liakont.Modules.Ged.Application.Mapping;
 using Liakont.Modules.Ged.Contracts.Consultation;
 using Liakont.Modules.Ged.Contracts.Events;
 using Liakont.Modules.Ged.Infrastructure.Consultation;
 using Liakont.Modules.Ged.Infrastructure.Graph;
+using Liakont.Modules.Ged.Infrastructure.Index;
 using Liakont.Modules.Ged.Infrastructure.Ingestion;
 using Liakont.Modules.Ged.Infrastructure.Mapping;
 using Microsoft.Extensions.DependencyInjection;
@@ -69,6 +71,15 @@ public static class GedModuleRegistration
         // ITenantScopeFactory du Host). Correspondance type d'événement → payload CLR pour le worker d'outbox.
         services.AddScoped<IIntegrationEventConsumer<ManagedDocumentReceivedV1>, ManagedDocumentReceivedConsumer>();
         services.AddHostedService<GedEventTypeRegistrar>();
+
+        // ── Recherche & index (GED08, F19 §6.1-§6.4, ADR-0035) ──
+        // Port de recherche (tsvector, table dérivée document_search) tenant-scopé par IConnectionFactory.
+        services.AddScoped<IDocumentSearchIndex, PostgresDocumentSearchIndex>();
+
+        // Projection ASYNCHRONE du search_vector : SECOND consommateur de ManagedDocumentReceivedV1, enregistré APRÈS
+        // l'indexeur ci-dessus — le dispatcher socle (InMemoryEventDispatcher) invoque les consommateurs dans l'ordre
+        // d'enregistrement, séquentiellement, donc la projection lit l'index committé par l'indexeur (§6.1).
+        services.AddScoped<IIntegrationEventConsumer<ManagedDocumentReceivedV1>, ManagedDocumentSearchProjector>();
 
         // Journal de consultation GED append-only (GED13, F19 §6.6, ADR-0036), tenant-scopé par IConnectionFactory
         // (JAMAIS ISystemConnectionFactory). Le seam de régime (best-effort par défaut / probant activable) résout la

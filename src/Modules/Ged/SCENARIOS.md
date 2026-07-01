@@ -105,8 +105,14 @@ Les scénarios base-réelle sont portés par les items qui livrent le comporteme
   par la connexion (≥ 2 bases : le tenant B reste vide). AUCUN Document/état fiscal n'est atteint (le canal GED n'appelle
   jamais `IDocumentIntake`, l'événement est disjoint de `DocumentReceivedV1`).
 - **GED07** — rangement WORM `_ged/` (option C) ; hash facture inchangé (INV-ARCH-GED-1/2, P1).
-- **GED08** — recherche multi-axes correcte ; prédicat de confidentialité MATÉRIALISÉ (RL-31) ; graphe borné
-  bidirectionnel (INV-GED-09) ; isolation cross-tenant.
+- **GED08 — LIVRÉ** (`DocumentSearchIndexIntegrationTests`, collection `GedIntegration`, base isolée par test) :
+  projection reconstructible du `search_vector` (DELETE + rebuild ; idempotence UPSERT ; projection asynchrone via
+  `ManagedDocumentSearchProjector`) ; plein-texte accent-insensible (wrapper unaccent IMMUTABLE, RL-13) ; recherche
+  multi-axes correcte (un axe multi-valeur ne crée pas de faux positif — CASE code+valeur, jamais un count(DISTINCT
+  code) naïf) ; prédicat de confidentialité MATÉRIALISÉ dans le SQL sur AXE, FACETTE et GRAPHE, plein-texte excluant
+  les axes confidentiels au build (RL-31 / INV-GED-10, anti-oracle) ; graphe borné bidirectionnel — borne de
+  profondeur, anti-cycle, keyset, racine et voisins confidentiels exclus sans le droit (INV-GED-09) ; pagination
+  keyset (RL-20) ; isolation cross-tenant (≥ 2 bases).
 - **GED11** — lints anti-littéral + SQL cross-schéma, chacun avec self-test (RL-27).
 - **GED12 — LIVRÉ** (`GedMappingProfileMigrationsIntegrationTests`, collection `GedIntegration`, base isolée
   par test) : un profil **VALIDÉ** fait un round-trip (règles axe/entité/relation préservées via jsonb) ; un
