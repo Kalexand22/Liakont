@@ -9,19 +9,24 @@ using System.Threading.Tasks;
 using Dapper;
 using FluentAssertions;
 using Liakont.Agent.Contracts.Ged;
+using Liakont.Modules.Ged.Application.Index;
 using Liakont.Modules.Ged.Contracts.Commands;
 using Liakont.Modules.Ged.Contracts.DTOs;
 using Liakont.Modules.Ged.Contracts.Events;
 using Liakont.Modules.Ged.Domain.Mapping;
 using Liakont.Modules.Ged.Infrastructure;
+using Liakont.Modules.Ged.Infrastructure.Index;
 using Liakont.Modules.Ged.Infrastructure.Ingestion;
 using Liakont.Modules.Ged.Infrastructure.Mapping;
 using Liakont.Modules.Ged.Tests.Integration.Doubles;
 using Liakont.Modules.Ged.Tests.Integration.Fixtures;
 using Liakont.Modules.Staging.Contracts;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Stratum.Common.Abstractions.Events;
+using Stratum.Common.Abstractions.MultiTenancy;
 using Stratum.Common.Infrastructure.Database;
+using Stratum.Common.Infrastructure.Events;
 using Stratum.Common.Infrastructure.Outbox;
 using Xunit;
 
@@ -262,6 +267,37 @@ public sealed class ManagedDocumentIngestionIntegrationTests
 
         (await CountManagedDocumentsAsync(tenantA)).Should().Be(1, "l'index est écrit dans la base du tenant A");
         (await CountManagedDocumentsAsync(tenantB)).Should().Be(0, "aucune donnée n'a fui vers la base du tenant B (tenant-scopé par la connexion, n°9)");
+    }
+
+    [Fact]
+    public async Task Dispatch_indexes_then_projects_the_search_vector_through_the_real_dispatcher()
+    {
+        var factory = _fixture.CreateTenantDatabase();
+        var staging = new InMemoryPayloadStagingStore();
+        await SeedAxisAsync(factory, "d", "string");
+        await SeedValidatedProfileAsync(factory, "NOTE", "d", "$.fields.d");
+        var handler = BuildHandler(factory, staging);
+        await IngestAsync(handler, TenantA, "SRC-1", "NOTE", new Dictionary<string, string> { ["d"] = "Café" });
+        var evt = await DrainSingleGedEventAsync(factory);
+
+        // Vrai dispatcher socle + les DEUX consommateurs enregistrés par le VRAI AddGedModule (ordre d'enregistrement :
+        // indexeur puis projecteur). L'indexeur committe l'index sur sa connexion, puis le projecteur (scope tenant frais,
+        // connexion neuve) le lit et projette le search_vector → le document devient cherchable (contrat §6.1, GED08).
+        var scopeFactory = new StubTenantScopeFactory(
+            new Dictionary<string, IConnectionFactory> { [TenantA] = factory }, staging);
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<ITenantScopeFactory>(scopeFactory);
+        services.AddSingleton<IEventDispatcher, InMemoryEventDispatcher>();
+        services.AddGedModule();
+        await using var provider = services.BuildServiceProvider();
+
+        await provider.GetRequiredService<IEventDispatcher>().PublishAsync(evt, CancellationToken.None);
+
+        (await StatusAsync(factory, evt.Payload.ManagedDocumentId)).Should().Be("indexed");
+        var index = new PostgresDocumentSearchIndex(factory, new PostgresAxisCatalog(factory));
+        var search = await index.SearchAsync(new DocumentSearchQuery { FullText = "cafe" });
+        search.Hits.Should().ContainSingle(h => h.ManagedDocumentId == evt.Payload.ManagedDocumentId);
     }
 
     // NpgsqlConnectionFactory implémente IConnectionFactory ET ISystemConnectionFactory : en test, la MÊME base sert de
