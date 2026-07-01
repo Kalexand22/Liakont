@@ -352,6 +352,29 @@ public sealed class GedIndexGraphMigrationsIntegrationTests
         current.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task Current_document_entity_links_retraction_is_scoped_to_the_targeted_link_when_multi_valued()
+    {
+        var factory = _fixture.CreateTenantDatabase();
+        using var connection = await factory.OpenAsync();
+
+        // Multi-valeur (RL-24) : deux liens courants distincts entre le même doc et la même entité (rôles différents).
+        var doc = Guid.NewGuid();
+        var entity = Guid.NewGuid();
+        var kept = await InsertDocumentEntityLinkAsync(connection, doc, entity, role: "role_a");
+        var retractedTarget = await InsertDocumentEntityLinkAsync(connection, doc, entity, role: "role_b");
+
+        // On ne rétracte QUE le second : le premier reste courant.
+        await InsertDocumentEntityLinkAsync(connection, doc, entity, role: "role_b",
+            supersedesId: retractedTarget, isRetraction: true);
+
+        var current = (await connection.QueryAsync<Guid>(
+            "SELECT id FROM ged_index.current_document_entity_links")).ToList();
+
+        current.Should().Contain(kept).And.NotContain(retractedTarget,
+            "la rétractation d'un lien ne retire que la ligne visée ; les autres liens courants subsistent");
+    }
+
     // ─────────────────────────── entity_instance_change_log append-only (n°4) ───────────────────────────
 
     [Fact]
@@ -469,13 +492,14 @@ public sealed class GedIndexGraphMigrationsIntegrationTests
         System.Data.IDbConnection connection,
         Guid document,
         Guid entity,
+        string role = "r",
         Guid? supersedesId = null,
         bool isRetraction = false) =>
         connection.QuerySingleAsync<Guid>(
             "INSERT INTO ged_index.document_entity_links "
             + "(managed_document_id, entity_id, role, relation_type, source, supersedes_id, is_retraction) "
-            + "VALUES (@Doc, @Entity, 'r', 'direct', 'manual', @Supersedes, @IsRetraction) RETURNING id",
-            new { Doc = document, Entity = entity, Supersedes = supersedesId, IsRetraction = isRetraction });
+            + "VALUES (@Doc, @Entity, @Role, 'direct', 'manual', @Supersedes, @IsRetraction) RETURNING id",
+            new { Doc = document, Entity = entity, Role = role, Supersedes = supersedesId, IsRetraction = isRetraction });
 
     private static Task<Guid> InsertEntityInstanceAsync(System.Data.IDbConnection connection) =>
         connection.QuerySingleAsync<Guid>(
