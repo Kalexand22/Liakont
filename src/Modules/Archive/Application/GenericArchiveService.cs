@@ -117,24 +117,36 @@ public sealed class GenericArchiveService : IGenericArchiveService
         return new GedArchivePackageResult(manifestPath, content.PackageHash, archivedUtc, AlreadyArchived: false);
     }
 
-    private static DateTimeOffset ReadArchivedUtc(byte[] manifestBytes)
+    private static ManifestSeal ReadManifestSeal(byte[] manifestBytes)
     {
         using var document = JsonDocument.Parse(manifestBytes);
-        if (document.RootElement.TryGetProperty("archivedUtc", out JsonElement archivedUtc)
-            && archivedUtc.TryGetDateTimeOffset(out DateTimeOffset value))
+        string packageHash = document.RootElement.TryGetProperty("packageHash", out JsonElement packageHashElement)
+            ? packageHashElement.GetString() ?? string.Empty
+            : string.Empty;
+
+        // Horodatage absent/illisible : on laisse la valeur par défaut, on ne fabrique pas de fausse date.
+        DateTimeOffset archivedUtc = default;
+        if (document.RootElement.TryGetProperty("archivedUtc", out JsonElement archivedUtcElement)
+            && archivedUtcElement.TryGetDateTimeOffset(out DateTimeOffset value))
         {
-            return value;
+            archivedUtc = value;
         }
 
-        // Manifest présent mais horodatage illisible : on ne fabrique pas de fausse valeur.
-        return default;
+        return new ManifestSeal(packageHash, archivedUtc);
     }
 
-    private async Task<GedArchivePackageResult> ReadExistingAsync(string tenant, string manifestPath, string contentHash, CancellationToken cancellationToken)
+    private async Task<GedArchivePackageResult> ReadExistingAsync(string tenant, string manifestPath, string expectedPackageHash, CancellationToken cancellationToken)
     {
         byte[] manifestBytes = await _store.ReadAsync(tenant, manifestPath, cancellationToken);
-        DateTimeOffset archivedUtc = ReadArchivedUtc(manifestBytes);
-        return new GedArchivePackageResult(manifestPath, contentHash, archivedUtc, AlreadyArchived: true);
+        ManifestSeal seal = ReadManifestSeal(manifestBytes);
+        if (!string.Equals(seal.PackageHash, expectedPackageHash, StringComparison.Ordinal))
+        {
+            // Même clé (ArchiveKind/ArchiveKey/FiledOn), contenu différent : WORM — on bloque plutôt que
+            // de reporter un content_hash qui ne correspond pas au paquet réellement rangé (F19 §3.4.1).
+            throw ArchiveWriteConflictException.ForPath(manifestPath);
+        }
+
+        return new GedArchivePackageResult(manifestPath, expectedPackageHash, seal.ArchivedUtc, AlreadyArchived: true);
     }
 
     private string RequireTenant()
@@ -147,4 +159,6 @@ public sealed class GenericArchiveService : IGenericArchiveService
 
         return ArchivePackageLayout.SanitizeSegment(_tenantContext.TenantId);
     }
+
+    private readonly record struct ManifestSeal(string PackageHash, DateTimeOffset ArchivedUtc);
 }

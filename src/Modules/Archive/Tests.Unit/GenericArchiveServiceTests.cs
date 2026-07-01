@@ -88,6 +88,25 @@ public sealed class GenericArchiveServiceTests
     }
 
     [Fact]
+    public async Task ArchiveManagedDocument_SameKeyDifferentContent_ThrowsWormConflict_NotSilentNoOp()
+    {
+        GenericArchiveService service = CreateService();
+        await service.ArchiveManagedDocumentAsync(Request());
+
+        // Même clé (kind/key/filedOn) mais contenu DIFFÉRENT : le chemin est indexé sur la clé, pas sur le
+        // contenu. On BLOQUE (WORM) plutôt qu'un no-op silencieux qui reporterait un content_hash ne
+        // correspondant pas au paquet réellement rangé (F19 §3.4.1, jamais un écrasement silencieux).
+        GedArchivePackageRequest divergent = Request() with
+        {
+            Contents = [new ArchiveAttachment("piece.pdf", "application/pdf", Encoding.UTF8.GetBytes("%PDF-DIFFERENT"))],
+        };
+
+        Func<Task> act = () => service.ArchiveManagedDocumentAsync(divergent);
+
+        await act.Should().ThrowAsync<ArchiveWriteConflictException>();
+    }
+
+    [Fact]
     public async Task AddManagedAddendum_RangesAddendumUnderGedPrefix()
     {
         GenericArchiveService service = CreateService();
