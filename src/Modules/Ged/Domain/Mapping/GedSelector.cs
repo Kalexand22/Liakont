@@ -2,6 +2,7 @@ namespace Liakont.Modules.Ged.Domain.Mapping;
 
 using System;
 using System.Collections.Generic;
+using System.Text;
 using Liakont.Agent.Contracts.Ged;
 
 /// <summary>
@@ -10,9 +11,14 @@ using Liakont.Agent.Contracts.Ged;
 /// calcul :
 /// <list type="bullet">
 /// <item><description><c>$</c> : racine (le document ingéré).</description></item>
-/// <item><description><c>.nom</c> : accès à une propriété (<c>documentType</c>, <c>sourceReference</c>,
-/// <c>fields</c>, <c>axes</c>, <c>entities</c>, <c>relations</c>, ou une clé de <c>fields</c>).</description></item>
-/// <item><description><c>[?champ=='valeur']</c> : filtre d'un tableau sur l'égalité d'un champ scalaire.</description></item>
+/// <item><description><c>.nom</c> : accès à une propriété au nom <c>[A-Za-z0-9_]</c> (<c>documentType</c>,
+/// <c>sourceReference</c>, <c>fields</c>, <c>axes</c>, <c>entities</c>, <c>relations</c>, ou une clé simple de
+/// <c>fields</c>).</description></item>
+/// <item><description><c>['clé arbitraire']</c> : accès à une propriété dont la clé porte des espaces, tirets,
+/// points ou accents (les clés de <c>SourceFields</c> sont BRUTES et non contraintes, ex. <c>Réf facture</c>) ;
+/// une apostrophe littérale s'écrit doublée (<c>''</c>).</description></item>
+/// <item><description><c>[?champ=='valeur']</c> : filtre d'un tableau sur l'égalité d'un champ scalaire ; la
+/// valeur suit les mêmes règles d'apostrophe (<c>''</c> = apostrophe littérale, ex. <c>l''établissement</c>).</description></item>
 /// <item><description><c>[*]</c> : jokers, tous les éléments d'un tableau.</description></item>
 /// </list>
 /// Le document est projeté sur un modèle générique minimal (scalaire = <see cref="string"/>, objet =
@@ -239,14 +245,26 @@ public static class GedSelector
             throw new InvalidGedSelectorException(selector, "« [ » non fermé.");
         }
 
-        if (selector[index] == '*')
+        var current = selector[index];
+
+        if (current == '*')
         {
             index++;
             Expect(selector, ref index, ']');
             return (StepKind.Wildcard, string.Empty, string.Empty);
         }
 
-        if (selector[index] == '?')
+        if (current == '\'')
+        {
+            // Clé de propriété ARBITRAIRE entre crochets : $.fields['Réf facture'] (espaces, tirets, accents…),
+            // pour cibler une clé de SourceFields non exprimable par « .ident ». Aucune interprétation, juste un
+            // accès par nom exact.
+            var key = ReadQuotedLiteral(selector, ref index);
+            Expect(selector, ref index, ']');
+            return (StepKind.Property, key, string.Empty);
+        }
+
+        if (current == '?')
         {
             index++;
             var field = ReadIdentifier(selector, ref index);
@@ -257,14 +275,47 @@ public static class GedSelector
 
             Expect(selector, ref index, '=');
             Expect(selector, ref index, '=');
-            Expect(selector, ref index, '\'');
-            var value = ReadUntil(selector, ref index, '\'');
-            Expect(selector, ref index, '\'');
+            var value = ReadQuotedLiteral(selector, ref index);
             Expect(selector, ref index, ']');
             return (StepKind.Filter, field, value);
         }
 
-        throw new InvalidGedSelectorException(selector, "contenu de crochet invalide (attendu « [*] » ou « [?champ=='valeur'] »).");
+        throw new InvalidGedSelectorException(selector, "contenu de crochet invalide (attendu « [*] », « ['clé'] » ou « [?champ=='valeur'] »).");
+    }
+
+    // Lit un littéral entre apostrophes ; « '' » représente une apostrophe LITTÉRALE (échappement) — de sorte
+    // qu'une clé/valeur source portant une apostrophe (ex. « l'établissement ») reste ciblable. Précondition :
+    // selector[index] == '\''.
+    private static string ReadQuotedLiteral(string selector, ref int index)
+    {
+        if (index >= selector.Length || selector[index] != '\'')
+        {
+            throw new InvalidGedSelectorException(selector, $"apostrophe ouvrante attendue à la position {index}.");
+        }
+
+        index++;
+        var builder = new StringBuilder();
+        while (index < selector.Length)
+        {
+            var c = selector[index];
+            if (c == '\'')
+            {
+                if (index + 1 < selector.Length && selector[index + 1] == '\'')
+                {
+                    builder.Append('\'');
+                    index += 2;
+                    continue;
+                }
+
+                index++;
+                return builder.ToString();
+            }
+
+            builder.Append(c);
+            index++;
+        }
+
+        throw new InvalidGedSelectorException(selector, "littéral entre apostrophes non terminé.");
     }
 
     private static string ReadIdentifier(string selector, ref int index)
@@ -280,22 +331,6 @@ public static class GedSelector
             }
 
             index++;
-        }
-
-        return selector.Substring(start, index - start);
-    }
-
-    private static string ReadUntil(string selector, ref int index, char terminator)
-    {
-        var start = index;
-        while (index < selector.Length && selector[index] != terminator)
-        {
-            index++;
-        }
-
-        if (index >= selector.Length)
-        {
-            throw new InvalidGedSelectorException(selector, $"littéral non terminé (« {terminator} » manquant).");
         }
 
         return selector.Substring(start, index - start);

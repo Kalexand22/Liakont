@@ -80,6 +80,33 @@ public sealed class GedMappingProfileMigrationsIntegrationTests
     }
 
     [Fact]
+    public async Task A_failed_insert_rolls_back_both_the_profile_and_the_audit_entry()
+    {
+        var factory = _fixture.CreateTenantDatabase();
+        var repository = new GedMappingProfileRepository(factory);
+        var first = SampleProfile("typ_atom", validated: true);
+        await repository.InsertProfileAsync(first, GedMappingChangeLogFactory.ForCreateProfile(first, null, null));
+
+        // Un second profil validé du même documentType viole l'index unique partiel : la transaction
+        // (profil + entrée d'audit) doit être ANNULÉE EN ENTIER — pas d'entrée d'audit orpheline (atomicité,
+        // règle 4). Sans transaction commune, l'audit fuirait alors que le profil échoue.
+        var second = SampleProfile("typ_atom", validated: true, version: "2");
+        Func<Task> insertSecond = () => repository.InsertProfileAsync(
+            second,
+            GedMappingChangeLogFactory.ForCreateProfile(second, null, null));
+        await insertSecond.Should().ThrowAsync<ConflictException>();
+
+        using var connection = await factory.OpenAsync();
+        var profileCount = await connection.ExecuteScalarAsync<long>(
+            "SELECT count(*) FROM ged_catalog.ged_mapping_profiles WHERE document_type = 'typ_atom'");
+        var auditCount = await connection.ExecuteScalarAsync<long>(
+            "SELECT count(*) FROM ged_catalog.ged_mapping_change_log WHERE document_type = 'typ_atom'");
+
+        profileCount.Should().Be(1);
+        auditCount.Should().Be(1);
+    }
+
+    [Fact]
     public async Task Change_log_rejects_update()
     {
         using var connection = await SeedChangeLogAsync();

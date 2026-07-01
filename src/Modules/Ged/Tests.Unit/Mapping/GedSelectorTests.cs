@@ -84,6 +84,24 @@ public sealed class GedSelectorTests
         GedSelector.Evaluate("$.entities[?type=='inexistant'].externalId", doc).Should().BeEmpty();
     }
 
+    [Fact]
+    public void Bracketed_key_selector_targets_a_field_with_spaces_or_accents()
+    {
+        // Les clés de SourceFields sont BRUTES (espaces, accents) — non exprimables par « .ident ».
+        var doc = Build(fields: new Dictionary<string, string> { ["Réf facture"] = "F-1" });
+
+        GedSelector.Evaluate("$.fields['Réf facture']", doc).Should().ContainSingle().Which.Should().Be("F-1");
+    }
+
+    [Fact]
+    public void Filter_literal_supports_an_escaped_apostrophe()
+    {
+        var doc = Build(entities: new[] { new RawEntityHint("l'établissement", "E-1", "Un") });
+
+        GedSelector.Evaluate("$.entities[?type=='l''établissement'].externalId", doc)
+            .Should().ContainSingle().Which.Should().Be("E-1");
+    }
+
     [Theory]
     [InlineData("fields.x")] // absence de $
     [InlineData("$.fields.")] // propriété vide
@@ -91,6 +109,7 @@ public sealed class GedSelectorTests
     [InlineData("$.axes[?name=='x'")] // crochet non fermé
     [InlineData("$.axes[bad]")] // contenu de crochet invalide
     [InlineData("$fields")] // séparateur manquant
+    [InlineData("$.fields['non terminé")] // clé entre crochets non terminée
     public void Malformed_selector_is_rejected_at_validation(string selector)
     {
         var act = () => GedSelector.Validate(selector);
