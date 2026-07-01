@@ -25,6 +25,11 @@ using Stratum.Common.Abstractions.Jobs;
 /// </summary>
 public sealed partial class GedCorpusBackfillTenantJob : ITenantJob
 {
+    // Cadence du log de progression : sur un tenant à gros corpus scellé, le run est mono-thread avec un aller-retour
+    // par entrée (N+1) ; un point d'avancement périodique donne à l'opérateur une visibilité (le run reste reprenable —
+    // l'idempotence rend un re-lancement no-op sur les entrées déjà traitées).
+    private const int ProgressLogEvery = 500;
+
     public string Name => "ged.corpus-backfill";
 
     public async Task ExecuteAsync(TenantJobContext context, CancellationToken cancellationToken = default)
@@ -45,9 +50,16 @@ public sealed partial class GedCorpusBackfillTenantJob : ITenantJob
         var deferred = 0;
         var alreadyPresent = 0;
         var skippedMissingDocument = 0;
+        var processed = 0;
 
         foreach (var entry in chain)
         {
+            processed++;
+            if (processed % ProgressLogEvery == 0)
+            {
+                LogProgress(logger, context.TenantId, processed, chain.Count);
+            }
+
             var document = await documents.GetByIdAsync(entry.DocumentId, cancellationToken);
             if (document is null)
             {
@@ -117,6 +129,10 @@ public sealed partial class GedCorpusBackfillTenantJob : ITenantJob
     [LoggerMessage(EventId = 7320, Level = LogLevel.Warning,
         Message = "Backfill GED : entrée de coffre {EntryId} sans document fiscal {DocumentId} dans le tenant — ignorée (jamais deviner).")]
     private static partial void LogMissingDocument(ILogger logger, Guid entryId, Guid documentId);
+
+    [LoggerMessage(EventId = 7322, Level = LogLevel.Information,
+        Message = "Backfill GED du tenant « {TenantId} » : {Processed}/{Total} entrée(s) traitée(s)…")]
+    private static partial void LogProgress(ILogger logger, string tenantId, int processed, int total);
 
     [LoggerMessage(EventId = 7321, Level = LogLevel.Information,
         Message = "Backfill GED du tenant « {TenantId} » : {Total} entrée(s) — {Indexed} indexée(s), {Deferred} déférée(s), {AlreadyPresent} déjà présente(s), {Skipped} ignorée(s).")]

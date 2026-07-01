@@ -119,6 +119,10 @@ Les scénarios base-réelle sont portés par les items qui livrent le comporteme
     tels quels ; filtrer par `numero_lot` remonte TOUS les documents du lot **sans faux positif** sur un axe multi-valeur
     (patron F19 §6.2) ; le MÊME `document_axis_links` porte un montant **EUR** (échelle 2) ET un avancement **%** (échelle 0)
     **sans un seul ALTER TABLE** (généricité prouvée par configuration, F19 §11 D12). Aucun vocabulaire métier en dur (n°7).
+  - **Portée d'un re-passage** : l'idempotence est TERMINALE sur tout statut — un re-run indexe seulement les entrées PAS
+    ENCORE présentes ; un document déjà `deferred` (types fiscaux sans profil = déféral NOMINAL de masse) n'est **PAS**
+    re-mappé après création d'un profil (cohérent avec le replay GED05b). La reprise des `deferred` = capacité DISTINCTE
+    hors V1 (fast-follow). Documenté sur `IGedArchivedDocumentBackfill` pour éviter le piège opérateur.
 - **GED11** — lints anti-littéral + SQL cross-schéma, chacun avec self-test (RL-27).
 - **GED12 — LIVRÉ** (`GedMappingProfileMigrationsIntegrationTests`, collection `GedIntegration`, base isolée
   par test) : un profil **VALIDÉ** fait un round-trip (règles axe/entité/relation préservées via jsonb) ; un
