@@ -22,22 +22,40 @@ Deux niveaux complémentaires : **NetArchTest (IL, usage effectif des types)** +
   trouvés. La liste est volontairement restreinte à ces 4 modules (un module d'intake référençant la surface
   `Ged.Contracts` est permis par design, module-rules §3, et n'est donc pas une violation).
 
-### Scaffold de migrations — `GedMigrationScaffoldTests` (acceptance GED02, INV-GED-06)
+### Scaffold de migrations — `GedMigrationScaffoldTests` (INV-GED-06 ; anti-littéral INV-GED-12 depuis GED03a)
 
-- `The_three_ged_schemas_are_created_by_embedded_migrations` — les 3 scripts `Migrations/*.sql` sont
+- `Each_ged_schema_is_created_by_exactly_one_embedded_migration` — les scripts `Migrations/*.sql` sont
   **embarqués** dans l'assembly d'Infrastructure (donc découverts par le filtre DbUp `.Migrations.`) et
-  chacun crée **son** schéma (`ged_catalog`, `ged_index`, `ged_ingestion`) via `CREATE SCHEMA IF NOT EXISTS`.
-- `No_ged_migration_creates_a_business_table_yet` — **aucun** script GED02 ne contient `CREATE TABLE`
-  (acceptance « schémas créés VIDES, aucune table métier » ; les tables arrivent aux items GED03+).
+  chaque schéma (`ged_catalog`, `ged_index`, `ged_ingestion`) est créé par **exactement un** `CREATE SCHEMA`
+  (les tables du méta-modèle vivent dans des migrations séparées, GED03a+).
+- `Ged_migrations_hardcode_no_business_vocabulary` — **anti-littéral (GED03a, INV-GED-12 / règle 7)** :
+  aucune migration GED ne contient de vocabulaire métier en dur ; les axes / types d'entité sont du
+  paramétrage tenant. La garde OUTILLÉE complète (tout `src/Modules/Ged/**` + `ci.yml`) arrive avec GED11.
 - `AddGedModule_registers_the_infrastructure_assembly_for_migrations` — `AddGedModule` déclare l'assembly
   d'Infrastructure dans `MigrationAssembliesOptions` (sinon les schémas ne seraient jamais appliqués).
 
-## Integration (`Liakont.Modules.Ged.Tests.Integration`, PostgreSQL réel) — à venir
+### Catalogue polymorphe & normaliseur — GED03a (F19 §3.3/§3.7)
+
+- `ValueNormalizerTests` (`Domain.Catalog.ValueNormalizer`) — un axe `number` est un **`decimal`, jamais
+  double/float** ; arrondi **commercial half-up** à l'échelle de l'axe (`value_scale`, y compris négatifs et
+  échelle 0) ; **refus, jamais deviner** pour chaque `data_type` (number/date/boolean/entity/json invalides,
+  séparateur de milliers, exposant, valeur vide → `AxisValueFormatException`).
+- `CatalogModelTests` (`Domain.Catalog.EntityType` / `AxisDataTypes`) — le type d'entité est **polymorphe**
+  (code métier libre, jamais un enum figé) et refuse code/libellé vide ; le système `AxisDataType` fait un
+  aller-retour exact avec son code SQL et **refuse tout code hors du vocabulaire technique fermé** (miroir de
+  `ck_axis_def_data_type`).
+
+## Integration (`Liakont.Modules.Ged.Tests.Integration`, PostgreSQL réel via Testcontainers)
 
 Les scénarios base-réelle sont portés par les items qui livrent le comportement correspondant (F19 §8) :
 
-- **GED03a** — ordre FK `axis_definitions → entity_types` (RL-07) ; `value_number` decimal + arrondi half-up ;
-  `catalog_change_log` append-only ; check anti-littéral.
+- **GED03a — LIVRÉ** (`GedCatalogMigrationsIntegrationTests`, collection `GedIntegration`, base isolée par
+  test) : les migrations `ged_catalog` s'appliquent sur base **VIERGE** avec la FK
+  `axis_definitions → entity_types` satisfaite (**ordre RL-07** matérialisé par un INSERT d'axe `entity`) ;
+  FK `target_entity_type_id` opposable (référence pendante rejetée) ; CHECK `data_type` hors vocabulaire /
+  `entity` sans cible / `value_scale` hors [0..9] rejetés ; `catalog_change_log` **append-only** (UPDATE /
+  DELETE / TRUNCATE rejetés par trigger). L'arrondi half-up decimal est couvert côté Domain
+  (`ValueNormalizerTests`), l'anti-littéral côté scan de migrations (`GedMigrationScaffoldTests`).
 - **GED03b** — `document_axis_links` append-only PUR + `current_axis_links` (rétractées/superséedées
   exclues) ; `ck_dal_value_or_retraction` ; anti-EAV (INV-GED-01).
 - **GED03c** — graphe append-only + vues `current_*` ; `ck_er_no_self` ; rétractation multi-valeur (RL-24) ;
