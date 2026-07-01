@@ -41,7 +41,18 @@ public sealed class GedDatabaseFixture : IAsyncLifetime
     public IConnectionFactory CreateTenantDatabase()
     {
         string databaseName = "tenant_" + Guid.NewGuid().ToString("N");
-        var builder = new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = databaseName };
+
+        // Pooling DÉSACTIVÉ : chaque test crée une base ÉPHÉMÈRE distincte (donc un POOL Npgsql distinct par chaîne de
+        // connexion). Avec le pooling, les connexions inactives de chaque base s'accumulent tout au long de la suite
+        // (INV-GED-05b : le consommateur d'ingestion ouvre plusieurs connexions par appel) et finissent par dépasser
+        // le max_connections du conteneur (« 53300: too many clients already »). Non poolé, chaque connexion se ferme
+        // au dispose → aucune accumulation entre bases, la suite reste sous la limite (l'exécution sérielle de la
+        // collection ne rend jamais plus d'une base « chaude » à la fois).
+        var builder = new NpgsqlConnectionStringBuilder(_container.GetConnectionString())
+        {
+            Database = databaseName,
+            Pooling = false,
+        };
         string connectionString = builder.ConnectionString;
 
         RunCommonMigrations(connectionString);

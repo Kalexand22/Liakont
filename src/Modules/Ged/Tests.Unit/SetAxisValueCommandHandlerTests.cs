@@ -204,6 +204,19 @@ public sealed class SetAxisValueCommandHandlerTests
             return Task.FromResult(ReturnedId);
         }
 
+        // Surface d'indexation GED05b non exercée par les tests de SetAxisValueCommandHandler (GED04).
+        public Task<string?> BeginDocumentIndexingAsync(Guid managedDocumentId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task UpsertManagedDocumentAsync(ManagedDocument document, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<Guid> ResolveOrCreateEntityAsync(Guid entityTypeId, string? identityValue, string displayName, string source, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<Guid> AppendDocumentEntityLinkAsync(DocumentEntityLink link, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task CommitAsync(CancellationToken cancellationToken = default)
         {
             Committed = true;
