@@ -60,8 +60,9 @@ public sealed class B2cMarginAggregatorJobTests : IAsyncLifetime
         emissions.Select(e => e.Status).Should().Equal("Pending", "Issued");
         emissions[^1].PaEmissionId.Should().NotBeNullOrWhiteSpace("l'id serveur de la transaction est journalisé à l'émission.");
 
-        // Le job NE transitionne PAS la machine à états du document (projection parallèle, comme l'agrégation paiement).
-        (await _harness.GetDocumentStateAsync(documentId)).Should().Be("ReadyToSend");
+        // Émission Issued ⇒ le document passe à EReported (canal B2C agrégé, distinct de Issued voie document — ADR-0037/BUG-24).
+        (await _harness.GetDocumentStateAsync(documentId)).Should()
+            .Be("EReported", "l'émission de la contribution de marge transitionne le document vers EReported (ADR-0037).");
     }
 
     [Fact]

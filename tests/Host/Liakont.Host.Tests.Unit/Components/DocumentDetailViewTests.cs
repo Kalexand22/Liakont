@@ -408,44 +408,55 @@ public sealed class DocumentDetailViewTests : BunitContext
     }
 
     [Fact]
-    public void Should_Show_E_Reported_Badge_And_Link_Instead_Of_The_State_When_B2c_Reported()
+    public void Should_Show_The_E_Reported_State_Badge_In_The_Header_When_The_Document_Is_E_Reported()
     {
-        // BUG-24 : un document e-reporté (déclaré via la transmission AGRÉGÉE) n'affiche plus l'état brut « À envoyer »
-        // dans l'en-tête — il porte un badge « E-reporté » + un lien vers sa déclaration (read-time, lien doc ↔ lot).
-        var batchId = Guid.Parse("33333333-3333-3333-3333-333333333333");
-        var model = BuildModel(doc: Doc("9000004", "ReadyToSend"), reportedBatchId: batchId);
-
-        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+        // BUG-24/ADR-0037 : l'état « E-reporté » vient désormais de l'ÉTAT PERSISTÉ (DocumentState.EReported), rendu
+        // par le badge d'état STANDARD — fin de l'overlay read-time (liste, compteurs et fiche lisent le même état).
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(doc: Doc("9000004", "EReported"))));
 
         cut.Find("[data-testid='document-detail-state']").TextContent.Should().Contain("E-reporté");
-        var link = cut.Find("[data-testid='document-detail-ereported-link']");
-        link.GetAttribute("href").Should().Be($"/emissions-marge-b2c/{batchId}");
-    }
-
-    [Fact]
-    public void Should_Not_Show_The_E_Reported_Link_When_The_Document_Is_Not_B2c_Reported()
-    {
-        // Document non e-reporté : pas de lien, l'état brut s'affiche normalement (aucune réflexion e-reporting).
-        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(doc: Doc("9000004", "ReadyToSend"))));
-
-        cut.FindAll("[data-testid='document-detail-ereported-link']").Should().BeEmpty();
-        cut.FindAll("[data-testid='document-detail-state']").Should().NotBeEmpty();
     }
 
     [Fact]
     public void Should_Reflect_E_Reported_On_The_Controls_Tab_Instead_Of_Controls_Ok()
     {
-        // BUG-24 : l'onglet Contrôles d'un document e-reporté n'affiche plus « Aucun contrôle en échec » (trompeur) —
-        // il indique explicitement que le document a été e-reporté et n'est pas à envoyer par la voie document.
-        var batchId = Guid.Parse("44444444-4444-4444-4444-444444444444");
-        var model = BuildModel(doc: Doc("9000004", "ReadyToSend"), reportedBatchId: batchId);
-
-        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+        // BUG-24/ADR-0037 : l'onglet Contrôles d'un document e-reporté (état persisté EReported) n'affiche plus
+        // « Aucun contrôle en échec » (trompeur) — il indique explicitement que le document a été e-reporté.
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(doc: Doc("9000004", "EReported"))));
 
         SelectTab(cut, "Contrôles");
         cut.FindAll("[data-testid='document-detail-controls-ereported']").Should().ContainSingle();
         cut.FindAll("[data-testid='document-detail-controls-ok']").Should().BeEmpty("un document e-reporté n'est pas « aucun contrôle en échec »");
         cut.Find("[data-testid='document-detail-controls-state']").TextContent.Should().Contain("E-reporté");
+    }
+
+    [Fact]
+    public void Should_Link_To_The_Declaration_When_E_Reported_With_A_Batch_Id()
+    {
+        // ADR-0037 §4 (retour recette) : le lien « Voir la déclaration » (fiche → lot d'émission B2C) est re-sourcé
+        // depuis l'événement DocumentEReported — présent dans l'en-tête ET dans l'onglet Contrôles.
+        var batchId = Guid.Parse("11111111-2222-4333-8444-555555555555");
+        var model = BuildModel(doc: Doc("9000004", "EReported"), eReportedBatchId: batchId);
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        var headerLink = cut.Find("[data-testid='document-detail-ereported-link']");
+        headerLink.GetAttribute("href").Should().Be($"/emissions-marge-b2c/{batchId}");
+
+        SelectTab(cut, "Contrôles");
+        cut.Find("[data-testid='document-detail-controls-ereported-link']").GetAttribute("href")
+            .Should().Be($"/emissions-marge-b2c/{batchId}");
+    }
+
+    [Fact]
+    public void Should_Not_Render_A_Declaration_Link_When_The_Batch_Id_Is_Absent()
+    {
+        // Dégradation gracieuse : batch non extractible → pas de lien (jamais une erreur), le badge/message restent.
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(doc: Doc("9000004", "EReported"), eReportedBatchId: null)));
+
+        cut.FindAll("[data-testid='document-detail-ereported-link']").Should().BeEmpty();
+        SelectTab(cut, "Contrôles");
+        cut.FindAll("[data-testid='document-detail-controls-ereported-link']").Should().BeEmpty();
     }
 
     [Fact]
@@ -669,7 +680,7 @@ public sealed class DocumentDetailViewTests : BunitContext
         bool isArchived = false,
         DocumentContentView? content = null,
         MarginRecapView? marginRecap = null,
-        Guid? reportedBatchId = null) => new()
+        Guid? eReportedBatchId = null) => new()
     {
         Document = doc ?? Doc("2026-000", "Issued"),
         Events = events ?? [],
@@ -678,7 +689,7 @@ public sealed class DocumentDetailViewTests : BunitContext
         IsArchived = isArchived,
         Content = content ?? DocumentContentView.Empty,
         MarginRecap = marginRecap,
-        B2cReportedBatchId = reportedBatchId,
+        EReportedBatchId = eReportedBatchId,
     };
 
     private static DocumentContentView Content(

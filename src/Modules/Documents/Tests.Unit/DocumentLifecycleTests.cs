@@ -183,6 +183,71 @@ public sealed class DocumentLifecycleTests
         unitOfWork.Committed.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task MarkEReportedAsync_On_A_ReadyToSend_Document_Transitions_To_EReported_With_Batch_And_Commits()
+    {
+        // Voie e-reporting B2C agrégée (BUG-24, ADR-0037) : chemin heureux ReadyToSend → EReported, événement
+        // append-only DocumentEReported portant l'emissionBatchId dans la piste d'audit, transaction commitée.
+        var document = ReadyToSend();
+        var unitOfWork = new FakeUnitOfWork(document);
+        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
+        var batchId = Guid.NewGuid();
+
+        await lifecycle.MarkEReportedAsync(document.Id, batchId);
+
+        document.State.Should().Be(DocumentState.EReported);
+        unitOfWork.Upserted.Should().BeSameAs(document);
+        unitOfWork.AppendedEvents.Should().ContainSingle().Which.EventType.Should().Be(DocumentEventType.DocumentEReported);
+        unitOfWork.AppendedEvents[0].Detail.Should().Contain(batchId.ToString(), "le lot d'émission e-reporting B2C est tracé dans la piste d'audit");
+        unitOfWork.Committed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task MarkEReportedAsync_On_An_Already_EReported_Document_Is_An_Idempotent_NoOp_Without_Writing()
+    {
+        // Rejeu (même document déjà EReported) : no-op RÉUSSI, jamais une exception (la machine refuserait
+        // EReported → EReported ; forcer lèverait et ferait retomber un POST accepté en Technical — mensonge inverse).
+        var document = ReadyToSend();
+        document.MarkEReported(Guid.NewGuid(), At.AddMinutes(5));
+        var unitOfWork = new FakeUnitOfWork(document);
+        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
+
+        var act = async () => await lifecycle.MarkEReportedAsync(document.Id, Guid.NewGuid());
+
+        await act.Should().NotThrowAsync("un rejeu sur un document déjà e-reporté est un no-op idempotent");
+        unitOfWork.AppendedEvents.Should().BeEmpty();
+        unitOfWork.Committed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task MarkEReportedAsync_On_An_Unknown_Document_Is_A_NoOp_Without_Throwing()
+    {
+        var unitOfWork = new FakeUnitOfWork(document: null);
+        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
+
+        var act = async () => await lifecycle.MarkEReportedAsync(Guid.NewGuid(), Guid.NewGuid());
+
+        await act.Should().NotThrowAsync("un document inconnu est un no-op réussi — jamais une exception qui ferait retomber une émission acceptée en Technical");
+        unitOfWork.Committed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task MarkEReportedAsync_On_A_Document_No_Longer_ReadyToSend_Does_Not_Transition_And_Does_Not_Throw()
+    {
+        // Course : le document a quitté ReadyToSend (ex. Blocked) sous le verrou → on ne FORCE pas EReported
+        // (pas de faux audit) et surtout jamais une exception (même patron que les *RecheckAsync).
+        var document = Blocked();
+        var unitOfWork = new FakeUnitOfWork(document);
+        var lifecycle = new DocumentLifecycle(new FakeFactory(unitOfWork), new FakeQueries());
+
+        var act = async () => await lifecycle.MarkEReportedAsync(document.Id, Guid.NewGuid());
+
+        await act.Should().NotThrowAsync();
+        document.State.Should().Be(DocumentState.Blocked, "un document hors ReadyToSend n'est pas forcé vers EReported");
+        unitOfWork.AppendedEvents.Should().BeEmpty();
+        unitOfWork.Committed.Should().BeFalse();
+    }
+
     private static Document Detected() => Document.CreateDetected(
         Guid.NewGuid(),
         "SRC-1",
@@ -202,6 +267,13 @@ public sealed class DocumentLifecycleTests
     {
         var document = Detected();
         document.MarkBlocked(At.AddMinutes(1), "Table TVA non validée");
+        return document;
+    }
+
+    private static Document ReadyToSend()
+    {
+        var document = Detected();
+        document.MarkReadyToSendWithMapping(At.AddMinutes(1), "2026.1");
         return document;
     }
 

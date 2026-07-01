@@ -236,6 +236,9 @@ internal static class CheckTestDoubles
         public Task MarkTechnicalErrorAsync(Guid documentId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task MarkEReportedAsync(Guid documentId, Guid emissionBatchId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<DocumentResolutionOutcome> ResolveManuallyAsync(Guid documentId, string reason, string operatorIdentity, string? operatorName, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 

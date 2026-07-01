@@ -42,19 +42,18 @@ public sealed record DocumentDetailViewModel
     /// </summary>
     public MarginRecapView? MarginRecap { get; init; }
 
+    /// <summary>
+    /// Identifiant du lot d'émission e-reporting B2C par lequel ce document a été déclaré (BUG-24/ADR-0037),
+    /// alimentant le lien « Voir la déclaration » (fiche → <c>/emissions-marge-b2c/{batchId}</c>). Source :
+    /// l'événement d'audit <c>DocumentEReported</c> DÉJÀ chargé (jamais une requête read-time sur le journal —
+    /// l'état, lui, reste piloté par <c>documents.state</c>). <c>null</c> hors état <c>EReported</c> ou si le
+    /// batch n'est pas extractible (lien alors simplement absent, jamais une erreur).
+    /// </summary>
+    public Guid? EReportedBatchId { get; init; }
+
     /// <summary>Référence d'archive WORM du document (onglet Archive), ou <c>null</c> s'il n'est pas archivé.</summary>
     public ArchiveReferenceDto? Archive { get; init; }
 
     /// <summary><c>true</c> si une entrée de coffre existe pour ce document, <c>false</c> sinon.</summary>
     public bool IsArchived { get; init; }
-
-    /// <summary>
-    /// Lot d'émission e-reporting B2C dans lequel ce document a été RÉELLEMENT déclaré (BUG-24) : non <c>null</c>
-    /// quand le document a été e-reporté avec succès via la transmission AGRÉGÉE (flux 10.3), sinon <c>null</c>.
-    /// Reflète l'état d'e-reporting au read-time (lien doc ↔ lot) SANS modifier la machine à états : un document
-    /// e-reporté reste techniquement « prêt à l'envoi » côté domaine, mais la voie document ne le concerne plus
-    /// (garde D1) — la fiche affiche alors « E-reporté » + le lien vers sa déclaration au lieu de « À envoyer »,
-    /// et la barre d'actions masque l'envoi par la voie document.
-    /// </summary>
-    public Guid? B2cReportedBatchId { get; init; }
 }

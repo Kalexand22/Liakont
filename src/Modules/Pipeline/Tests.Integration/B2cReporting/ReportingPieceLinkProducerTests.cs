@@ -46,7 +46,7 @@ public sealed class ReportingPieceLinkProducerTests : IAsyncLifetime
         _harness.PaCallCount(SendB2cTransaction, "Tlb1/Seller/20260120").Should()
             .Be(1, "la déclaration B2C ordinaire est e-reportée par son job (jamais par la voie document).");
         (await _harness.GetDocumentStateAsync(documentId))
-            .Should().Be("ReadyToSend", "le job d'e-reporting ne transitionne pas la machine à états du document.");
+            .Should().Be("EReported", "l'émission de la contribution B2C transitionne le document vers EReported (ADR-0037/BUG-24).");
 
         var links = await _harness.GetReportingPieceLinksAsync(documentId);
         links.Should().ContainSingle("une déclaration 10.3 émise gèle exactement un lien vers sa pièce source.");

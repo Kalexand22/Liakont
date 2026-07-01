@@ -26,6 +26,7 @@ public static class DocumentStateDisplay
         "TechnicalError",
         "RejectedByPa",
         "Issued",
+        "EReported",
         "Superseded",
         "ManuallyHandled",
     ];
@@ -57,6 +58,10 @@ public static class DocumentStateDisplay
 
         // U+2705 (coche verte) Émis — accepté par la PA, tax report généré (F10 : vert).
         "Issued" => ("\U00002705 Émis", Severity.Success),
+
+        // U+1F9FE (reçu) E-reporté — inclus dans une déclaration d'e-reporting B2C agrégée acceptée par la PA
+        // (voie agrégée, distincte de « Émis » pièce-à-pièce — BUG-24/ADR-0037 ; vert : aboutissement réussi).
+        "EReported" => ("\U0001F9FE E-reporté", Severity.Success),
 
         // U+21AA (flèche crochet) Remplacé — renvoyé sous un autre numéro après rejet (F10 : gris clair).
         "Superseded" => ("\U000021AA Remplacé", Severity.Neutral),
