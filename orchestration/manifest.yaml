@@ -264,7 +264,13 @@ meta:
   #   OpenSearch / GED22 pgvector / GED23 OCR / GED24 relations avancées = items individuels HORS gate. ⚠️ À SEEDER
   #   dans $ORCH_REPO/state.yaml APRÈS merge : GED02→GED13 + GATE_GED en `pending` ; GED20 en `blocked` (D1) ;
   #   GED21→GED24 en `pending` (hors gate). Détails : items/GED.yaml.
-  version: 38
+  # version 39 (2026-07-01, geste opérateur interactif — Karl) = DÉVERROUILLAGE du segment `ged` : GATE_DEMO_ISATECH
+  #   retirée de segments.ged.depends_on_gate. Le gating v38 (dormance jusqu'à un 1er client e-invoicing en prod
+  #   réelle, RL-08) mettait la charrue avant les bœufs : le développement du lot GED (GED02→GED13, GED09a/b/c UI,
+  #   coffre-fort documentaire au-dessus du WORM existant) ne dépend en rien d'une prod cliente. Segment désormais
+  #   gardé uniquement par [GATE_PIPELINE, GATE_CONSOLE_WEB, GATE_AGENT] (toutes done) → GED02 (deps vides) éligible
+  #   immédiatement. GATE_DEMO_ISATECH NON modifiée (reste gate_pending, garde toujours CMP04 + GATE_PROD_CMP).
+  version: 39
   host: multi_agent_v1
 
 segments:
@@ -452,8 +458,11 @@ segments:
     base: main
     lots: [GED]
     gate: GATE_GED
-    # GATE_DEMO_ISATECH (prod e-invoicing réelle d'abord, RL-08) garde les items DORMANTS jusqu'à un 1er client en prod.
-    depends_on_gate: [GATE_PIPELINE, GATE_CONSOLE_WEB, GATE_AGENT, GATE_DEMO_ISATECH]
+    # v39 (2026-07-01, geste opérateur — Karl) : GATE_DEMO_ISATECH RETIRÉE des prérequis. Coupler le DÉVELOPPEMENT
+    # du lot GED à une gate de démo/prod réelle était à l'envers (on construit la feature AVANT d'avoir un client en
+    # prod). Le segment reste gardé par les 3 gates techniques amont (toutes done). GATE_DEMO_ISATECH inchangée par
+    # ailleurs (CMP04 / GATE_PROD_CMP en dépendent toujours légitimement).
+    depends_on_gate: [GATE_PIPELINE, GATE_CONSOLE_WEB, GATE_AGENT]
 
 items:
   # ── SOL ──
