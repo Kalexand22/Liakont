@@ -10,6 +10,7 @@ using Liakont.Modules.Ged.Infrastructure;
 using Liakont.Modules.Ged.Infrastructure.Index;
 using Liakont.Modules.Ged.Infrastructure.Mapping;
 using Liakont.Modules.Staging.Contracts;
+using Microsoft.Extensions.Logging.Abstractions;
 using Stratum.Common.Abstractions.MultiTenancy;
 using Stratum.Common.Infrastructure.Database;
 
@@ -28,14 +29,23 @@ internal sealed class StubTenantScopeFactory : ITenantScopeFactory
         var providers = new Dictionary<string, IServiceProvider>(StringComparer.Ordinal);
         foreach (var (tenantId, factory) in tenants)
         {
+            var axisCatalog = new PostgresAxisCatalog(factory);
+            var entityCatalog = new PostgresEntityCatalog(factory);
+            var uowFactory = new PostgresGedIndexUnitOfWorkFactory(factory);
+            var profileStore = new GedMappingProfileRepository(factory);
+
             var services = new Dictionary<Type, object>
             {
                 [typeof(IPayloadStagingStore)] = staging,
-                [typeof(IAxisCatalog)] = new PostgresAxisCatalog(factory),
-                [typeof(IEntityCatalog)] = new PostgresEntityCatalog(factory),
-                [typeof(IGedIndexUnitOfWorkFactory)] = new PostgresGedIndexUnitOfWorkFactory(factory),
-                [typeof(IGedMappingProfileStore)] = new GedMappingProfileRepository(factory),
-                [typeof(IDocumentSearchIndex)] = new PostgresDocumentSearchIndex(factory, new PostgresAxisCatalog(factory)),
+                [typeof(IAxisCatalog)] = axisCatalog,
+                [typeof(IEntityCatalog)] = entityCatalog,
+                [typeof(IGedIndexUnitOfWorkFactory)] = uowFactory,
+                [typeof(IGedMappingProfileStore)] = profileStore,
+                [typeof(IDocumentSearchIndex)] = new PostgresDocumentSearchIndex(factory, axisCatalog),
+
+                // Foyer d'écriture unique (GED10) : le consommateur le résout désormais du scope tenant.
+                [typeof(IGedDocumentIndexer)] = new GedDocumentIndexer(
+                    profileStore, axisCatalog, entityCatalog, uowFactory, NullLogger<GedDocumentIndexer>.Instance),
             };
             providers[tenantId] = new DirectServiceProvider(services);
         }

@@ -5,8 +5,10 @@ using Liakont.Modules.Ged.Application.Graph;
 using Liakont.Modules.Ged.Application.Index;
 using Liakont.Modules.Ged.Application.Ingestion;
 using Liakont.Modules.Ged.Application.Mapping;
+using Liakont.Modules.Ged.Contracts.Backfill;
 using Liakont.Modules.Ged.Contracts.Consultation;
 using Liakont.Modules.Ged.Contracts.Events;
+using Liakont.Modules.Ged.Infrastructure.Backfill;
 using Liakont.Modules.Ged.Infrastructure.Consultation;
 using Liakont.Modules.Ged.Infrastructure.Graph;
 using Liakont.Modules.Ged.Infrastructure.Index;
@@ -66,6 +68,14 @@ public static class GedModuleRegistration
 
         // Catalogue de TYPES d'entité (résolution §4.4), tenant-scopé par IConnectionFactory — symétrique d'IAxisCatalog.
         services.AddScoped<IEntityCatalog, PostgresEntityCatalog>();
+
+        // Foyer d'écriture UNIQUE de l'index GED (mapping + écriture indexed/deferred sous garde de concurrence),
+        // partagé par le consommateur d'ingestion (GED05b) ET le backfill rétroactif (GED10) — un seul chemin de statut.
+        services.AddScoped<IGedDocumentIndexer, GedDocumentIndexer>();
+
+        // Backfill rétroactif du corpus fiscal déjà scellé (GED10, F19 §10/§11 D12) : point d'entrée d'indexation DIRECT
+        // (hors-outbox) consommé par le job d'orchestration côté Host, qui projette une entrée d'archive fiscale en pivot GED.
+        services.AddScoped<IGedArchivedDocumentBackfill, GedArchivedDocumentBackfill>();
 
         // Consommateur DURABLE de l'événement : relit le staging, mappe et écrit l'index GED (base tenant, via le seam
         // ITenantScopeFactory du Host). Correspondance type d'événement → payload CLR pour le worker d'outbox.

@@ -1,68 +1,79 @@
-# GED08 — Recherche : document_search (tsvector + unaccent IMMUTABLE) + facettes + confidentialité matérialisée + graphe borné
+# GED10 — Backfill rétroactif idempotent + démo enchères/BTP (généricité par config)
 
-Segment `ged` (feat/ged), sous-branche `feat/ged-GED08`. Blueprint `module-work-item`.
-Source : F19 §6.1-§6.4 + ADR-0035. Dépend de GED04 (UoW/liens d'axe) + GED07 (archivage) — done.
+Segment `ged` (feat/ged), sous-branche `feat/ged-GED10`. Blueprint `module-work-item`.
+Spec F19 §10/§11 D12, RL-16/RL-21. Deps GED05b + GED07 (done).
 
-## Décisions de conception (issues de l'exploration)
+## Contraintes de frontière (déterminées par exploration — NON négociables)
+- **GED est un silo** : `GedBoundaryTests` interdit toute dépendance de `Ged.*` vers
+  `Liakont.Modules.{Pipeline,Validation,Transmission,Documents}` (IL). ⇒ GED ne lit JAMAIS
+  `Documents.*` (ni Contracts).
+- **Archive n'a pas le droit de référencer Ged** : `ArchiveBoundaryTests` interdit
+  `Archive → Liakont.Modules.Ged`.
+- **GED11 lint (à venir)** : SQL GED reste dans les schémas `ged_*` (pas de `documents.`).
+- ⇒ L'orchestration cross-module (lire l'archive fiscale + le doc fiscal, puis écrire l'index GED)
+  vit dans le **Host** (racine de composition, voit tout). GED n'expose qu'un point d'entrée
+  d'indexation via **Ged.Contracts**.
 
-- **document_search** = table dérivée reconstructible (foyer UNIQUE du FTS document ; `managed_documents`
-  ne porte pas de `search_vector`). Peuplée par **projection asynchrone** = un SECOND
-  `IIntegrationEventConsumer<ManagedDocumentReceivedV1>` enregistré APRÈS l'indexeur GED05b
-  (le dispatcher socle invoque les consumers dans l'ordre d'enregistrement, séquentiellement →
-  la projection lit l'index committé). Reconstructible : la projection lit UNIQUEMENT la base tenant
-  (title + `current_axis_links` searchables non-confidentiels), jamais le staging → réutilisable par le
-  backfill GED10.
-- **unaccent** : `CREATE EXTENSION IF NOT EXISTS unaccent` + wrapper IMMUTABLE `ged_index.immutable_unaccent`
-  (le `unaccent(text)` natif est STABLE ; forme 2-args `unaccent('unaccent', $1)` = IMMUTABLE) — RL-13.
-- **FTS** : `to_tsvector('french', immutable_unaccent(...))`, `websearch_to_tsquery('french', immutable_unaccent(@q))`,
-  setweight (title=A, axes searchables=B), index GIN. Config `'french'` (D11). Axes confidentiels EXCLUS du
-  vector au BUILD (INV-GED-10 : `liakont.ged.confidential` n'ouvre PAS le FTS en V1).
-- **Recherche multi-axes** : conjonction robuste aux axes multi-valeur via
-  `HAVING count(DISTINCT CASE WHEN ad.code=@code_i AND dal.normalized_value=@val_i THEN 'c_i' END)=N`
-  (jamais `count(DISTINCT code)` naïf). Valeurs filtre normalisées via `ValueNormalizer` (type-aware) pour
-  matcher `normalized_value` (casefold à l'écriture).
-- **Prédicat de confidentialité MATÉRIALISÉ dans le SQL** (RL-31) sur axe/facette/graphe :
-  `(ad.is_confidential = false OR @hasConfidentialRight)` / `(et.is_confidential = false OR @hasConfidentialRight)`.
-  Anti-oracle : un critère/facette/racine confidentiel sans le droit → aucun résultat, jamais un count révélateur.
-- **Facettes** : `count(*) GROUP BY (ad.code, normalized_value)` restreint aux `is_facetable`, même prédicat conf.
-- **Graphe** : CTE récursif BIDIRECTIONNEL sur `current_entity_relations`, borne de profondeur DURE (clamp),
-  anti-cycle (tableau de chemin), pagination keyset, confidentialité héritée des `entity_types` aux 2 extrémités
-  ET à la racine (INV-GED-09). Retourne les documents atteignables (`current_document_entity_links`).
-- **Pagination keyset** partout (RL-20) : `WHERE managed_document_id > @after ORDER BY managed_document_id LIMIT @n`
-  (jamais OFFSET ni chargement-tout). Le tri par pertinence ts_rank = fast-follow (OpenSearch GED21).
-- **Abstraction** : `IDocumentSearchIndex` public (Application/Index — Application n'a pas d'IVT) ;
-  impl `internal sealed PostgresDocumentSearchIndex` (Infrastructure/Index, IVT Tests). Tenant-scope = la connexion.
+## A. Indexeur GED partagé (extraction depuis le consommateur GED05b)
+- [ ] `Ged.Application/Index/IGedDocumentIndexer.cs` — `IndexAsync(GedIndexRequest) → GedIndexOutcome`
+      + `IndexDeferredAsync(managedDocId, sourceRef, docKind, reason)`.
+- [ ] `Ged.Application/Index/GedIndexRequest.cs` — { Guid ManagedDocumentId, IngestedDocumentDto Ingested,
+      string Source, GedDocumentSoftLinks? SoftLinks }.
+- [ ] `Ged.Application/Index/GedDocumentSoftLinks.cs` — { Guid? FiscalDocumentId, Guid? ArchiveEntryId,
+      string? ArchivePath, string? ContentHash }.
+- [ ] `Ged.Infrastructure/Index/GedDocumentIndexer.cs` — logique map→valide→écrit (indexed/deferred) via UoW,
+      soft-links, source paramétrable (extraite du consommateur).
+- [ ] Refactor `ManagedDocumentReceivedConsumer` → délègue à `IGedDocumentIndexer` (reste : scope + staging).
+- [ ] Étendre `ManagedDocument` (Domain) avec soft-links optionnels (nullable, défaut null — additif).
+- [ ] Étendre `UpsertManagedDocumentAsync` SQL (PostgresGedIndexUnitOfWork) pour insérer les soft-links.
+- [ ] DI : `AddScoped<IGedDocumentIndexer, GedDocumentIndexer>`.
 
-## Étapes
+## B. Point d'entrée backfill GED (Ged.Contracts + Infra)
+- [ ] `Ged.Contracts/Backfill/IGedArchivedDocumentBackfill.cs` — `BackfillAsync(GedBackfillDocumentRequest) → GedBackfillOutcome`.
+- [ ] `Ged.Contracts/Backfill/GedBackfillDocumentRequest.cs` — { ArchiveEntryId, FiscalDocumentId, ArchivePath,
+      ContentHash, DocumentType, SourceReference, SourceFields (dict), SourceTimestampUtc? }.
+- [ ] `Ged.Contracts/Backfill/GedBackfillOutcome.cs` — enum { Indexed, Deferred, AlreadyPresent }.
+- [ ] `Ged.Infrastructure/Backfill/GedArchivedDocumentBackfill.cs` — id déterministe (GUIDv5 depuis ArchiveEntryId),
+      construit IngestedDocumentDto, appelle l'indexeur (source="import", soft-links). Idempotent (ON CONFLICT id).
+- [ ] DI : `AddScoped<IGedArchivedDocumentBackfill, GedArchivedDocumentBackfill>`.
 
-- [x] V020__create_ged_index_document_search.sql (extension unaccent + wrapper IMMUTABLE + table + GIN)
-- [x] Application/Index : IDocumentSearchIndex + DocumentSearchQuery/Result + GraphExplorationQuery/Result + AxisFilter/Facet
-- [x] Infrastructure/Index/PostgresDocumentSearchIndex.cs (RefreshDocumentAsync + SearchAsync + ExploreGraphAsync)
-- [x] Infrastructure/Index/ManagedDocumentSearchProjector.cs (2e consumer, tenant-scope, appelle RefreshDocumentAsync)
-- [x] GedModuleRegistration : enregistrer IDocumentSearchIndex + le projector APRÈS l'indexeur
-- [x] Tests.Integration : projection, multi-axes (faux positif multi-valeur), confidentialité (axe+facette+graphe),
-      unaccent (accent-insensible), graphe borné/anti-cycle/bidirectionnel, reconstructible (DELETE+rebuild),
-      isolation tenant (≥ 2 bases), + test de bout-en-bout via le vrai dispatcher socle
-- [x] verify-fast + run-tests verts ; codex-review propre (round 3 CLEAN)
+## C. Job backfill (Host — orchestration cross-module)
+- [ ] `Host/.../GedCorpusBackfillTrigger.cs` — marqueur.
+- [ ] `Host/.../GedCorpusBackfillTenantJob.cs : ITenantJob` — enumère `IArchiveEntryStore.GetChainAsync`
+      → par entrée : `IDocumentQueries.GetByIdAsync` → construit GedBackfillDocumentRequest → BackfillAsync.
+      GetChainAsync est déjà un instantané complet. Compte les issues.
+- [ ] `Host/.../GedCorpusBackfillFanOutHandler.cs : IJobHandler<GedCorpusBackfillTrigger>` — fan-out via runner.
+- [ ] `AppBootstrap` : `AddJobHandler<GedCorpusBackfillTrigger, GedCorpusBackfillFanOutHandler>`.
+- [ ] `SystemJobDefinitions` : entrée DeploymentCadence (CronExpression null, geste opéré).
 
-## Review (fin de session)
+## D. Seeds démo (deployments/) — FICTIFS (n°7)
+- [ ] `deployments/demo-encheres-ged/ged-catalog.sql` — entity_types + axis_definitions (numero_lot multi,
+      numero_vente, entité acheteur) + ged_mapping_profiles (+ change-log).
+- [ ] `deployments/demo-btp-ged/ged-catalog.sql` — axis_definitions (numero_situation, mois,
+      montant_ht_cumule number scale=2 EUR, avancement_pct number scale=0) + entité chantier + profil.
+- [ ] Vocabulaire métier UNIQUEMENT ici + tests, JAMAIS dans src/Modules/Ged/**.
 
-**Livré** (commits 7a134fbc + e76d9ce4, mergés dans feat/ged @ ecccbf56) :
-- Migration V020 : `CREATE EXTENSION unaccent` + wrapper IMMUTABLE `ged_index.immutable_unaccent` (RL-13) +
-  table dérivée reconstructible `ged_index.document_search` (PK managed_document_id, search_vector tsvector, GIN).
-- `IDocumentSearchIndex` (Application/Index) + DTOs ; `PostgresDocumentSearchIndex` : projection async
-  `RefreshDocumentAsync` (titre A + axes searchables non-conf B, 'french', unaccent), recherche multi-axes robuste
-  au multi-valeur (CASE code+valeur), facettes, prédicat de confidentialité matérialisé (RL-31, anti-oracle),
-  traversée graphe bidirectionnelle bornée (borne dure de profondeur, anti-cycle, keyset).
-- `ManagedDocumentSearchProjector` : 2e consumer de ManagedDocumentReceivedV1 après l'indexeur (§6.1).
-- 18 tests d'intégration GED nouveaux (17 recherche/graphe + 1 pipeline dispatcher réel) ; SCENARIOS.md/INVARIANTS.md à jour.
+## E. Tests
+- [ ] `Ged.Tests.Integration/GedArchivedDocumentBackfillIntegrationTests` — backfill idempotent (no-op au 2e
+      passage) + deferred sans profil + soft-links posés.
+- [ ] `Ged.Tests.Integration/GedGenericityDemoIntegrationTests` — applique les 2 seeds → indexe bordereaux
+      (via indexeur) → filtre §6.2 par numero_lot → tous les docs du lot ; BTP situation (EUR + %) sur le
+      MÊME schéma sans ALTER TABLE.
+- [ ] `Host.Tests.Unit` — job backfill : itération + construction de requête (fakes).
+- [ ] `Ged.Tests.Unit` — id déterministe, indexeur.
+- [ ] Non-régression : tests GED05b (consommateur) verts après refactor.
 
-**Vérif** : verify-fast PASS (plateforme .NET 10 + agent net48 + onsite-client) ; run-tests PASS (7583 tests, 0 échec) ;
-codex-review round 1 = 0 P1 / 2 P2 → corrigés → round 3 CLEAN.
+## F. Vérif
+- [ ] verify-fast (3 solutions) ; run-tests verts ; codex-review clean.
+- [ ] merge-back feat/ged (attention concurrence GED08 slot-1) ; finalize.
 
-**P2 accepté et documenté** (round 2) : la matérialisation du CTE récursif d'exploration de graphe n'est pas bornée
-en NOMBRE de chemins simples (le tableau de chemin ne borne que la longueur/termine les cycles). Acceptée pour V1 :
-la borne DURE de profondeur (MaxAllowedDepth=8) rend l'ensemble FINI ; rayon d'impact = un seul tenant, écran
-opérateur authentifié (pas un vecteur DoS anonyme) ; le passage à l'échelle sur gros corpus est le backend OpenSearch
-derrière `IDocumentSearchIndex` (GED21). Commentaire du code rendu exact. Un cap de lignes rendrait des résultats
-partiels/faux ; un dedup visited-set n'est pas exprimable en CTE récursif standard.
+## Review (résultats)
+
+- **verify-fast** : PASS (3 solutions — plateforme .NET 10 + agent net48 x86/x64 + onsite).
+- **run-tests** : PASS, 7573 tests, 0 échec. Les 8 tests neufs EXÉCUTÉS et verts :
+  `GedDeterministicIdTests` (×2), `GedArchivedDocumentBackfillIntegrationTests` (×2, base réelle),
+  `GedGenericityDemoIntegrationTests` (×2, base réelle + seeds deployments/), `GedCorpusBackfillTenantJobTests` (×2).
+- **Frontières respectées** : GED ne référence PAS Documents/Archive (silo, NetArchTest) ; Archive ne référence PAS Ged
+  (ArchiveBoundaryTests) ; orchestration cross-module au Host uniquement ; SQL GED reste en `ged_*` (pas de `documents.`).
+- **Non-régression** : consommateur GED05b refactoré → délègue au foyer d'écriture unique ; ses tests d'intégration verts.
+- codex-review : à lancer (boucle de review).

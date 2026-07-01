@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading.RateLimiting;
 using Asp.Versioning;
 using Liakont.Host.AgentApi;
+using Liakont.Host.Backfill;
 using Liakont.Host.Behaviors;
 using Liakont.Host.Clients;
 using Liakont.Host.Components;
@@ -416,6 +417,14 @@ public static class AppBootstrap
         // ingestion.received_documents). Aucune table métier, aucun handler, aucun job ici (GED03+). Le module
         // est un SILO isolé : aucun module fiscal ne référence Ged.* (frontière F19 §7, garde NetArchTest).
         builder.Services.AddGedModule();
+
+        // Backfill rétroactif GED du corpus fiscal déjà scellé (GED10, F19 §11 D12) : handler SYSTÈME de fan-out
+        // câblé au COMPOSITION ROOT — seul endroit qui voit à la fois l'archive fiscale (IArchiveEntryStore),
+        // les documents (IDocumentQueries) ET le point d'entrée GED (IGedArchivedDocumentBackfill), la GED restant
+        // un silo. GESTE OPÉRÉ (cadence de déploiement, cron null — SystemJobDefinitions) ; chemin DIRECT idempotent,
+        // jamais un effet de bord du flux fiscal (RL-21).
+        builder.Services.AddJobHandler<GedCorpusBackfillTrigger, GedCorpusBackfillFanOutHandler>(
+            "Rétrofit GED du corpus fiscal (tous les tenants)");
 
         // Stockage des PDF reçus (PIV04) : chemin racine = PARAMÉTRAGE de déploiement (jamais en dur,
         // CLAUDE.md n°7). Lié depuis la config ; à défaut, repli sous le content root de l'instance.
