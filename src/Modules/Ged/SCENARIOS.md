@@ -45,6 +45,20 @@ Deux niveaux complémentaires : **NetArchTest (IL, usage effectif des types)** +
   aller-retour exact avec son code SQL et **refuse tout code hors du vocabulaire technique fermé** (miroir de
   `ck_axis_def_data_type`).
 
+### Mapping déclaratif générique — GED12 (F19 §4.5, INV-GED-05)
+
+- `GedSelectorTests` (`Domain.Mapping.GedSelector`) — sélecteur **JSONPath restreint** (chemins simples +
+  filtre d'égalité + joker) sur un `IngestedDocumentDto` BRUT : `$.fields.x`, `$.axes[?name=='a'].values[*]`,
+  `$.entities[?type=='t'].externalId` (filtre), valeurs nulles/absentes ignorées ; toute **syntaxe invalide**
+  est refusée à la validation (jamais deviner l'intention, règle 3).
+- `GedMapperTests` (`Domain.Mapping.GedMapper`) — **goldens** brut → axes/entités/relations d'un profil VALIDÉ ;
+  interprétation d'un axe `number` en **decimal half-up** (n°1) ; **cas DEFER** (INV-GED-05) : profil absent /
+  non validé, axe **obligatoire** non résolu, axe **mono-valeur** ambigu, valeur source **incompatible** avec le
+  `data_type`, axe inconnu du catalogue — jamais deviner ni inventer (règles 2/3). Vocabulaire NEUTRE (généricité).
+- `GedMappingProfileTests` (`Domain.Mapping.GedMappingProfile`) — validation structurelle (type/version vide,
+  code d'axe **dupliqué**, sélecteur mal formé, validation incohérente) ; sémantique **validé / non validé**
+  (miroir `MappingTable` : jamais appliqué non validé ; `Invalidate` retombe non validé).
+
 ## Integration (`Liakont.Modules.Ged.Tests.Integration`, PostgreSQL réel via Testcontainers)
 
 Les scénarios base-réelle sont portés par les items qui livrent le comportement correspondant (F19 §8) :
@@ -74,7 +88,12 @@ Les scénarios base-réelle sont portés par les items qui livrent le comporteme
 - **GED08** — recherche multi-axes correcte ; prédicat de confidentialité MATÉRIALISÉ (RL-31) ; graphe borné
   bidirectionnel (INV-GED-09) ; isolation cross-tenant.
 - **GED11** — lints anti-littéral + SQL cross-schéma, chacun avec self-test (RL-27).
-- **GED12** — goldens mapping + DEFER (INV-GED-05) ; `GedMappingChangeLog` append-only.
+- **GED12 — LIVRÉ** (`GedMappingProfileMigrationsIntegrationTests`, collection `GedIntegration`, base isolée
+  par test) : un profil **VALIDÉ** fait un round-trip (règles axe/entité/relation préservées via jsonb) ; un
+  profil **non validé** n'est JAMAIS rendu applicable (`GetValidatedProfileAsync` → null) ; deux profils validés
+  du même `documentType` sont en **conflit** (index unique partiel) ; `ged_mapping_change_log` **append-only**
+  (UPDATE / DELETE / TRUNCATE rejetés par trigger, INV-GED-02). Les goldens de mapping purs sont côté Domain
+  (`GedMapperTests`, `GedSelectorTests`).
 - **GED13** — `consultation_log` append-only en base tenant (INV-GED-11) ; masquage confidentiel en log.
 
 ## bUnit / Playwright — pages du portail (GED09a/b/c)

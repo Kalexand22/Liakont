@@ -1,5 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../../../Common/Abstractions/Stratum.Common.Abstractions.csproj" />
+    <!-- Le moteur de mapping GED (GED12) opère sur IngestedDocumentDto (canal GED, F19 §4.2/§4.5) : contrat
+         PUR partagé agent↔plateforme (netstandard2.0), DISJOINT du pivot fiscal. N'introduit aucune dépendance
+         de module (Liakont.Agent.Contracts.Ged ⊄ Liakont.Modules.*) ni fiscale (GedBoundaryTests le gardent). -->
+    <ProjectReference Include="../../../Contracts/Liakont.Agent.Contracts.Ged/Liakont.Agent.Contracts.Ged.csproj" />
   </ItemGroup>
 </Project>

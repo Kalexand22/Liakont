@@ -1,0 +1,152 @@
+namespace Liakont.Modules.Ged.Domain.Mapping;
+
+using System.Collections.Generic;
+using Liakont.Agent.Contracts.Ged;
+using Liakont.Modules.Ged.Domain.Catalog;
+
+/// <summary>
+/// Moteur de mapping déclaratif GED (F19 §4.5, INV-GED-05 ; généralisation de <c>TvaMapper</c>). PUR : à partir
+/// d'un <see cref="GedMappingProfile"/> VALIDÉ et d'un <c>IngestedDocumentDto</c> BRUT, produit soit un
+/// <see cref="MappedDocument"/>, soit un <b>déférement</b> (<see cref="GedMappingResult"/>) — jamais une valeur
+/// inventée (règle 2), jamais un rejet silencieux (règle 3). Comme <c>TvaMapper</c>, ne LÈVE PAS pour un cas non
+/// mappable : le déférement est un résultat métier, pas une erreur.
+/// <para>
+/// Cas de DÉFÉREMENT (INV-GED-05) : profil absent ou non validé ; type de document non couvert ; axe inconnu du
+/// catalogue ; axe <b>obligatoire</b> non résolu ; axe <b>mono-valeur</b> dont le sélecteur est ambigu (&gt; 1
+/// valeur) ; valeur source incompatible avec le <c>data_type</c> de l'axe (parsing ambigu, ex. date non ISO).
+/// </para>
+/// </summary>
+public static class GedMapper
+{
+    /// <summary>
+    /// Mappe un document ingéré contre un profil tenant VALIDÉ. Rend un <see cref="MappedDocument"/> (mappé) ou
+    /// un déférement motivé (français).
+    /// </summary>
+    /// <param name="profile">Le profil du <c>documentType</c>, ou <see langword="null"/> si aucun n'existe.</param>
+    /// <param name="ingested">Le document ingéré BRUT.</param>
+    /// <param name="catalog">Le catalogue d'axes tenant (résolution type/échelle pour la normalisation).</param>
+    /// <returns>Le résultat de mapping (mappé ou déféré).</returns>
+    public static GedMappingResult Map(
+        GedMappingProfile? profile,
+        IngestedDocumentDto ingested,
+        IAxisMappingCatalog catalog)
+    {
+        System.ArgumentNullException.ThrowIfNull(ingested);
+        System.ArgumentNullException.ThrowIfNull(catalog);
+
+        if (profile is null)
+        {
+            return GedMappingResult.Deferred(
+                $"Aucun profil de mapping n'existe pour le type de document « {ingested.DocumentType} » : document rangé en attente (deferred). Action opérateur : créer et valider un profil pour ce type.");
+        }
+
+        if (!profile.IsValidated)
+        {
+            return GedMappingResult.Deferred(
+                $"Le profil de mapping du type de document « {profile.DocumentType} » n'est pas validé : document rangé en attente (deferred). Action opérateur : valider le profil en console.");
+        }
+
+        if (!string.Equals(profile.DocumentType, ingested.DocumentType, System.StringComparison.Ordinal))
+        {
+            return GedMappingResult.Deferred(
+                $"Le profil fourni (« {profile.DocumentType} ») ne correspond pas au type du document ingéré (« {ingested.DocumentType} ») : document rangé en attente (deferred).");
+        }
+
+        var axes = new List<MappedAxisValue>();
+        foreach (var rule in profile.AxisRules)
+        {
+            var target = catalog.Resolve(rule.AxisCode);
+            if (target is null)
+            {
+                return GedMappingResult.Deferred(
+                    $"Le document « {ingested.SourceReference} » réfère un axe « {rule.AxisCode} » inconnu ou inactif du catalogue : document rangé en attente (deferred). Action opérateur : déclarer/activer l'axe.");
+            }
+
+            var values = GedSelector.Evaluate(rule.Source, ingested);
+            if (values.Count == 0)
+            {
+                if (rule.IsRequired)
+                {
+                    return GedMappingResult.Deferred(
+                        $"Le document « {ingested.SourceReference} » n'a pas de valeur pour l'axe OBLIGATOIRE « {rule.AxisCode} » (sélecteur « {rule.Source} ») : document rangé en attente (deferred).");
+                }
+
+                continue;
+            }
+
+            if (values.Count > 1 && !rule.IsMulti)
+            {
+                return GedMappingResult.Deferred(
+                    $"L'axe mono-valeur « {rule.AxisCode} » du document « {ingested.SourceReference} » est ambigu : le sélecteur « {rule.Source} » a renvoyé {values.Count} valeurs. Document rangé en attente (deferred) — jamais deviner laquelle retenir.");
+            }
+
+            foreach (var raw in values)
+            {
+                NormalizedAxisValue normalized;
+                try
+                {
+                    normalized = ValueNormalizer.Normalize(target.DataType, target.ValueScale, raw);
+                }
+                catch (AxisValueFormatException ex)
+                {
+                    return GedMappingResult.Deferred(
+                        $"La valeur « {raw} » de l'axe « {rule.AxisCode} » du document « {ingested.SourceReference} » est incompatible avec son type déclaré : {ex.Message} Document rangé en attente (deferred) — jamais interpréter au mieux.");
+                }
+
+                axes.Add(new MappedAxisValue(rule.AxisCode, normalized));
+            }
+        }
+
+        var entities = MapEntities(profile, ingested);
+        var relations = MapRelations(profile, ingested);
+
+        return GedMappingResult.Mapped(
+            new MappedDocument(ingested.DocumentType, ingested.SourceReference, axes, entities, relations));
+    }
+
+    private static List<MappedEntity> MapEntities(GedMappingProfile profile, IngestedDocumentDto ingested)
+    {
+        var entities = new List<MappedEntity>();
+        foreach (var rule in profile.EntityRules)
+        {
+            var externalIds = GedSelector.Evaluate(rule.ExternalIdSource, ingested);
+            if (externalIds.Count == 0)
+            {
+                // Une entité n'est pas un axe obligatoire : sans identifiant, aucun lien n'est créé (best-effort).
+                continue;
+            }
+
+            string? display = null;
+            if (rule.DisplaySource is not null)
+            {
+                var displays = GedSelector.Evaluate(rule.DisplaySource, ingested);
+                if (displays.Count == 1)
+                {
+                    display = displays[0];
+                }
+            }
+
+            foreach (var externalId in externalIds)
+            {
+                entities.Add(new MappedEntity(rule.EntityType, externalId, display));
+            }
+        }
+
+        return entities;
+    }
+
+    private static List<MappedRelation> MapRelations(GedMappingProfile profile, IngestedDocumentDto ingested)
+    {
+        var relations = new List<MappedRelation>();
+        foreach (var rule in profile.RelationRules)
+        {
+            var targets = GedSelector.Evaluate(rule.TargetExternalIdSource, ingested);
+            foreach (var targetExternalId in targets)
+            {
+                relations.Add(new MappedRelation(rule.Kind, rule.TargetType, targetExternalId));
+            }
+        }
+
+        return relations;
+    }
+}

@@ -1,6 +1,8 @@
 namespace Liakont.Modules.Ged.Infrastructure;
 
 using Liakont.Modules.Ged.Application;
+using Liakont.Modules.Ged.Application.Mapping;
+using Liakont.Modules.Ged.Infrastructure.Mapping;
 using Microsoft.Extensions.DependencyInjection;
 using Stratum.Common.Infrastructure.Database;
 
@@ -40,6 +42,11 @@ public static class GedModuleRegistration
         // concurrence mono-valeur RL-02). Scopés (tenant = la connexion).
         services.AddScoped<IAxisCatalog, PostgresAxisCatalog>();
         services.AddScoped<IGedIndexUnitOfWorkFactory, PostgresGedIndexUnitOfWorkFactory>();
+
+        // Lecture des profils de mapping GED validés (GED12, F19 §4.5), tenant-scopée par IConnectionFactory.
+        // Surface consommée par le consommateur d'ingestion GED (GED05b) : pour chaque document ingéré, il
+        // charge le profil VALIDÉ de son documentType et applique GedMapper (mappé) ou range en `deferred`.
+        services.AddScoped<IGedMappingProfileStore, GedMappingProfileRepository>();
 
         return services;
     }
