@@ -67,8 +67,8 @@ Deux jeux de paramétrage **fictifs** (CLAUDE.md n°7), un par tenant — format
 > création du tenant — elle n'est **jamais seedée** (BUG-14). `tenant-profile.json` ne porte que le
 > **paramétrage** (fiscal / planification / seuils).
 
-Chaque dossier porte `tenant-profile.json`, `pa-accounts.json` (compte **`Fake`** Staging, **sans
-secret**) et `mapping-tva.json`.
+Chaque dossier porte `tenant-profile.json`, `pa-accounts.json` (**vide `[]`** — aucun compte PA seedé :
+le compte se configure **en console**, cf. §Envoi RÉEL SuperPDP) et `mapping-tva.json`.
 
 > **`fiscal.operationCategory` = `"PrestationServices"`** (et non `null`, ni `"Mixte"`) : la nature
 > d'opération est remplie par la plateforme sur CHAQUE document au read-time, et le job des **documents
@@ -145,6 +145,6 @@ x64), et `encheresv6-demo-sqlserver.sql` présent (sinon `build-sqlserver-from-s
 ## Envoi RÉEL SuperPDP (séparé — sur décision)
 
 La démo s'arrête **avant** tout envoi réel. Pour produire une vraie ligne au **sandbox SuperPDP** :
-remplacer en console le compte PA `Fake` par **`SuperPdp` (Staging)**, saisir les secrets OAuth2 du
-sandbox, **valider** la table de mapping (lever le garde-fou PIP01), puis relancer B4. ⚠️ Cela crée une
-**vraie ligne serveur** — à décider explicitement avant de lancer.
+ajouter en console un compte PA **`SuperPdp` (Staging)** (aucun compte n'est seedé — cf. §Tenants),
+saisir les secrets OAuth2 du sandbox, **valider** la table de mapping (lever le garde-fou PIP01), puis
+relancer B4. ⚠️ Cela crée une **vraie ligne serveur** — à décider explicitement avant de lancer.
