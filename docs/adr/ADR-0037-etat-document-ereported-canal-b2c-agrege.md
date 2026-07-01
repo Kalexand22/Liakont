@@ -133,10 +133,10 @@ Contraintes **non négociables**, sur le modèle de `MarkIssuedAsync` et du gel 
    erreur). Un document **hors** `ReadyToSend` (course) n'est **pas** forcé : l'écart est journalisé, pas
    transitionné (jamais de faux audit, pas de TOCTOU — même patron que les `*RecheckAsync`).
 
-L'`emissionBatchId` est porté sur l'événement `DocumentEReported` (détail) : il **reste disponible** comme
-source persistée (piste d'audit) si un lien direct « Voir la déclaration » est ré-introduit plus tard, mais
-la V1 s'appuie sur la **navigation inverse** (cf. §6 et **Amendement 2026-07-01**), sans requête journal au
-read-time.
+L'`emissionBatchId` est porté sur l'événement `DocumentEReported` (détail) : il devient la **source
+persistée** du lien « Voir la déclaration » (fiche → `/emissions-marge-b2c/{batchId}`), **extrait de
+l'événement DÉJÀ chargé** au read-time (aucune requête journal — l'état, lui, reste piloté par
+`documents.state`). Cf. **Amendement 2** (le lien direct est rétabli).
 
 ### 5. Suppression de l'overlay read-time (le correctif `39174c9e` devient inutile)
 
@@ -149,8 +149,8 @@ double-vérité) :
 - `DocumentDetailView.razor` : les 3 branches conditionnées par `Model.B2cReportedBatchId` (badge ligne
   État, badge onglet Contrôles, paragraphe `controls-ereported`) — remplacées par le badge d'état standard
   (`State = EReported`) ; le **lien direct** « Voir la déclaration » (fiche → `/emissions-marge-b2c/{batchId}`)
-  est **abandonné** au profit de la **navigation inverse** existante (déclaration → document, `B2cMarginEmissionDetail`),
-  cf. **Amendement 2026-07-01** ci-dessous ;
+  est **re-sourcé depuis l'événement `DocumentEReported`** (§4) — l'`emissionBatchId` est extrait du `Detail`
+  de l'événement déjà chargé (aucune requête journal), cf. **Amendement 2** ;
 - `DocumentActionBar.razor` : `CanSend = IsReadyToSend && !IsB2cReported` → le second terme devient inutile
   (l'état n'est plus `ReadyToSend`, `IsReadyToSend` est déjà faux) ; suppression de `IsB2cReported` ;
 - `PostgresB2cMarginEmissionQueries.GetIssuedEmissionBatchForDocumentAsync` (+ la méthode du contrat
@@ -165,8 +165,9 @@ apparaît **sans modification de requête** dès qu'il est persisté (colonne `s
 contrainte CHECK** — aucune migration de contrainte). **Seul ajout requis** : une entrée `EReported` dans
 `DocumentStateDisplay` — rang canonique (après `Issued`), libellé FR **« E-reporté »**, `Severity.Success`
 — sinon le badge/compteur retombe sur le nom brut. Le bandeau de compteurs
-(`DocumentCountsBanner`, clic-filtre inclus) en hérite. La navigation fiche → déclaration passe par la
-**navigation inverse** (déclaration → document) — le lien direct est abandonné (cf. **Amendement 2026-07-01**).
+(`DocumentCountsBanner`, clic-filtre inclus) en hérite. La navigation fiche → déclaration se fait par le
+**lien direct** « Voir la déclaration » re-sourcé de l'événement (§4), doublé de la **navigation inverse**
+(déclaration → document) existante. Cf. **Amendement 2**.
 
 ### 7. Migration de backfill : UPDATE légitime de `documents.state` (table NON WORM)
 
@@ -267,15 +268,16 @@ immédiatement ; D1, D2 et D3 sont des chantiers voisins, posés pour ne pas les
 Deux écarts entre la décision initiale et l'implémentation livrée, tranchés ici pour ne pas laisser de
 divergence silencieuse (faux-vert) :
 
-1. **Lien direct « Voir la déclaration » abandonné (pas re-sourcé).** §4/§5/§6 prévoyaient de re-sourcer le
-   lien fiche → `/emissions-marge-b2c/{batchId}` depuis l'événement `DocumentEReported`. L'implémentation
-   supprime l'overlay (et sa query `GetIssuedEmissionBatchForDocumentAsync`) et **ne ré-introduit pas** le
-   lien direct : la V1 s'appuie sur la **navigation inverse** existante (`B2cMarginEmissionDetail` liste ses
-   pièces avec un lien `/documents/{id}`). Motif : ré-introduire un lien direct exigerait soit de ressusciter
-   une query read-time (le pattern qu'on retire), soit d'exposer l'`emissionBatchId` en champ **structuré**
-   sur l'événement (aujourd'hui enfoui dans le détail FR). `emissionBatchId` **reste** sur l'événement
-   (piste d'audit) : ré-introduction possible plus tard sans re-migration. UX inchangée sur le fond
-   (déclaration↔document reste navigable). Aucun impact fiscal.
+1. **Lien direct « Voir la déclaration » — d'abord abandonné, puis RÉTABLI (Amendement 2, retour recette
+   Karl).** La 1re passe de revue avait abandonné le lien direct (fiche → `/emissions-marge-b2c/{batchId}`)
+   au profit de la seule navigation inverse. La **recette a tranché** : cette navigation directe est utile et
+   attendue → le lien est **rétabli**, conformément à l'intention initiale de §4/§6, **re-sourcé depuis
+   l'événement `DocumentEReported` DÉJÀ chargé** dans la fiche (l'`emissionBatchId` est extrait du `Detail`,
+   entre guillemets « … », côté service de présentation `DocumentDetailConsoleQueryService`). **Ni** requête
+   read-time sur le journal (le pattern retiré par le fix), **ni** changement de schéma (pas de nouvelle
+   colonne sur la table d'événements append-only) : présentation pure, graceful (lien absent si le batch n'est
+   pas extractible, jamais une erreur). L'**état** reste piloté par `documents.state` (INV-DOC-ER-01 intact).
+   La navigation inverse (`B2cMarginEmissionDetail` → `/documents/{id}`) subsiste en doublon. Aucun impact fiscal.
 2. **Réconciliation récurrente = point ouvert D3** (ci-dessus), pas un filet permanent en V1. Le message
    opérateur 7461 et les commentaires de `B2cReportingEmitter` ont été **corrigés** pour ne plus promettre un
    « prochain backfill » automatique (V012 est one-shot) : ils décrivent désormais l'état réel (émission

@@ -28,6 +28,8 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
     private const string BlockedEventType = "DocumentBlocked";
     private const string RecheckedStillBlockedEventType = "DocumentRecheckedStillBlocked";
     private const string BlockedDocumentState = "Blocked";
+    private const string EReportedEventType = "DocumentEReported";
+    private const string EReportedDocumentState = "EReported";
 
     private readonly IDocumentQueries _documents;
     private readonly IDocumentContentReplayService _contentReplay;
@@ -90,9 +92,45 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
             BlockingReason = blockingReason,
             Content = content,
             MarginRecap = marginRecap,
+            EReportedBatchId = ExtractEReportedBatchId(document.State, events),
             Archive = archive,
             IsArchived = archive is not null,
         };
+    }
+
+    // Lien « Voir la déclaration » (fiche → /emissions-marge-b2c/{batchId}) re-sourcé depuis l'événement d'audit
+    // DÉJÀ chargé (BUG-24/ADR-0037 §4) : aucune requête read-time sur le journal d'émission. Le lot d'émission est
+    // porté par le Detail de l'événement DocumentEReported, entre guillemets « … ». PRÉSENTATION pure : si le batch
+    // n'est pas extractible (état non EReported, événement absent, format inattendu), on renvoie null → le lien est
+    // simplement absent (jamais une exception). L'état, lui, reste piloté par documents.state (une seule vérité).
+    private static Guid? ExtractEReportedBatchId(string state, IReadOnlyList<DocumentEventDto> events)
+    {
+        if (!string.Equals(state, EReportedDocumentState, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var detail = events
+            .Where(e => string.Equals(e.EventType, EReportedEventType, StringComparison.Ordinal))
+            .OrderByDescending(e => e.TimestampUtc)
+            .ThenByDescending(e => e.Id)
+            .Select(e => e.Detail)
+            .FirstOrDefault(d => !string.IsNullOrWhiteSpace(d));
+
+        if (detail is null)
+        {
+            return null;
+        }
+
+        var open = detail.IndexOf('«');
+        var close = detail.IndexOf('»');
+        if (open < 0 || close <= open)
+        {
+            return null;
+        }
+
+        var candidate = detail.Substring(open + 1, close - open - 1).Trim();
+        return Guid.TryParse(candidate, out var batchId) ? batchId : null;
     }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to replay document content for document {DocumentId}; falling back to the transmitted snapshot.")]

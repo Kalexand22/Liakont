@@ -431,6 +431,35 @@ public sealed class DocumentDetailViewTests : BunitContext
     }
 
     [Fact]
+    public void Should_Link_To_The_Declaration_When_E_Reported_With_A_Batch_Id()
+    {
+        // ADR-0037 §4 (retour recette) : le lien « Voir la déclaration » (fiche → lot d'émission B2C) est re-sourcé
+        // depuis l'événement DocumentEReported — présent dans l'en-tête ET dans l'onglet Contrôles.
+        var batchId = Guid.Parse("11111111-2222-4333-8444-555555555555");
+        var model = BuildModel(doc: Doc("9000004", "EReported"), eReportedBatchId: batchId);
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        var headerLink = cut.Find("[data-testid='document-detail-ereported-link']");
+        headerLink.GetAttribute("href").Should().Be($"/emissions-marge-b2c/{batchId}");
+
+        SelectTab(cut, "Contrôles");
+        cut.Find("[data-testid='document-detail-controls-ereported-link']").GetAttribute("href")
+            .Should().Be($"/emissions-marge-b2c/{batchId}");
+    }
+
+    [Fact]
+    public void Should_Not_Render_A_Declaration_Link_When_The_Batch_Id_Is_Absent()
+    {
+        // Dégradation gracieuse : batch non extractible → pas de lien (jamais une erreur), le badge/message restent.
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(doc: Doc("9000004", "EReported"), eReportedBatchId: null)));
+
+        cut.FindAll("[data-testid='document-detail-ereported-link']").Should().BeEmpty();
+        SelectTab(cut, "Contrôles");
+        cut.FindAll("[data-testid='document-detail-controls-ereported-link']").Should().BeEmpty();
+    }
+
+    [Fact]
     public void Should_Show_Controls_Ok_When_Not_Blocked_Nor_Rejected()
     {
         var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(doc: Doc("2026-003", "Issued"))));
@@ -650,7 +679,8 @@ public sealed class DocumentDetailViewTests : BunitContext
         ArchiveReferenceDto? archive = null,
         bool isArchived = false,
         DocumentContentView? content = null,
-        MarginRecapView? marginRecap = null) => new()
+        MarginRecapView? marginRecap = null,
+        Guid? eReportedBatchId = null) => new()
     {
         Document = doc ?? Doc("2026-000", "Issued"),
         Events = events ?? [],
@@ -659,6 +689,7 @@ public sealed class DocumentDetailViewTests : BunitContext
         IsArchived = isArchived,
         Content = content ?? DocumentContentView.Empty,
         MarginRecap = marginRecap,
+        EReportedBatchId = eReportedBatchId,
     };
 
     private static DocumentContentView Content(

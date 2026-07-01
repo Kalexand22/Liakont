@@ -371,6 +371,70 @@ public sealed class DocumentDetailConsoleQueryServiceTests
         result!.MarginRecap.Should().BeNull();
     }
 
+    [Fact]
+    public async Task GetDetailAsync_Should_Re_Source_The_EReported_Batch_Id_From_The_Event()
+    {
+        // ADR-0037 §4 (retour recette) : le lot d'émission du lien « Voir la déclaration » est extrait de
+        // l'événement DocumentEReported DÉJÀ chargé (aucune requête journal). Le batch est porté entre « » du Detail.
+        var batchId = Guid.Parse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
+        var fake = new FakeDocumentQueries
+        {
+            Document = Doc("9000004", "EReported"),
+            Events =
+            [
+                Event(
+                    "DocumentEReported",
+                    new DateTimeOffset(2026, 6, 26, 9, 0, 0, TimeSpan.Zero),
+                    detail: $"Déclaré dans le lot d'émission e-reporting B2C « {batchId} » (voie agrégée, flux 10.3)."),
+            ],
+        };
+
+        var result = await Build(fake).GetDetailAsync(DocId);
+
+        result!.EReportedBatchId.Should().Be(batchId);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_Should_Leave_EReported_Batch_Id_Null_When_The_Document_Is_Not_EReported()
+    {
+        // L'ÉTAT pilote (documents.state = source de vérité) : un document qui n'est pas EReported n'expose pas de
+        // lien de déclaration, même si un événement EReported subsistait dans l'historique.
+        var fake = new FakeDocumentQueries
+        {
+            Document = Doc("9000004", "Issued"),
+            Events =
+            [
+                Event(
+                    "DocumentEReported",
+                    new DateTimeOffset(2026, 6, 26, 9, 0, 0, TimeSpan.Zero),
+                    detail: "Déclaré dans le lot d'émission e-reporting B2C « aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee » (voie agrégée, flux 10.3)."),
+            ],
+        };
+
+        var result = await Build(fake).GetDetailAsync(DocId);
+
+        result!.EReportedBatchId.Should().BeNull("hors état EReported, aucun lien de déclaration");
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_Should_Leave_EReported_Batch_Id_Null_When_The_Event_Detail_Has_No_Batch()
+    {
+        // Dégradation gracieuse : un événement EReported dont le Detail ne porte pas de GUID extractible → null
+        // (le lien est simplement absent, jamais une erreur ; l'état/badge restent).
+        var fake = new FakeDocumentQueries
+        {
+            Document = Doc("9000004", "EReported"),
+            Events =
+            [
+                Event("DocumentEReported", new DateTimeOffset(2026, 6, 26, 9, 0, 0, TimeSpan.Zero), detail: "Déclaré (détail sans identifiant)."),
+            ],
+        };
+
+        var result = await Build(fake).GetDetailAsync(DocId);
+
+        result!.EReportedBatchId.Should().BeNull();
+    }
+
     /// <summary>Pivot SOURCE minimal (catégorie/VATEX nuls — non mappés) pour exercer le rejeu read-time d'un document bloqué.</summary>
     private static PivotDocumentDto SourcePivot(string description, string sourceRegime, decimal netAmount) => new(
         sourceDocumentKind: "invoice",

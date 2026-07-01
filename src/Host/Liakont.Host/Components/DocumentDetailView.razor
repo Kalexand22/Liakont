@@ -57,6 +57,15 @@
                              * (DocumentState.EReported), rendu par le badge standard — fin de l'overlay read-time :
                              * la liste, les compteurs et la fiche lisent le MÊME état (une seule source de vérité). *@
                             <DocumentStateBadge State="@Model.Document.State" TestId="document-detail-state" />
+                            @* Lien « Voir la déclaration » re-sourcé depuis l'événement DocumentEReported (ADR-0037 §4,
+                             * retour recette) : navigation fiche → lot d'émission e-reporting B2C agrégé. Absent si le
+                             * batch n'est pas extractible (jamais bloquant). *@
+                            @if (IsEReported && Model.EReportedBatchId is { } eReportedBatch)
+                            {
+                                <a class="liakont-doc-detail__ereported-link"
+                                   href="@($"/emissions-marge-b2c/{eReportedBatch}")"
+                                   data-testid="document-detail-ereported-link">Voir la déclaration</a>
+                            }
                         </dd>
                     </div>
                 </dl>
@@ -321,9 +330,14 @@
                 {
                     @* E-reporté (BUG-24/ADR-0037) : déclaré via la transmission AGRÉGÉE (état persisté EReported) — la
                      * voie document ne le concerne plus. On l'indique explicitement au lieu d'un « Aucun contrôle en
-                     * échec » trompeur. La déclaration se retrouve depuis la liste des émissions e-reporting B2C. *@
+                     * échec » trompeur, avec le lien direct vers sa déclaration (re-sourcé de l'événement, ADR-0037 §4). *@
                     <p data-testid="document-detail-controls-ereported">
                         Ce document a été e-reporté (transmission agrégée e-reporting B2C). Il n'est pas à envoyer par la voie document.
+                        @if (Model.EReportedBatchId is { } eReportedBatch)
+                        {
+                            <a href="@($"/emissions-marge-b2c/{eReportedBatch}")"
+                               data-testid="document-detail-controls-ereported-link">Voir la déclaration</a><text>.</text>
+                        }
                     </p>
                 }
                 else

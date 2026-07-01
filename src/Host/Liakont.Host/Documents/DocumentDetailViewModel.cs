@@ -42,6 +42,15 @@ public sealed record DocumentDetailViewModel
     /// </summary>
     public MarginRecapView? MarginRecap { get; init; }
 
+    /// <summary>
+    /// Identifiant du lot d'émission e-reporting B2C par lequel ce document a été déclaré (BUG-24/ADR-0037),
+    /// alimentant le lien « Voir la déclaration » (fiche → <c>/emissions-marge-b2c/{batchId}</c>). Source :
+    /// l'événement d'audit <c>DocumentEReported</c> DÉJÀ chargé (jamais une requête read-time sur le journal —
+    /// l'état, lui, reste piloté par <c>documents.state</c>). <c>null</c> hors état <c>EReported</c> ou si le
+    /// batch n'est pas extractible (lien alors simplement absent, jamais une erreur).
+    /// </summary>
+    public Guid? EReportedBatchId { get; init; }
+
     /// <summary>Référence d'archive WORM du document (onglet Archive), ou <c>null</c> s'il n'est pas archivé.</summary>
     public ArchiveReferenceDto? Archive { get; init; }
 
