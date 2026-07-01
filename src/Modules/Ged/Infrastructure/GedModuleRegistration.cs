@@ -1,5 +1,6 @@
 namespace Liakont.Modules.Ged.Infrastructure;
 
+using Liakont.Modules.Ged.Application;
 using Microsoft.Extensions.DependencyInjection;
 using Stratum.Common.Infrastructure.Database;
 
@@ -24,8 +25,21 @@ public static class GedModuleRegistration
 {
     public static IServiceCollection AddGedModule(this IServiceCollection services)
     {
+        // Handlers MediatR (Application + Infrastructure) — SetAxisValueCommandHandler (GED04) vit en Infrastructure
+        // car il orchestre l'accès base (IAxisCatalog + UoW Dapper), comme F19 §3.7.
+        services.AddMediatR(cfg =>
+        {
+            cfg.RegisterServicesFromAssembly(typeof(IGedApplicationMarker).Assembly);
+            cfg.RegisterServicesFromAssembly(typeof(GedModuleRegistration).Assembly);
+        });
+
         services.Configure<MigrationAssembliesOptions>(opts =>
             opts.Add(typeof(GedModuleRegistration).Assembly));
+
+        // Écriture de l'index GED (GED04) : catalogue d'axes (lecture) + UoW transactionnelle Dapper (garde de
+        // concurrence mono-valeur RL-02). Scopés (tenant = la connexion).
+        services.AddScoped<IAxisCatalog, PostgresAxisCatalog>();
+        services.AddScoped<IGedIndexUnitOfWorkFactory, PostgresGedIndexUnitOfWorkFactory>();
 
         return services;
     }

@@ -3,6 +3,10 @@
     <!-- Microsoft.Extensions.* (DI, Options, Logging) du framework partagé — aucun package NuGet nouveau,
          aucun ADR (repo-standards §4). Le scaffold GED ne porte aucun secret. -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <!-- MediatR (version centralisée, déjà utilisée par tous les modules) : AddMediatR + IRequestHandler du
+         SetAxisValueCommandHandler (GED04). Ni MediatR.Contracts (IRequest) transitif via Common.Abstractions,
+         ni Dapper/Npgsql transitifs via Common.Infrastructure ne portent AddMediatR/IRequestHandler. -->
+    <PackageReference Include="MediatR" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Liakont.Modules.Ged.Tests.Unit" />
