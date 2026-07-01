@@ -2,7 +2,13 @@
    rendait en titre géant et le retour d'action n'avait aucune règle). Layout uniquement ; couleurs
    sémantiques via tokens. */
 
+/* Tête de fiche : « Retour à la liste » + barre préc/suiv (RecordNavigator) sur UNE ligne alignée
+   (au lieu de deux blocs empilés, retour de recette 2026-07-01). Enroule proprement si étroit. */
 .liakont-doc-detail-page__head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
     margin-bottom: 0.75rem;
 }
 

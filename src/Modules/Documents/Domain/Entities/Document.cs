@@ -320,6 +320,22 @@ public sealed class Document
         => ApplyTransition(DocumentState.TechnicalError, DocumentEventType.DocumentTechnicalError, occurredAtUtc, detail, operatorIdentity: null);
 
     /// <summary>
+    /// ReadyToSend → EReported (voie e-reporting B2C AGRÉGÉE, item BUG-24 / ADR-0037) : le document a été inclus
+    /// dans une déclaration agrégée (jour × devise × taux) ACCEPTÉE par la Plateforme Agréée. État d'aboutissement
+    /// DISTINCT de <see cref="MarkIssued"/> (voie document) : pas de snapshot pièce (la preuve est le lot d'émission
+    /// + le lien reporting↔pièce gelé). L'<paramref name="emissionBatchId"/> du lot d'émission est inscrit dans le
+    /// <c>Detail</c> du fait d'audit pour la traçabilité. Événement SYSTÈME (aucun opérateur).
+    /// </summary>
+    public DocumentEvent MarkEReported(Guid emissionBatchId, DateTimeOffset occurredAtUtc, string? detail = null)
+    {
+        var batchDetail = string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"Déclaré dans le lot d'émission e-reporting B2C « {emissionBatchId} » (voie agrégée, flux 10.3).");
+        var combined = string.IsNullOrWhiteSpace(detail) ? batchDetail : $"{batchDetail} {detail.Trim()}";
+        return ApplyTransition(DocumentState.EReported, DocumentEventType.DocumentEReported, occurredAtUtc, combined, operatorIdentity: null);
+    }
+
+    /// <summary>
     /// → ManuallyHandled (état TERMINAL) : action OPÉRATEUR « traité manuellement hors passerelle » (depuis
     /// Blocked ou RejectedByPa). Le <paramref name="reason"/> est OBLIGATOIRE (motif journalisé, F06 §3) et
     /// l'identité de l'opérateur tracée. Cas : avoir orphelin, document non transmissible.

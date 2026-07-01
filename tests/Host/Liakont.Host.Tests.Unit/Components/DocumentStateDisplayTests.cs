@@ -15,6 +15,7 @@ public sealed class DocumentStateDisplayTests
     [InlineData("TechnicalError", "Erreur technique", Severity.Error)]
     [InlineData("RejectedByPa", "Rejeté", Severity.Error)]
     [InlineData("Issued", "Émis", Severity.Success)]
+    [InlineData("EReported", "E-reporté", Severity.Success)]
     [InlineData("Superseded", "Remplacé", Severity.Neutral)]
     [InlineData("ManuallyHandled", "Traité manuellement", Severity.Neutral)]
     public void For_Should_Map_Each_State_To_French_Label_And_Severity(string state, string expectedFragment, Severity expectedSeverity)
@@ -49,8 +50,8 @@ public sealed class DocumentStateDisplayTests
     [Fact]
     public void CanonicalOrder_Should_Cover_The_Key_States()
     {
-        DocumentStateDisplay.CanonicalOrder.Should().HaveCount(9);
-        DocumentStateDisplay.CanonicalOrder.Should().Contain(["Detected", "Blocked", "Issued", "RejectedByPa"]);
+        DocumentStateDisplay.CanonicalOrder.Should().HaveCount(10);
+        DocumentStateDisplay.CanonicalOrder.Should().Contain(["Detected", "Blocked", "Issued", "EReported", "RejectedByPa"]);
     }
 
     [Fact]

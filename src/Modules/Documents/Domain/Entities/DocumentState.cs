@@ -43,4 +43,14 @@ public enum DocumentState
     /// TRK02) — cas d'un avoir orphelin ou d'un document non transmissible.
     /// </summary>
     ManuallyHandled,
+
+    /// <summary>
+    /// E-reporté : le document a été inclus dans une déclaration d'e-reporting B2C AGRÉGÉE (jour × devise × taux)
+    /// transmise et ACCEPTÉE par la Plateforme Agréée (BUG-24, ADR-0037). État d'aboutissement de la voie
+    /// AGRÉGÉE, DISTINCT de <see cref="Issued"/> (voie document, transmission pièce-à-pièce avec preuve de flux PA
+    /// du document lui-même) : un document B2C agrégé n'emprunte JAMAIS <see cref="Sending"/> / <see cref="Issued"/>,
+    /// et sa « preuve » est le lot d'émission (<c>pipeline.b2c_margin_emissions</c>) + le lien reporting↔pièce gelé.
+    /// Sans transition sortante (comme <see cref="Issued"/>). Persisté en TEXTE (<c>"EReported"</c>).
+    /// </summary>
+    EReported,
 }

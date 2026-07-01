@@ -10,8 +10,8 @@ using Xunit;
 /// <summary>
 /// Machine à états EXPLICITE du document (F06 §3, item TRK02 — INV-DOCUMENTS-009). La table des transitions
 /// est la source de vérité unique de la légalité : on vérifie qu'elle autorise EXACTEMENT les transitions de
-/// la spec (ni plus, ni moins), que les états sans suite (Issued + terminaux Superseded/ManuallyHandled) n'ont
-/// aucune sortie, et que le contrôle précède toute mutation.
+/// la spec (ni plus, ni moins), que les états sans suite (Issued, EReported + terminaux Superseded/ManuallyHandled)
+/// n'ont aucune sortie, et que le contrôle précède toute mutation.
 /// </summary>
 public sealed class DocumentStateMachineTests
 {
@@ -30,6 +30,9 @@ public sealed class DocumentStateMachineTests
         (DocumentState.RejectedByPa, DocumentState.ManuallyHandled),
         (DocumentState.RejectedByPa, DocumentState.ReadyToSend),
         (DocumentState.RejectedByPa, DocumentState.Blocked),
+
+        // Voie e-reporting B2C agrégée (BUG-24, ADR-0037) : un document validé aboutit à EReported.
+        (DocumentState.ReadyToSend, DocumentState.EReported),
     };
 
     [Fact]
@@ -49,6 +52,7 @@ public sealed class DocumentStateMachineTests
 
     [Theory]
     [InlineData(DocumentState.Issued)]
+    [InlineData(DocumentState.EReported)]
     [InlineData(DocumentState.Superseded)]
     [InlineData(DocumentState.ManuallyHandled)]
     public void States_Without_Successor_Have_No_Outgoing_Transition(DocumentState sink)
@@ -96,5 +100,24 @@ public sealed class DocumentStateMachineTests
         // jamais directement Sending/Issued (qui resteraient des transitions illégales).
         DocumentStateMachine.IsAllowed(DocumentState.RejectedByPa, DocumentState.Sending).Should().BeFalse();
         DocumentStateMachine.IsAllowed(DocumentState.RejectedByPa, DocumentState.Issued).Should().BeFalse();
+    }
+
+    [Fact]
+    public void EReported_Is_Reachable_Only_From_ReadyToSend()
+    {
+        // Voie e-reporting B2C AGRÉGÉE (BUG-24, ADR-0037) : un document validé (ReadyToSend) aboutit à EReported au
+        // hook d'émission agrégée. C'est le SEUL chemin vers EReported — jamais via Sending/Issued (voie document).
+        DocumentStateMachine.IsAllowed(DocumentState.ReadyToSend, DocumentState.EReported).Should().BeTrue();
+
+        foreach (var from in Enum.GetValues<DocumentState>())
+        {
+            if (from == DocumentState.ReadyToSend)
+            {
+                continue;
+            }
+
+            DocumentStateMachine.IsAllowed(from, DocumentState.EReported).Should().BeFalse(
+                $"EReported n'est atteignable que depuis ReadyToSend (BUG-24/ADR-0037), pas depuis {from}.");
+        }
     }
 }

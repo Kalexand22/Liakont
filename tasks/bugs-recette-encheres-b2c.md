@@ -794,3 +794,90 @@ revue Claude **clean** au round 3). Détail + commit sous chaque bug.
 - **✅ RÉSOLU (2026-06-28, commit `5abbf1aa`)** — l'en-tête lit le SIREN émetteur EFFECTIF (celui du contenu transmis
   via la projection, repli sur l'entité) ; « non renseigné » seulement si réellement non résolu ; affichage uniquement
   (snapshot transmis inchangé) ; tests bUnit.
+
+---
+
+# Session recette 2026-07-01 (env Isatech, SuperPDP sandbox) — nouveaux relevés Karl
+
+> Recette « tous les derniers correctifs » sur Isatech (cf. `tasks/recette-isatech-correctifs.md` + `tasks/matrice-cas-encheres-b2c.md`).
+> Relevés en session directe. Types : 🐞 bug · 🧩 feature/design · 🎨 affichage.
+
+## BUG-24 (RÉOUVERT — P1 correctness d'état) 🐞 — le doc e-reporté reste « À envoyer » dans la LISTE
+- **Relevé Karl** : sur `/documents` (LISTE), un document composant une émission e-reporting B2C **Issued** reste affiché
+  « À envoyer » ; sur la **fiche** il est bien « E-reporté ». Repère : doc `9000001`, émission Fake `Issued`.
+- **Cause RÉELLE (au-delà du symptôme liste/fiche)** : l'**état persisté est faux**. `DocumentState` modélise le canal
+  « voie document » (`…→ReadyToSend→Sending→Issued→RejectedByPa`). Un doc B2C-reporting est déclaré via l'**agrégation**
+  (`b2c_margin_emissions`), un **autre canal** → il n'atteint jamais `Issued` et **reste coincé en `ReadyToSend`**.
+  L'overlay read-time de BUG-24 (`GetIssuedEmissionBatchForDocumentAsync` / `B2cReportedBatchId`) n'a **masqué** cet état
+  faux **que sur la fiche**, pas dans la requête de liste → divergence. « ReadyToSend » = mensonge pour un doc déjà déclaré.
+- **Décision (Karl, 2026-07-01)** : fix **état-d'abord**, PAS un 2ᵉ overlay. États dédiés `PendingEReporting` +
+  terminal `EReported` ; le doc B2C-reporting ne va plus en `ReadyToSend` au CHECK ; transition vers `EReported` quand
+  l'émission passe `Issued` (piloté par le job d'agrégation) ; **suppression** de l'overlay ; liste + fiche lisent le même
+  `state`. Concerne les **3 canaux** : marge, taxable (`B2cPlainTaxable*`), export (`B2cExport*`).
+- **Livrable** : **ADR-0037** (`docs/adr/ADR-0037-etat-document-ereported-canal-b2c-agrege.md`) + plan
+  (`tasks/plan-bug24-etat-ereported.md`), écrits le 2026-07-01. `DocumentState` = donnée d'audit fiscal → ADR.
+- **⚠️ Raffinement de la décision — À CONFIRMER par Karl** : l'ancrage code a montré que **le canal n'est PAS connu au
+  CHECK** — `DocumentReceivedConsumer` fait `Detected → ReadyToSend` pour **tous** les docs, et la nature B2C
+  (marge/taxable/export vs voie-document) est **résolue au JOB** (relecture pivot+mapping, aiguillage document-driven).
+  Router vers un `PendingEReporting` **au CHECK** (l'idée notée) exigerait donc de **rejouer la résolution de canal au
+  CHECK** (duplication des résolveurs + couplage). L'ADR **tranche donc pour l'option A** (la plus simple correcte) :
+  **un seul** état neuf `EReported` + transition `ReadyToSend → EReported` au hook d'émission unique (`EmitOneAsync`,
+  couvre les **4** canaux) + suppression de l'overlay. L'**option B** (`PendingEReporting` au CHECK) est en *alternative
+  rejetée* motivée dans l'ADR. Si tu veux malgré tout l'option B (aucun `ReadyToSend` menteur même AVANT le job),
+  c'est faisable mais + de surface — à trancher avant la session d'implémentation.
+- Deux points voisins **posés** dans l'ADR (§Points NON TRANCHÉS), hors périmètre du fix : **D1** rejets d'agrégat (docs
+  coincés `ReadyToSend` exclus par attempt-once) ; **D2** bouton « Envoyer » sur un doc B2C *avant* émission.
+- **✅ IMPLÉMENTÉ (2026-07-01, working tree)** : état `DocumentState.EReported` + transition `ReadyToSend → EReported`
+  (machine à états) + événement `DocumentEReported` + `Document.MarkEReported` + `IDocumentLifecycle.MarkEReportedAsync`
+  (non-throwant/idempotent) branché au hook unique `B2cReportingEmitter.EmitOneAsync` (couvre les 4 canaux) ;
+  `DocumentStateDisplay` (« E-reporté », vert) ; **overlay read-time SUPPRIMÉ** (service détail + VM + Razor + ActionBar +
+  query `GetIssuedEmissionBatchForDocumentAsync`) ; migration backfill **V012** (garde `to_regclass`) ; tests machine à
+  états + transitions + bUnit + doubles ajustés. verify-fast (build Debug+Release + unit) vert. **Reste : run-tests
+  intégration + revue + commit.**
+
+## Table de correspondance pays — aucun accès console (P1 principe produit) 🧩
+- **Relevé Karl** : « je ne vois aucun accès pour la table de correspondance pays (ex. `BEL→BE`) ; ça doit être dans la
+  **Supervision**, ce n'est pas ce qui était demandé. »
+- **Cause** : la table est **codée en dur dans l'AGENT** (`EncheresV6RowMapper.NonIsoCountryCodeMap` : `ENG/JAP`…), ce qui
+  **contredit `F04 §2.4`** (une table de correspondance qui varie par source = **paramétrage, « JAMAIS codée en dur »**).
+  BUG-18 l'a rendue « extensible » mais dans le code. `BEL` (alpha-3) n'est pas mappé → transporté brut → **bloqué** (BT-55).
+  Supervision : **0 surface pays** aujourd'hui (uniquement des alertes).
+- **Cible** : **référentiel pays cross-tenant géré en Supervision** (opérateur d'instance ; normalisation ISO 3166 = technique
+  universelle, pas fiscale per-tenant), appliqué **à l'ingestion côté plateforme** ; l'agent transporte `code_pays` brut ;
+  on **sort** ENG/JAP/BEL du code agent. Item de build (ADR + plan à prévoir).
+- **✅ ADR + plan livrés (2026-07-01)** : `ADR-0038` + `tasks/plan-referentiel-pays.md`. Raffinements conformité (revue
+  adverse) : home **NEUTRE** (module `Reference`, **PAS** Supervision — tenant-scopé lecture seule) ; normalisation au
+  **read-time** (CHECK/SEND/affichage), **jamais** dans le hash anti-doublon ; mutations **auditées append-only** +
+  cible **validée ISO** à l'écriture ; gate **`liakont.settings`** (pas Supervision). **Reste à implémenter.**
+
+## Config d'envoi d'emails en Supervision (Gmail / Office 365) — P2 feature 🧩
+- **Relevé Karl** : dans **Supervision** (hors tenant), pouvoir renseigner les données d'envoi d'emails, avec une boîte
+  potentiellement **Google ou Office 365** — paramétrage plus complexe que juste SMTP.
+- **Cible** : abstraction `IEmailSender` à **providers** (SMTP · Google OAuth2 · Microsoft Graph/O365 OAuth2) ; config +
+  secrets **chiffrés**, gérés en Supervision (cross-tenant). Item de build (ADR + plan à prévoir). Note : l'`AlertEmailNotifier`
+  existe déjà côté Supervision (alertes) — point de départ.
+- **✅ ADR + plan livrés (2026-07-01)** : `ADR-0039` (amende ADR-0018) + `tasks/plan-config-email-instance.md`. Décisions :
+  seam vendored `IEmailTransport` **inchangé** (impl `services.Replace`, socle intact) ; **MailKit XOAUTH2 natif** pour
+  Gmail/O365 (**0 package**, token via `IEmailOAuthTokenProvider` HttpClient) ; secrets **chiffrés** (`ISecretProtector`,
+  purposes dédiés, préservés à l'écriture) ; config **base système** dans un module **instance-level** (`FleetSupervision`/
+  `InstanceSettings`, **PAS** Supervision) ; permission neuve **`liakont.instance.settings`** (pas la Supervision read-only) ;
+  précédence **DB-autoritaire**. **Reste à implémenter.**
+
+## BUG (affichage) — détail d'émission e-reporting B2C collé à gauche 🎨
+- **Relevé Karl (capture)** : `/emissions-marge-b2c/{id}` (fiche BUG-22) — partie haute ET tableau tassés à gauche, titre géant.
+- **Cause** : page livrée **sans son `.razor.css` scopé** ; les classes `liakont-doc-detail*` (partagées avec la fiche
+  document) restaient au style navigateur (CSS isolé Blazor = scopé par composant).
+- **✅ CORRIGÉ (2026-07-01)** : ajout de `src/Host/Liakont.Host/Components/Pages/B2cMarginEmissionDetail.razor.css` (grille
+  dense de l'en-tête + tableau pleine largeur + titre 1.5rem), calqué sur `DocumentDetail(.View).razor.css`. À committer + verify.
+
+## Seed de données récentes multi-cas (support de recette) 🧩
+- **Demande Karl** : seeder « tout plein » de données sur les derniers jours (fin juin → 01/07/2026) dans `EncheresV6_Demo`,
+  couvrant les cas de `tasks/matrice-cas-encheres-b2c.md` (BA/BV, B2C marge/taxable, B2B SIREN, export, étranger, fail-closed).
+- **Stratégie** : script SQL idempotent (comme `inject-demo-siren.sql`) qui **clone des lignes existantes valides** (offset
+  d'IDs + dates récentes) plutôt que fabriquer à la main (risque colonnes). Couplage marge confirmé **agrégé jour×devise×taux,
+  sans clé BA↔BV** → cloner BA(régime 6)+BV(régime 6) datés récents suffit. **En cours.**
+
+## Pattern à garder en tête (dette transverse)
+- **Overlay read-time posé sur la fiche mais pas la liste** = divergence possible (cas BUG-24). Règle : le « statut affiché »
+  doit avoir **une seule dérivation** consommée par liste + fiche (idéalement l'**état persisté** correct). Auditer les autres
+  overlays fiche-seule (récap marge, mentions) — non-statut donc moins critiques.

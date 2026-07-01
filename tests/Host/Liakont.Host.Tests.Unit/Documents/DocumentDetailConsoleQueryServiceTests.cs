@@ -46,13 +46,12 @@ public sealed class DocumentDetailConsoleQueryServiceTests
         FakeContentReplay? replay = null,
         DocumentMarginRecapDto? marginRecap = null,
         bool marginRecapThrows = false,
-        Guid? reportedBatchId = null,
-        bool emissionsThrow = false) =>
+        FakeB2cMarginEmissionQueries? emissions = null) =>
         new(
             documents,
             replay ?? new FakeContentReplay(),
+            emissions ?? new FakeB2cMarginEmissionQueries(),
             new FakeSender { Recap = marginRecap, Throws = marginRecapThrows },
-            new FakeEmissionQueries(reportedBatchId, emissionsThrow),
             NullLogger<DocumentDetailConsoleQueryService>.Instance);
 
     [Fact]
@@ -360,43 +359,6 @@ public sealed class DocumentDetailConsoleQueryServiceTests
     }
 
     [Fact]
-    public async Task GetDetailAsync_Should_Surface_The_B2c_Reported_Batch_When_The_Document_Was_E_Reported()
-    {
-        // BUG-24 : un document RÉELLEMENT e-reporté (Issued) via la transmission AGRÉGÉE porte le lien vers son lot
-        // d'émission → la fiche affiche « E-reporté » + le lien et masque l'envoi par la voie document. Read-time,
-        // aucune transition d'état (le document reste « prêt à l'envoi » côté domaine — voie b, lien doc ↔ lot).
-        var batchId = Guid.NewGuid();
-        var fake = new FakeDocumentQueries { Document = Doc("9000004", "ReadyToSend"), Events = [] };
-
-        var result = await Build(fake, reportedBatchId: batchId).GetDetailAsync(DocId);
-
-        result!.B2cReportedBatchId.Should().Be(batchId);
-    }
-
-    [Fact]
-    public async Task GetDetailAsync_Should_Leave_The_B2c_Reported_Batch_Null_When_The_Document_Was_Not_E_Reported()
-    {
-        var fake = new FakeDocumentQueries { Document = Doc("9000004", "ReadyToSend"), Events = [] };
-
-        var result = await Build(fake).GetDetailAsync(DocId);
-
-        result!.B2cReportedBatchId.Should().BeNull("le document n'a pas (encore) été e-reporté → aucun lien, l'envoi reste proposé");
-    }
-
-    [Fact]
-    public async Task GetDetailAsync_Should_Stay_Available_When_The_B2c_Reporting_Resolution_Fails()
-    {
-        // Robustesse : l'état d'e-reporting est une RÉFLEXION auxiliaire. Une panne de sa résolution (base/tenant) ne
-        // doit JAMAIS casser la lecture du détail (vérité d'audit) — le détail reste assemblé, sans lien e-reporté.
-        var fake = new FakeDocumentQueries { Document = Doc("9000004", "ReadyToSend"), Events = [] };
-
-        var result = await Build(fake, emissionsThrow: true).GetDetailAsync(DocId);
-
-        result.Should().NotBeNull("une panne de la résolution e-reporting n'empêche pas de consulter le document");
-        result!.B2cReportedBatchId.Should().BeNull("l'état e-reporté est omis sur panne, jamais inventé");
-    }
-
-    [Fact]
     public async Task GetDetailAsync_Should_Leave_Margin_Recap_Null_Outside_The_Margin_Regime()
     {
         // Hors régime de la marge, le handler renvoie null (pas de récap configuré) → MarginRecap null, jamais inventé.
@@ -409,6 +371,63 @@ public sealed class DocumentDetailConsoleQueryServiceTests
         var result = await Build(fake).GetDetailAsync(DocId);
 
         result!.MarginRecap.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_Should_Resolve_The_EReported_Batch_Id_From_The_Emission_Journal()
+    {
+        // BUG-24 / ADR-0037 §4 : le lot d'émission du lien « Voir la déclaration » est lu depuis la SOURCE DE VÉRITÉ
+        // de la liaison — le journal d'émission B2C (emission_batch_id), pas la phrase de l'événement. Ainsi le lien
+        // marche pour TOUT document e-reporté, y compris rétro-corrigé par V012 (sans événement DocumentEReported).
+        var batchId = Guid.Parse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
+        var fake = new FakeDocumentQueries { Document = Doc("9000004", "EReported"), Events = [] };
+        var emissions = new FakeB2cMarginEmissionQueries(batchId);
+
+        var result = await Build(fake, emissions: emissions).GetDetailAsync(DocId);
+
+        result!.EReportedBatchId.Should().Be(batchId);
+        emissions.Calls.Should().ContainSingle().Which.Should().Be(DocId, "le lot est résolu pour CE document");
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_Should_Leave_EReported_Batch_Id_Null_And_Not_Query_When_The_Document_Is_Not_EReported()
+    {
+        // L'ÉTAT pilote (documents.state = source de vérité) : hors état EReported, aucun lien de déclaration — et on
+        // n'interroge même PAS le journal d'émission (économie + pas de lien sur un document du canal document).
+        var fake = new FakeDocumentQueries { Document = Doc("9000004", "Issued"), Events = [] };
+        var emissions = new FakeB2cMarginEmissionQueries(Guid.NewGuid());
+
+        var result = await Build(fake, emissions: emissions).GetDetailAsync(DocId);
+
+        result!.EReportedBatchId.Should().BeNull("hors état EReported, aucun lien de déclaration");
+        emissions.Calls.Should().BeEmpty("l'état non-EReported court-circuite la lecture du journal");
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_Should_Leave_EReported_Batch_Id_Null_When_The_Journal_Has_No_Issued_Emission()
+    {
+        // Dégradation gracieuse : un document EReported dont le journal ne retourne aucun lot (aucune entrée Issued
+        // résolue) → null (le lien est simplement absent, jamais une erreur ; l'état/badge restent).
+        var fake = new FakeDocumentQueries { Document = Doc("9000004", "EReported"), Events = [] };
+        var emissions = new FakeB2cMarginEmissionQueries(batchId: null);
+
+        var result = await Build(fake, emissions: emissions).GetDetailAsync(DocId);
+
+        result!.EReportedBatchId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_Should_Stay_Available_When_The_EReported_Batch_Resolution_Fails()
+    {
+        // Robustesse : la résolution du lot est une aide de PRÉSENTATION (le lien). Une panne de lecture du journal
+        // ne doit JAMAIS casser la lecture du détail (vérité d'audit) — le détail reste assemblé, sans lien.
+        var fake = new FakeDocumentQueries { Document = Doc("9000004", "EReported"), Events = [] };
+        var emissions = new FakeB2cMarginEmissionQueries(throws: true);
+
+        var result = await Build(fake, emissions: emissions).GetDetailAsync(DocId);
+
+        result.Should().NotBeNull("une panne de lecture du journal n'empêche pas de consulter le document");
+        result!.EReportedBatchId.Should().BeNull("le lien est omis sur panne, jamais inventé");
     }
 
     /// <summary>Pivot SOURCE minimal (catégorie/VATEX nuls — non mappés) pour exercer le rejeu read-time d'un document bloqué.</summary>
@@ -512,6 +531,37 @@ public sealed class DocumentDetailConsoleQueryServiceTests
         public Task<DocumentSummaryDto?> GetOldestDocumentInStateAsync(string state, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
+    // Fake du journal d'émission B2C : renvoie le lot configuré pour un document e-reporté (ou null : aucune issue),
+    // ou lève (robustesse). Enregistre les appels pour prouver le court-circuit hors état EReported.
+    private sealed class FakeB2cMarginEmissionQueries : IB2cMarginEmissionQueries
+    {
+        private readonly Guid? _batchId;
+        private readonly bool _throws;
+
+        public FakeB2cMarginEmissionQueries(Guid? batchId = null, bool throws = false)
+        {
+            _batchId = batchId;
+            _throws = throws;
+        }
+
+        public List<Guid> Calls { get; } = [];
+
+        public Task<Guid?> GetEmissionBatchIdForDocumentAsync(Guid documentId, CancellationToken cancellationToken = default)
+        {
+            Calls.Add(documentId);
+            if (_throws)
+            {
+                throw new InvalidOperationException("Échec simulé de la lecture du journal d'émission.");
+            }
+
+            return Task.FromResult(_batchId);
+        }
+
+        public Task<IReadOnlyList<B2cMarginEmissionAggregateDto>> GetEmissionsAsync(string? period, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<B2cMarginEmissionDetailDto?> GetEmissionDetailAsync(Guid emissionBatchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
     // Fake du rejeu read-time (BUG-5) : renvoie un pivot relu, « indisponible » (repli snapshot) ou lève (robustesse).
     private sealed class FakeContentReplay : IDocumentContentReplayService
     {
@@ -542,35 +592,6 @@ public sealed class DocumentDetailConsoleQueryServiceTests
 
             return Task.FromResult(_result ?? DocumentContentReplay.Unavailable);
         }
-    }
-
-    // Fake d'IB2cMarginEmissionQueries (BUG-24) : seule GetIssuedEmissionBatchForDocumentAsync est exercée par le
-    // service de détail ; renvoie le lot e-reporté configuré (ou null), ou lève (robustesse). Les autres lectures ne
-    // sont pas appelées par le détail (NotSupported documente le contrat réellement utilisé).
-    private sealed class FakeEmissionQueries : IB2cMarginEmissionQueries
-    {
-        private readonly Guid? _reportedBatchId;
-        private readonly bool _throws;
-
-        public FakeEmissionQueries(Guid? reportedBatchId, bool throws)
-        {
-            _reportedBatchId = reportedBatchId;
-            _throws = throws;
-        }
-
-        public Task<Guid?> GetIssuedEmissionBatchForDocumentAsync(Guid documentId, CancellationToken cancellationToken = default)
-        {
-            if (_throws)
-            {
-                throw new InvalidOperationException("Échec simulé de la résolution de l'état d'e-reporting B2C.");
-            }
-
-            return Task.FromResult(_reportedBatchId);
-        }
-
-        public Task<IReadOnlyList<B2cMarginEmissionAggregateDto>> GetEmissionsAsync(string? period, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-
-        public Task<B2cMarginEmissionDetailDto?> GetEmissionDetailAsync(Guid emissionBatchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     // Fake d'ISender : renvoie le récap de marge configuré pour GetDocumentMarginRecapQuery (null sinon), comme le

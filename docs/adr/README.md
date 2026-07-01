@@ -45,6 +45,9 @@ voir l'historique des collisions ci-dessous).
 | [ADR-0034](ADR-0034-canal-ingestion-generique-ged-managed-document.md) | Canal d'ingestion générique GED par agents : `IngestedDocumentDto` / `ManagedDocumentReceivedV1` add-only, registre dédié en base système, `IManagedExtractor` distinct | Proposé (2026-06-25) |
 | [ADR-0035](ADR-0035-recherche-index-ged-tsvector.md) | Recherche & index GED : `tsvector` PostgreSQL derrière `IDocumentSearchIndex`, projection asynchrone reconstructible, graphe borné bidirectionnel | Proposé (2026-06-25) |
 | [ADR-0036](ADR-0036-journal-consultation-ged-append-only.md) | Journal de consultation GED append-only (`ged_index.consultation_log`, base tenant, WORM) : best-effort par défaut, fail-closed si finalité probante | Proposé (2026-06-25) |
+| [ADR-0037](ADR-0037-etat-document-ereported-canal-b2c-agrege.md) | État de document `EReported` : le canal e-reporting B2C agrégé transitionne l'état persisté (fin de l'overlay read-time BUG-24) | Proposé (2026-07-01) |
+| [ADR-0038](ADR-0038-referentiel-correspondance-pays-cross-instance.md) | Référentiel de correspondance pays (ISO 3166) : normalisation cross-instance au read-time plateforme, hors agent | Proposé (2026-07-01) |
+| [ADR-0039](ADR-0039-config-email-instance-multi-provider-chiffree.md) | Configuration d'envoi d'emails d'instance : multi-provider (SMTP/Google/O365) chiffrée en base, gérée en console (amende ADR-0018) | Proposé (2026-07-01) |
 
 ## Collisions de numéro résolues
 
