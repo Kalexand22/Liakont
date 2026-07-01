@@ -99,9 +99,31 @@ public static class GedCanonicalJson
         // (« café » précomposé vs décomposé) trieraient différemment et casseraient l'anti-doublon
         // (source_reference, payload_hash) RL-39. Le nom de champ est émis comme un nom de membre
         // (WritePropertyName) ; la valeur comme une chaîne libre (WriteString, NFC/ASCII).
-        foreach (KeyValuePair<string, string> field in fields
+        var normalized = fields
             .Select(f => new KeyValuePair<string, string>(CanonicalJsonWriter.NormalizeToNfc(f.Key), f.Value))
-            .OrderBy(f => f.Key, StringComparer.Ordinal))
+            .OrderBy(f => f.Key, StringComparer.Ordinal)
+            .ToList();
+
+        // Collision de clé APRÈS normalisation : deux noms source DISTINCTS (comparaison ordinale du dictionnaire)
+        // mais Unicode-équivalents (« café » précomposé U+00E9 et décomposé U+0065 U+0301) deviennent UNE seule
+        // clé NFC. Les émettre produirait un JSON à clé DUPLIQUÉE et un ordre non déterministe (le tri est stable →
+        // l'ordre relatif suivrait l'énumération du dictionnaire, non garantie). On REJETTE alors le document —
+        // « bloquer plutôt qu'envoyer faux » (CLAUDE.md n°3), même esprit que la garde d'énum de WriteEnum — plutôt
+        // que de deviner quelle valeur garder ou d'émettre une empreinte non déterministe (RL-39). Les clés triées
+        // et égales sont adjacentes, un balayage suffit.
+        for (int i = 1; i < normalized.Count; i++)
+        {
+            if (StringComparer.Ordinal.Equals(normalized[i].Key, normalized[i - 1].Key))
+            {
+                throw new ArgumentException(
+                    "Deux champs SourceFields portent des noms Unicode-équivalents après normalisation NFC (« "
+                    + normalized[i].Key + " ») : le JSON canonique GED serait ambigu (clé dupliquée, empreinte non "
+                    + "déterministe). Document rejeté plutôt qu'émis faux (CLAUDE.md n°3, RL-39).",
+                    nameof(fields));
+            }
+        }
+
+        foreach (KeyValuePair<string, string> field in normalized)
         {
             writer.WritePropertyName(field.Key);
             writer.WriteString(field.Value);

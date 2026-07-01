@@ -266,6 +266,27 @@ public sealed class IngestedDocumentContractGoldenTests
     }
 
     [Fact]
+    public void SourceFields_with_nfc_and_nfd_variant_of_the_same_key_is_rejected()
+    {
+        // Cas dégénéré : un MÊME document porte DEUX champs dont les noms sont Unicode-équivalents mais
+        // d'encodage distinct — « café » précomposé (U+00E9) ET décomposé (« cafe » + U+0301). Après
+        // normalisation NFC ils collisionnent en une seule clé : le JSON canonique serait ambigu (clé
+        // dupliquée, ordre non déterministe). Le sérialiseur REJETTE (bloquer plutôt qu'émettre une
+        // empreinte non déterministe, CLAUDE.md n°3 / RL-39), même esprit que la garde d'énum.
+        var collidingFields = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["café"] = "v1",   // NFC : c,a,f + U+00E9
+            ["café"] = "v2",  // NFD : c,a,f,e + U+0301 combinant
+        };
+        collidingFields.Should().HaveCount(2, "les deux encodages sont des clés distinctes en comparaison ordinale");
+        var doc = new IngestedDocumentDto("no_vente=3", "PV_VENTE", sourceFields: collidingFields);
+
+        Action act = () => GedCanonicalJson.Serialize(doc);
+
+        act.Should().Throw<ArgumentException>().WithMessage("*normalisation NFC*");
+    }
+
+    [Fact]
     public void Serialize_null_document_throws()
     {
         Action act = () => GedCanonicalJson.Serialize(null!);
