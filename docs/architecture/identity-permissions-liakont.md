@@ -70,7 +70,15 @@ rôle éditeur reçoit `ged.read` (consultation) ; `ged.export` à partir d'`ope
 > Le masquage server-side qui *consomme* `ged.confidential` (prédicat SQL en recherche/facette/graphe/
 > export/log) est porté par **GED08** (index) et les pages **GED09** — GED06 ne pose que la
 > **permission**. `ged.confidential` reste **hors** de `SensitivePermissions` (fenêtre de révocation
-> bornée RDF10, réservée à `liakont.actions`/`liakont.settings`) : sortie du périmètre de GED06.
+> bornée RDF10, réservée à `liakont.actions`/`liakont.settings`) : tant qu'AUCUNE surface ne restitue
+> de donnée confidentielle, l'y classer serait à la fois **prématuré** (aucun consommateur en V1) et
+> **non testable** — la garde CI `SensitivePermissionE2ECoverageTests` exige ≥ 1 E2E non-super-admin
+> par permission sensible, or l'E2E de restitution confidentielle n'existe qu'avec GED08/GED09.
+> **Décision DIFFÉRÉE à GED08/GED09** (qui introduisent la restitution masquée et son E2E) : y trancher
+> si l'accès en *lecture* aux données confidentielles doit être borné en révocation comme les permissions
+> fiscales sensibles (`liakont.actions`/`liakont.settings`). Jusque-là, la fenêtre de révocation d'un
+> `ged.confidential` révoqué suit le défaut glissant 8 h (ADR-0017 §Négatif) — sans effet réel en V1
+> puisqu'aucune surface ne restitue encore de donnée confidentielle sur ce claim.
 
 > La supervision cross-tenant reste en **lecture seule** (CLAUDE.md n.9 : seul le module
 > Supervision a des vues cross-tenant ; toute autre requête métier est tenant-scopée).
