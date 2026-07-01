@@ -43,6 +43,16 @@ internal sealed class PostgresGedIndexUnitOfWork : IGedIndexUnitOfWork
         RETURNING id
         """;
 
+    // Append PUR d'une relation entité↔entité (is_retraction=false, supersedes_id=null : GED24 n'écrit que des
+    // relations dérivées « de valeur normale », la dévalidation par chaînage relève d'items ultérieurs).
+    private const string InsertRelationSql = """
+        INSERT INTO ged_index.entity_relations
+            (from_entity_id, to_entity_id, relation_kind, relation_type, confidence_score, source)
+        VALUES
+            (@FromEntityId, @ToEntityId, @RelationKind, @RelationType, @ConfidenceScore, @Source)
+        RETURNING id
+        """;
+
     private readonly TransactionScope _txn;
 
     private PostgresGedIndexUnitOfWork(TransactionScope txn) => _txn = txn;
@@ -108,6 +118,25 @@ internal sealed class PostgresGedIndexUnitOfWork : IGedIndexUnitOfWork
                 link.ConfidenceScore,
                 SupersedesId = supersedesId,
                 link.OperatorIdentity,
+            },
+            _txn.Transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task<Guid> AppendRelationAsync(EntityRelation relation, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(relation);
+
+        return await _txn.Connection.ExecuteScalarAsync<Guid>(new CommandDefinition(
+            InsertRelationSql,
+            new
+            {
+                relation.FromEntityId,
+                relation.ToEntityId,
+                relation.RelationKind,
+                relation.RelationType,
+                relation.ConfidenceScore,
+                relation.Source,
             },
             _txn.Transaction,
             cancellationToken: cancellationToken));

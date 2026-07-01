@@ -204,6 +204,10 @@ public sealed class SetAxisValueCommandHandlerTests
             return Task.FromResult(ReturnedId);
         }
 
+        // SetAxisValueCommandHandler n'écrit que des liens d'axe : le chemin relation (GED24) n'est pas exercé ici.
+        public Task<Guid> AppendRelationAsync(EntityRelation relation, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("RecordingUnitOfWork ne couvre que AppendAxisLinkAsync (GED04).");
+
         public Task CommitAsync(CancellationToken cancellationToken = default)
         {
             Committed = true;
