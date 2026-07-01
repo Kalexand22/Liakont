@@ -34,6 +34,14 @@ public static class LiakontPermissions
     public const string Supervision = "liakont.supervision";
 
     /// <summary>
+    /// Paramétrage d'INSTANCE (ADR-0039) : action MUTANTE d'instance, hors tenant (ex. configuration
+    /// d'envoi d'emails de l'instance, secrets SMTP/OAuth chiffrés). Distincte de <see cref="Supervision"/>,
+    /// documentée « lecture seule, aucune action mutante » : une écriture s'y contredirait. Accordée à
+    /// l'opérateur d'instance (rôle <c>superviseur</c>).
+    /// </summary>
+    public const string InstanceSettings = "liakont.instance.settings";
+
+    /// <summary>
     /// Méta-supervision de flotte (OPS04) : dashboard cross-INSTANCE réservé à IT Innovations
     /// (état des instances, versions, alertes). Distincte de <see cref="Supervision"/>, qui est
     /// cross-tenant DANS une instance ; la flotte est le niveau au-dessus (cross-instance).

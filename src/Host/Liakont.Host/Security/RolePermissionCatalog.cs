@@ -30,9 +30,11 @@ internal static class RolePermissionCatalog
     //   lecture     → read
     //   operateur   → read + actions
     //   parametrage → read + actions + settings
-    //   superviseur → read + actions + settings + supervision
+    //   superviseur → read + actions + settings + supervision + instance.settings
     //   exploitant  → fleet  (rôle IT Innovations HORS matrice éditeur §3 — méta-supervision de flotte,
     //                          OPS04 ; n'accorde AUCUNE permission éditeur, seulement le dashboard de flotte)
+    // instance.settings (ADR-0039) : paramétrage MUTANT d'instance (config email), accordé à l'opérateur
+    // d'instance (superviseur). Distinct de supervision (lecture seule) — voir identity-permissions-liakont.md §3.
     private static readonly Dictionary<string, string[]> RoleToPermissions =
         new(StringComparer.OrdinalIgnoreCase)
         {
@@ -45,6 +47,7 @@ internal static class RolePermissionCatalog
                 LiakontPermissions.Actions,
                 LiakontPermissions.Settings,
                 LiakontPermissions.Supervision,
+                LiakontPermissions.InstanceSettings,
             ],
             ["exploitant"] = [LiakontPermissions.Fleet],
         };

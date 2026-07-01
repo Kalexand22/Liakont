@@ -861,7 +861,13 @@ revue Claude **clean** au round 3). Détail + commit sous chaque bug.
   Gmail/O365 (**0 package**, token via `IEmailOAuthTokenProvider` HttpClient) ; secrets **chiffrés** (`ISecretProtector`,
   purposes dédiés, préservés à l'écriture) ; config **base système** dans un module **instance-level** (`FleetSupervision`/
   `InstanceSettings`, **PAS** Supervision) ; permission neuve **`liakont.instance.settings`** (pas la Supervision read-only) ;
-  précédence **DB-autoritaire**. **Reste à implémenter.**
+  précédence **DB-autoritaire**.
+- **✅ IMPLÉMENTÉ (2026-07-01, branche `feat/recette-encheres-config-email-instance`)** : module `FleetSupervision`
+  (store ciphertext base système + migration V003), Host (`EmailSecretPurposes`, `HttpEmailOAuthTokenProvider`,
+  `SmtpEmailTransport` provider-aware, service console `IInstanceEmailConfigService`), page `/email-instance` sous
+  **Supervision** (gate `liakont.instance.settings`, sélecteur de fournisseur, secrets masqués, bouton « email de test »),
+  permission neuve accordée à `superviseur` (matrice §3 sourcée). Tests unitaires + intégration Testcontainers.
+  `verify-fast` + `run-tests` verts. Voir la note d'implémentation d'ADR-0039. **Fusion humaine à venir.**
 
 ## BUG (affichage) — détail d'émission e-reporting B2C collé à gauche 🎨
 - **Relevé Karl (capture)** : `/emissions-marge-b2c/{id}` (fiche BUG-22) — partie haute ET tableau tassés à gauche, titre géant.

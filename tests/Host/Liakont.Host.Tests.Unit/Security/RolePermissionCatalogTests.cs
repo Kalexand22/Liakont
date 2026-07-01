@@ -28,6 +28,7 @@ public sealed class RolePermissionCatalogTests
                 LiakontPermissions.Actions,
                 LiakontPermissions.Settings,
                 LiakontPermissions.Supervision,
+                LiakontPermissions.InstanceSettings,
             },
         ],
     ];
@@ -54,6 +55,7 @@ public sealed class RolePermissionCatalogTests
                 LiakontPermissions.Actions,
                 LiakontPermissions.Settings,
                 LiakontPermissions.Supervision,
+                LiakontPermissions.InstanceSettings,
             ]);
     }
 

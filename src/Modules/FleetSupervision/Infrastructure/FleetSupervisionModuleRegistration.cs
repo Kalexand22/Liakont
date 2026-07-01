@@ -29,6 +29,10 @@ public static class FleetSupervisionModuleRegistration
 
         // Magasin du parc (base SYSTÈME) + services de lecture/écriture côté central.
         services.AddScoped<IFleetInstanceStore, PostgresFleetStore>();
+
+        // Config d'envoi d'emails d'INSTANCE (ADR-0039), ligne singleton en base SYSTÈME. Le magasin ne
+        // manipule que du ciphertext ; le chiffrement/déchiffrement reste le monopole du Host (CLAUDE.md n°6/14).
+        services.AddScoped<IInstanceEmailConfigStore, PostgresInstanceEmailConfigStore>();
         services.AddScoped<IFleetHeartbeatIngestor, FleetHeartbeatIngestor>();
         services.AddScoped<IFleetQueries, FleetQueries>();
 

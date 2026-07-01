@@ -276,6 +276,30 @@ public sealed class LiakontNavNodeProviderTests
     }
 
     [Fact]
+    public void Supervision_Should_Hide_Email_Config_Without_Instance_Settings_Permission()
+    {
+        // ADR-0039 : « Configuration email » est un geste d'ÉCRITURE d'instance (liakont.instance.settings),
+        // distinct de la lecture seule liakont.supervision. Un superviseur SANS instance.settings ne la voit pas.
+        var root = BuildProvider(permissions: [LiakontPermissions.Supervision]).GetNavNode();
+
+        var supervision = root.Children.Single(n => n.Label == "Supervision");
+        supervision.Children.Select(c => c.Label).Should().NotContain("Configuration email");
+    }
+
+    [Fact]
+    public void Supervision_Should_Show_Email_Config_With_Instance_Settings_Permission()
+    {
+        // Porteur de liakont.supervision (aire d'instance visible) ET de liakont.instance.settings (écriture) :
+        // l'entrée « Configuration email » apparaît, rangée dans l'aire opérateur d'instance (ADR-0039, /email-instance).
+        var root = BuildProvider(permissions:
+            [LiakontPermissions.Supervision, LiakontPermissions.InstanceSettings]).GetNavNode();
+
+        var supervision = root.Children.Single(n => n.Label == "Supervision");
+        var email = supervision.Children.Single(c => c.Label == "Configuration email");
+        email.Href.Should().Be("/email-instance");
+    }
+
+    [Fact]
     public void GetNavNode_For_A_CrossTenant_SuperAdmin_Should_Hide_All_Tenant_Scoped_Entries()
     {
         // RB1 : un super-admin (stratum-admin) opère en cross-tenant ; même avec toutes les permissions et
