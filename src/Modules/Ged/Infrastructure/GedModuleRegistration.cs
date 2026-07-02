@@ -18,6 +18,7 @@ using Liakont.Modules.Ged.Infrastructure.Mapping;
 using Microsoft.Extensions.DependencyInjection;
 using Stratum.Common.Abstractions.Events;
 using Stratum.Common.Infrastructure.Database;
+using Stratum.Common.Infrastructure.Outbox;
 
 /// <summary>
 /// Enregistrement DI du module GED (F19 §2.1, scaffold GED02). À ce stade, l'unique effet est de déclarer
@@ -81,7 +82,10 @@ public static class GedModuleRegistration
         // Consommateur DURABLE de l'événement : relit le staging, mappe et écrit l'index GED (base tenant, via le seam
         // ITenantScopeFactory du Host). Correspondance type d'événement → payload CLR pour le worker d'outbox.
         services.AddScoped<IIntegrationEventConsumer<ManagedDocumentReceivedV1>, ManagedDocumentReceivedConsumer>();
-        services.AddHostedService<GedEventTypeRegistrar>();
+
+        // GDF01 : contributeur de types d'événements appliqué AU BUILD DI (avant le premier poll de l'OutboxWorker),
+        // en remplacement de l'ancien AddHostedService<GedEventTypeRegistrar> qui enregistrait en concurrence avec le worker.
+        services.AddSingleton<IEventTypeRegistrar, GedEventTypeRegistrar>();
 
         // ── Recherche & index (GED08, F19 §6.1-§6.4, ADR-0035) ──
         // Port de recherche (tsvector, table dérivée document_search) tenant-scopé par IConnectionFactory.

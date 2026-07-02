@@ -69,6 +69,14 @@ try {
     $c4 = New-Case 'bad-tva' 'Migrations/V998__tva.sql' "SELECT * FROM ged_catalog.axis_definitions a JOIN tvamapping.rules r ON r.code = a.code;"
     Check 'jointure ged_catalog -> tvamapping.' (Invoke-Lint $c4) 1
 
+    # 4bis) Jointure cross-schéma en CASSE MIXTE dans un .sql (`documents.Documents`) → le lint DOIT
+    #    échouer (exit 1). PostgreSQL replie la casse des identifiants non cités : la jointure est
+    #    FONCTIONNELLE quelle que soit la casse. Sans le post-point insensible à la casse RÉSERVÉ aux
+    #    .sql, la classe `[a-z_]` laisserait filer le `D` majuscule (faux-vert de la règle 9). Le cas .cs
+    #    PascalCase (cas 6) reste vert → la distinction est bien PAR LANGAGE, pas globale.
+    $c4b = New-Case 'bad-sql-mixed-case' 'Migrations/V997__mixedcase.sql' "SELECT * FROM ged_index.managed_documents m JOIN documents.Documents d ON d.id = m.fiscal_document_id;"
+    Check 'jointure cross-schéma en casse mixte en SQL (documents.Documents)' (Invoke-Lint $c4b) 1
+
     # 5) Référence UNIQUEMENT en commentaire (soft-link documenté) → le lint DOIT passer (exit 0).
     $c5 = New-Case 'only-comment' 'Domain/ManagedDocument.cs' "public sealed class ManagedDocument {`n    // Soft-link LOGIQUE vers documents.documents.id (sans FK cross-schéma, F19 §3.4.1).`n    public System.Guid? FiscalDocumentId { get; init; }`n}"
     Check 'soft-link seulement en commentaire' (Invoke-Lint $c5) 0
