@@ -112,25 +112,43 @@ internal sealed partial class GedDocumentIndexer : IGedDocumentIndexer
         await using var unitOfWork = await _unitOfWorkFactory.BeginAsync(cancellationToken);
 
         var currentStatus = await unitOfWork.BeginDocumentIndexingAsync(managedDocumentId, cancellationToken);
-        if (currentStatus is not null)
+
+        // Reprise CIBLÉE d'un backfill déféré (GDF10) : un document rangé `deferred` (type sans profil validé au 1er
+        // passage) qui MAPPE désormais est PROMU deferred→indexed — mais SEULEMENT sur le canal backfill
+        // (request.ResumeDeferred) et JAMAIS un statut terminal `indexed` (idempotence conservée : un indexed reste
+        // no-op au replay). Le canal d'ingestion GED05b garde sa sémantique de replay INCHANGÉE (tout statut existant =
+        // no-op, RL-04). NB : le chemin déféré (result.IsDeferred, plus haut) a déjà rendu AlreadyPresent si le re-map
+        // défère encore → DEFER reste DEFER.
+        var isDeferredResume = request.ResumeDeferred
+            && string.Equals(currentStatus, "deferred", StringComparison.Ordinal);
+        if (currentStatus is not null && !isDeferredResume)
         {
-            // Replay / re-backfill (déjà indexed/deferred) : no-op. Le dispose de l'UoW rend le verrou consultatif.
+            // Replay / re-backfill (déjà indexed, ou deferred hors reprise) : no-op. Le dispose de l'UoW rend le verrou.
             LogAlreadyIndexed(_logger, managedDocumentId, currentStatus);
             return GedIndexOutcome.AlreadyPresent;
         }
 
-        var links = request.SoftLinks;
-        await unitOfWork.UpsertManagedDocumentAsync(
-            new ManagedDocument(
-                managedDocumentId,
-                ingested.SourceReference,
-                ingested.DocumentType,
-                status: "indexed",
-                fiscalDocumentId: links?.FiscalDocumentId,
-                archiveEntryId: links?.ArchiveEntryId,
-                archivePath: links?.ArchivePath,
-                contentHash: links?.ContentHash),
-            cancellationToken);
+        if (isDeferredResume)
+        {
+            // Reprise : seul le STATUT est muté (deferred→indexed), TRACÉ dans managed_document_change_log (append-only) ;
+            // title/doc_kind/soft-links restent tels qu'écrits au déférement (même entrée de coffre immuable), non réécrits.
+            await unitOfWork.PromoteDeferredToIndexedAsync(managedDocumentId, cancellationToken);
+        }
+        else
+        {
+            var links = request.SoftLinks;
+            await unitOfWork.UpsertManagedDocumentAsync(
+                new ManagedDocument(
+                    managedDocumentId,
+                    ingested.SourceReference,
+                    ingested.DocumentType,
+                    status: "indexed",
+                    fiscalDocumentId: links?.FiscalDocumentId,
+                    archiveEntryId: links?.ArchiveEntryId,
+                    archivePath: links?.ArchivePath,
+                    contentHash: links?.ContentHash),
+                cancellationToken);
+        }
 
         foreach (var axisValue in document.Axes)
         {

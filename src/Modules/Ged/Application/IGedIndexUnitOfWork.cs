@@ -35,6 +35,19 @@ public interface IGedIndexUnitOfWork : IAsyncDisposable
     Task UpsertManagedDocumentAsync(ManagedDocument document, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// PROMEUT un document existant de <c>deferred</c> vers <c>indexed</c> (reprise ciblée du backfill, GDF10). Seul le
+    /// STATUT est muté (plus l'effacement de <c>defer_reason</c> et l'horodatage <c>updated_utc</c>) : <c>title</c>,
+    /// <c>doc_kind</c> et les soft-links ont déjà été écrits AU DÉFÉREMENT depuis la MÊME entrée de coffre IMMUABLE — les
+    /// réécrire créerait une mutation de méta-colonne non auditée. La transition n'est autorisée QUE depuis <c>deferred</c>
+    /// (garde <c>WHERE status = 'deferred'</c> — une course perdue lit déjà <c>indexed</c> et n'affecte aucune ligne,
+    /// jamais de double promotion). La mutation de statut est TRACÉE immuablement dans <c>managed_document_change_log</c>
+    /// (V010, append-only, <c>status_changed</c>) — la fiche reste auditable (règle 4). À appeler SOUS la garde de
+    /// concurrence de <see cref="BeginDocumentIndexingAsync"/> (verrou consultatif tenu jusqu'au commit), après avoir lu un
+    /// statut <c>deferred</c>. Rend le nombre de lignes promues (0 si la course est perdue).
+    /// </summary>
+    Task<int> PromoteDeferredToIndexedAsync(Guid managedDocumentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Ajoute un lien d'axe (append pur — jamais d'UPDATE, le trigger l'interdit). Pour un axe MONO-valeur
     /// (<paramref name="isSingleValued"/> = <see langword="true"/>), prend une garde de concurrence
     /// (<c>pg_advisory_xact_lock</c> sur la clé document+axe) DANS la transaction AVANT de superséder la valeur
