@@ -90,12 +90,16 @@ public sealed class GenericArchiveService : IGenericArchiveService
         string packageDir = GedArchivePackageLayout.PackageDirectory(
             request.ArchiveKind, request.FiledOn.Year, request.FiledOn.Month, request.ArchiveKey);
 
-        // Clé d'idempotence indexée sur (Kind, CONTENU) — jamais le contenu seul : deux addenda aux octets
-        // identiques mais de Kind DIFFÉRENT sont des pièces probantes distinctes (le Kind est scellé), rangées
-        // séparément ; sans le Kind dans la clé, le 2e serait rendu AlreadyArchived et son Kind jamais scellé
-        // (métadonnée probante perdue en silence). Les deux composantes sont hachées (longueur fixe 64 hex) →
-        // clé sans ambiguïté de délimiteur, quel que soit le contenu du Kind. GDF11 finding 2.
-        string idempotencyKey = Sha256Hex.OfString(Sha256Hex.OfString(request.Kind ?? string.Empty) + content.PackageHash);
+        // Clé d'idempotence indexée sur (Kind, nom de pièce, CONTENU) — les TROIS composantes qui déterminent
+        // aussi l'empreinte scellée (via le nom stocké) : « même identité ⟺ même chemin ⟺ même scellé ». Deux
+        // addenda aux octets identiques mais de Kind OU de nom distinct sont des pièces probantes distinctes,
+        // rangées séparément (jamais un AlreadyArchived silencieux qui perdrait le Kind, ni un conflit WORM sur
+        // un scellé divergent). Composantes hachées (longueur fixe 64 hex) → clé sans ambiguïté de délimiteur.
+        // GDF11 finding 2.
+        string idempotencyKey = Sha256Hex.OfString(
+            Sha256Hex.OfString(request.Kind ?? string.Empty)
+            + Sha256Hex.OfString(logicalFile.Name)
+            + content.PackageHash);
         string keyPrefix = idempotencyKey[..16];
         string storedName = ArchivePackageLayout.AddendumDataFileName(keyPrefix, logicalFile.Name);
         string manifestPath = ArchivePackageLayout.Combine(packageDir, ArchivePackageLayout.AddendumManifestFileName(keyPrefix));

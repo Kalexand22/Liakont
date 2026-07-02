@@ -165,6 +165,36 @@ public sealed class GenericArchiveServiceTests
     }
 
     [Fact]
+    public async Task AddManagedAddendum_SameContentAndKindDifferentFileName_StoresDistinctly_NeverThrows()
+    {
+        // Même Kind + mêmes octets mais NOM de pièce distinct : chaque pièce a une identité propre → rangée
+        // séparément, jamais un conflit WORM. Le nom entre dans la clé d'idempotence, alignée sur l'empreinte
+        // scellée (« même identité ⟺ même chemin ⟺ même scellé »). GDF11 finding 2 (review round 2).
+        GenericArchiveService service = CreateService();
+        await service.ArchiveManagedDocumentAsync(Request());
+
+        byte[] sameBytes = Encoding.UTF8.GetBytes("octets-identiques");
+        GedArchiveAddendumRequest Addendum(string fileName) => new(
+            ArchiveKind: "bordereau",
+            ArchiveKey: "K-42",
+            FiledOn: new DateOnly(2026, 5, 12),
+            Kind: "note",
+            Attachment: new ArchiveAttachment(fileName, "text/plain", sameBytes));
+
+        GedArchivePackageResult a = await service.AddManagedAddendumAsync(Addendum("a.txt"));
+        GedArchivePackageResult b = await service.AddManagedAddendumAsync(Addendum("b.txt"));
+
+        a.AlreadyArchived.Should().BeFalse();
+        b.AlreadyArchived.Should().BeFalse("un nom de pièce distinct est une pièce distincte, jamais un no-op ni un conflit");
+        b.ArchivePath.Should().NotBe(a.ArchivePath);
+
+        // Idempotence préservée : re-ajouter le MÊME (Kind, contenu, nom) reste un no-op.
+        GedArchivePackageResult again = await service.AddManagedAddendumAsync(Addendum("b.txt"));
+        again.AlreadyArchived.Should().BeTrue();
+        again.ArchivePath.Should().Be(b.ArchivePath);
+    }
+
+    [Fact]
     public void GenericArchiveService_HasNoFiscalChainDependency_OptionC()
     {
         // Hash-neutralité STRUCTURELLE (INV-ARCH-GED-1) : le service ne peut pas créer de ligne
