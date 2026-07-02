@@ -861,7 +861,13 @@ revue Claude **clean** au round 3). Détail + commit sous chaque bug.
   Gmail/O365 (**0 package**, token via `IEmailOAuthTokenProvider` HttpClient) ; secrets **chiffrés** (`ISecretProtector`,
   purposes dédiés, préservés à l'écriture) ; config **base système** dans un module **instance-level** (`FleetSupervision`/
   `InstanceSettings`, **PAS** Supervision) ; permission neuve **`liakont.instance.settings`** (pas la Supervision read-only) ;
-  précédence **DB-autoritaire**. **Reste à implémenter.**
+  précédence **DB-autoritaire**.
+- **✅ IMPLÉMENTÉ (2026-07-01, branche `feat/recette-encheres-config-email-instance`)** : module `FleetSupervision`
+  (store ciphertext base système + migration V003), Host (`EmailSecretPurposes`, `HttpEmailOAuthTokenProvider`,
+  `SmtpEmailTransport` provider-aware, service console `IInstanceEmailConfigService`), page `/email-instance` sous
+  **Supervision** (gate `liakont.instance.settings`, sélecteur de fournisseur, secrets masqués, bouton « email de test »),
+  permission neuve accordée à `superviseur` (matrice §3 sourcée). Tests unitaires + intégration Testcontainers.
+  `verify-fast` + `run-tests` verts. Voir la note d'implémentation d'ADR-0039. **Fusion humaine à venir.**
 
 ## BUG (affichage) — détail d'émission e-reporting B2C collé à gauche 🎨
 - **Relevé Karl (capture)** : `/emissions-marge-b2c/{id}` (fiche BUG-22) — partie haute ET tableau tassés à gauche, titre géant.
@@ -876,6 +882,139 @@ revue Claude **clean** au round 3). Détail + commit sous chaque bug.
 - **Stratégie** : script SQL idempotent (comme `inject-demo-siren.sql`) qui **clone des lignes existantes valides** (offset
   d'IDs + dates récentes) plutôt que fabriquer à la main (risque colonnes). Couplage marge confirmé **agrégé jour×devise×taux,
   sans clé BA↔BV** → cloner BA(régime 6)+BV(régime 6) datés récents suffit. **En cours.**
+
+## BUG-29 (P2 observabilité) 🐞 — Écran « Exécutions de jobs » TOUJOURS vide (tenant-scopé strict) — relevé Karl 2026-07-01
+- **Relevé Karl** : « la planif de job tourne bien, mais l'écran exécution reste toujours vide. »
+- **Cause (sourcée code)** : `/admin/jobs/executions` (`AdminJobExecutions.razor`) est **tenant-scopé strict** :
+  - La page (`LoadExecutionsAsync`, l.146-152) : si `ActorContext.Current.CompanyId is null` (opérateur plateforme /
+    sysadmin **sans société courante**) → retourne `[]` **sans requête** → vide.
+  - La query (`PostgresJobExecutionsQueries.ListAsync`, l.32) : `WHERE company_id = @CompanyId` **strict**.
+  - Or le job qui tourne (E-reporting B2C, fan-out tous tenants) est un **job SYSTÈME** : le scheduler
+    (`JobScheduler` l.108-111) crée l'entrée `job.jobs` avec `companyId = schedule.CompanyId` = la **société
+    « porteuse » système** (sentinel plateforme, cf. BUG-4b / `ISystemScheduleHost`), **≠** la société courante de
+    Karl. Donc `WHERE company_id = <société courante>` ne ramène jamais les exécutions du job système → **écran vide
+    en permanence**, alors même que les jobs s'exécutent (planif OK).
+- **Nature** : symétrique EXACT de **BUG-4b** — on a rendu les jobs système *planifiables/consultables* par un
+  opérateur plateforme, mais l'écran des **EXÉCUTIONS** est resté tenant-scopé strict → il rate les runs système ET
+  est vide pour un opérateur sans société. Faux-vert d'observabilité (« ça tourne, mais je ne vois rien »).
+- **À corriger** : pour un opérateur plateforme (et pour les jobs système), l'écran doit exposer les exécutions de la
+  **porteuse système** (comme la page de planif le fait déjà via `ISystemScheduleHost`), **sans** ouvrir de fuite
+  cross-tenant des jobs *tenant* réels (CLAUDE.md n°9 préservé). Aligner le scoping de `PostgresJobExecutionsQueries`
+  + `AdminJobExecutions` sur celui des planifs système.
+- **Fichiers (pistes)** : `src/Modules/Job/Web/Pages/AdminJobExecutions.razor` (`LoadExecutionsAsync`, garde
+  `CompanyId is null`), `src/Modules/Job/Infrastructure/Queries/PostgresJobExecutionsQueries.cs` (`WHERE company_id`),
+  `ISystemScheduleHost` (porteuse système), cohérence avec `AdminJobSchedules` / BUG-4b.
+- **Critère d'acceptation** : un job système planifié qui s'exécute est **visible** dans « Exécutions de jobs » pour
+  l'opérateur plateforme ; aucune fuite des jobs tenant réels vers un autre tenant ; test.
+- **✅ RÉSOLU (2026-07-02)** : repli BUG-4b répliqué sur `AdminJobExecutions.LoadExecutionsAsync` —
+  `ActorContext.Current.CompanyId ?? SystemScheduleHost.CrossTenantHostCompanyId`. Un opérateur plateforme sans
+  société courante consulte les exécutions de la **porteuse système** (`5c8ed001-…`) au lieu d'une liste vide ; la
+  query `PostgresJobExecutionsQueries` reste tenant-scopée STRICTE (aucune fuite — CLAUDE.md n°9). Tests bUnit :
+  plateforme → requête sur la porteuse ; socle nu (pas de porteuse) → toujours vide. verify-fast Release vert.
+
+## Écran « Politiques » (= Politiques d'audit) — utilité produit à trancher 🧩 — question Karl 2026-07-01
+- **Question Karl** : « écran Politiques => ça sert à quoi ? »
+- **Réponse (sourcée code)** : `/admin/audit/policies` (`AdminAuditPolicies.razor`, module **socle vendored**
+  `Stratum.Modules.Audit`) = administration de la **piste d'audit générique du socle** : par `EntityType`, quels
+  **champs** sont journalisés (`TrackedFields` : « Tous » ou N), politique **Active/Inactive**. Actions : créer /
+  modifier / **désactiver** (unitaire + en masse). Ce n'est PAS une surface Liakont — c'est du socle.
+- **Point produit à trancher** : sur un produit de conformité fiscale, exposer un bouton **« Désactiver »** une
+  politique d'audit à un opérateur est contre-intuitif, voire dangereux. ⚠️ **À VÉRIFIER avant de trancher** : la
+  piste d'audit FISCALE (`DocumentEvent`, `MappingChangeLog`, append-only — règle métier n°4) passe-t-elle par ce
+  mécanisme configurable du socle, ou est-elle câblée en dur indépendamment ? Si elle en dépend, « désactiver une
+  politique » affaiblirait un invariant WORM (**P1**). Si elle est indépendante, l'écran ne pilote que l'audit
+  générique (users / config).
+- **✅ DÉCISION Karl (2026-07-01) : option (a) — masquer de la nav** (« ça ne nous sert à rien, du moins pour le
+  moment »). **IMPLÉMENTÉ** : `AuditNavVisibilityFilter.GetSection()` retire l'item « Politiques »
+  (`/admin/audit/policies`) de la section Audit ; « Journal d'audit » demeure ; la **ROUTE reste ouverte** au
+  super-admin (socle non modifié — CLAUDE.md n°11). Test `AuditNavVisibilityFilterTests` adapté (prouve l'absence
+  de l'item, section non vide). verify-fast en cours.
+- **✅ POINT DE FOND VÉRIFIÉ (2026-07-02) — AUCUN risque (Karl avait raison)** : les « Politiques d'audit »
+  (`AuditPolicy.IsEnabled`) ne gouvernent **aucun** chemin d'écriture actif dans le code Liakont. Preuves :
+  - **Piste fiscale `DocumentEvent`** → `PostgresDocumentUnitOfWork.AppendEventAsync` = `INSERT INTO
+    documents.document_events` **inconditionnel** (même transaction que le document ; immuabilité par **trigger
+    base** — CLAUDE.md n°4). Zéro consultation d'`AuditPolicy`.
+  - **`MappingChangeLog`** (module TvaMapping) : même pattern UnitOfWork ; le module TvaMapping ne référence
+    **jamais** le module Audit (`AuditPolicy` / `IAuditQueries` / `IActivityLogger`).
+  - **Journal d'activité générique** (`ActivityLogger` → `audit.activities`) : écrit **inconditionnellement**
+    (try/catch swallow — INV-AUDIT-002) et ne consulte pas les politiques. `AuditPolicy.IsEnabled` n'est lu par
+    **aucun** writer — seulement par les handlers de gestion Get/Set/Disable de l'écran masqué.
+  ⇒ L'écran est une surface socle **déclarative NON câblée** ; le masquage est purement visuel et « désactiver »
+  une politique n'a aucun effet (ni piste fiscale, ni journal générique). **Pas de P1 ; rien de plus à faire.**
+- **Fichiers** : `src/Modules/Audit/Web/Pages/AdminAuditPolicies.razor`,
+  `src/Host/Liakont.Host/Navigation/AuditNavVisibilityFilter.cs`.
+
+## BUG-30 (transverse — UX / texte produit) 🎨 — Références de DOCS DE CONCEPTION / codes d'items internes affichés à l'opérateur (à bannir) — relevé Karl 2026-07-01
+- **Relevé Karl** : « (les valeurs par défaut viennent de F12 §5.2) » (écrans Alertes / Supervision) — « ce genre de
+  référence à des docs de conception est à bannir des écrans, ET de tout texte dans l'appli. » → audit complet demandé.
+- **Principe** : aucun texte VU par l'opérateur ne doit citer une spec (`F01`..`F17`, `§`), un ADR, un code d'item
+  interne (`FIX###`, `WEB##`, `TVA##`, `PIP##`, `INV-…`, `blueprint §…`) ni un code normatif cryptique (`BT-##`,
+  `BG-##`). Même registre que « expert-comptable » (BUG-6), « démo », « évolution ultérieure » : jargon interne interdit
+  à l'écran. ⚠️ La **traçabilité** (`detailTechnique`, `fieldRef`, logs) GARDE ses refs — voir « NE PAS toucher ».
+- **Méthode** : audit 3 agents (UI Host / pages modules / messages C#), chaque hit tranché EN CONTEXTE visible vs
+  commentaire (l'énorme majorité des `F##` du repo sont des commentaires `@* *@` / `///` — écartés).
+
+### FERME — 27 occurrences CONFIRMÉES affichées (à nettoyer)
+**Écrans (HelpText / markup) — Host `src/Host/Liakont.Host/Components/` :**
+- `AlertesView.razor` : l.17 (F12 §5.1), l.57 (F12 §5.2 — le cas relevé), l.98 (F12 §5.3), l.140 (F12 §5.3), l.184 (F12 §5.3.1)
+- `FiscalView.razor` : l.23 (F09), l.36 (F12-A §3.2), l.51 (F09 §5.2), l.66 (F12-A §3.3 **+ « expert-comptable »**) ; l.16 « expert-comptable » (sans code)
+- `PaPublicationView.razor` : l.214 (F05 — propriété `TaxReportFieldHelp` → HelpText l.108/119)
+- `ProfilView.razor` : l.24 (INV-TENANTSETTINGS-001)
+- `MentionsFacturationView.razor` : l.24 (EN 16931 BT-20)
+
+**Messages opérateur (endpoint API → toast/bannière + journal d'activité affiché) :**
+- `src/Modules/Documents/Web/DocumentActionsEndpointMapping.cs` : l.177 (F06 §3), l.220 (F06 §4), l.298 (F08 §A.4), l.321 (F08 §A.4)
+
+**Messages opérateur (domaine — motifs de blocage / `Detail` affichés) :**
+- `src/Modules/TvaMapping/Domain/Services/TvaMapper.cs` : l.60 (F03 §4.1), l.71 (F03 §3) — motif de blocage
+- `.../TvaMapping/Domain/Services/VatCategoryParser.cs` : l.32, l.46 (F03 §2.1) — message d'`ArgumentException` opérateur
+- `.../TvaMapping/Domain/Services/MappingTableValidator.cs` : l.37 (F03 §4.1), l.67 (F03 §3), l.76 (F03 §2.1), l.95 (F03 §2.2) — validation table console
+- `src/Modules/Documents/Domain/Entities/Document.cs` : l.385 (F06 §4) — `DocumentEvent.Detail` (Supersede), piste d'audit affichée
+- `.../Documents/Domain/Entities/DocumentEvent.cs` : l.273-274 (F08 §A.4) — `Detail` (motif COURANT affiché console)
+- `src/Modules/Pipeline/Domain/Payments/PaymentAggregationCalculator.cs` : l.65 (F09 §2) — `PaymentExclusion.Detail`
+
+### À TRANCHER — ~58 occurrences « DOUTE » (rendu opérateur non prouvé)
+- **Le plus à risque = gardes de value objects `TenantSettings/Domain`** (`TenantProfile`, `TenantAddress`,
+  `AlertThresholds`, `AlertRoutingRule`, `ExtractionSchedule`, `PaAccount`) : messages FR préfixés `INV-TENANTSETTINGS-…`
+  qui **peuvent remonter à l'écran** comme erreur de validation d'un formulaire console (ex. « INV-TENANTSETTINGS-001 :
+  le SIREN doit comporter 9 chiffres »). **À VÉRIFIER** : ces gardes alimentent-elles un message de formulaire ? Si oui →
+  retirer le préfixe `INV-…` du texte affiché (garder l'invariant en commentaire / code d'erreur non rendu).
+- Autres doutes (probablement PAS affichés, à confirmer) : exceptions techniques (`InvalidDocumentTransition`, FacturX
+  `BT-/BG-`), gardes `Require` de `Documents`/`Payments/Domain` (déclenchées sur bug d'appelant), messages « tenant-scopé
+  blueprint §7 » (garde interne), statuts de gate/ancrage (`ApprovalGate`, `ArchiveAnchoring`, ADR-0011/0028),
+  descriptions `LogActivityAsync` (`DocumentControlActionsService` l.87/112, F08 §A.4).
+
+### NE PAS toucher (refs LÉGITIMES, hors chemin opérateur — un nettoyage aveugle serait une régression)
+- **`ValidationIssue.DetailTechnique` + `FieldRef`** (toutes les règles `Validation/Domain/Rules/*`) : contiennent
+  F04/F15/ADR/BT/BG MAIS documentés « jamais affichés à l'opérateur ». `DocumentCheckEvaluator` n'agrège QUE
+  `MessageOperateur` (propre, sans ref) ; le Host ne référence jamais `DetailTechnique`/`FieldRef`. → traçabilité, GARDER.
+- **`SystemJobDefinitions.Label`** (item-codes PIP/TRK/FX/ADR…) : consommés uniquement par `[LoggerMessage]` /
+  health-check ; la console affiche `ScheduleName` (sans code). → log, GARDER. *(Piste flairée par l'agent UI = faux positif.)*
+- Commentaires `///`/`//`/`@* *@`, tests, `agent/**` : hors sujet.
+
+### Trou connexe (BUG-6 incomplet)
+- BUG-6 (bannir « expert-comptable » des messages) n'a nettoyé que les règles de validation : **`FiscalView.razor`
+  l.16 et l.66 citent encore « expert-comptable »** dans des HelpText. À traiter avec ce lot.
+
+### Critère d'acceptation
+- Aucune des **27** occurrences fermes ne subsiste à l'écran : reformuler en langage opérateur (ce que ça veut dire +
+  action concrète), **sans citer la source interne**. Les DOUTE confirmés affichés = nettoyés ; les non-affichés = laissés.
+- Refs de traçabilité (`DetailTechnique`/`FieldRef` / Labels de jobs / logs) INTACTES.
+- **Garde de non-régression** à envisager : test qui échoue si une chaîne AFFICHÉE (HelpText / markup /
+  `MessageOperateur` / `Detail` / `ActionProblem`) matche `F\d|§|ADR-|INV-|BT-\d|BG-\d|FIX\d|WEB\d|PIP\d|blueprint`.
+- **Périmètre lourd (5 écrans + 6 fichiers domaine + 1 endpoint) → LOT DÉDIÉ** (feu vert Karl).
+
+### ✅ RÉSOLU (2026-07-02) — les 27 nettoyées
+- **27/27 refs retirées** du texte affiché (sens opérateur + fiscal préservés ; commentaires `@* *@` / `///` et
+  `DetailTechnique`/`FieldRef`/logs INTACTS) : écrans `AlertesView` / `FiscalView` / `PaPublicationView` / `ProfilView` /
+  `MentionsFacturationView` ; endpoint `DocumentActionsEndpointMapping` ; domaine `TvaMapper` / `VatCategoryParser` /
+  `MappingTableValidator` / `Document` / `DocumentEvent` / `PaymentAggregationCalculator`. Jargon `defaultBehavior=block`
+  retiré aussi. Tests alignés : `TvaMapperTests` (« block » → « bloqué ») + `TvaRuleEditorTests`. **verify-fast Release vert.**
+- **Faux positif écarté** : `BuyerLooksProfessionalRule` a un `messageOperateur` propre (ref en `detailTechnique`, non affiché).
+- **⏸ EN ATTENTE décision Karl** : « expert-comptable » GARDÉ dans `FiscalView` (l.16/66) + `MentionsFacturationView`
+  (l.17/34) — cas d'usage LÉGITIME (décision fiscale client réellement ouverte), distinct des blocages de BUG-6.
+- **Reste (non traité, DOUTE)** : gardes value-objects `TenantSettings` préfixées `INV-TENANTSETTINGS-…` qui peuvent
+  remonter en erreur de formulaire (ex. « INV-TENANTSETTINGS-001 : le SIREN… ») — à trancher / nettoyer dans un 2ᵉ passage.
 
 ## Pattern à garder en tête (dette transverse)
 - **Overlay read-time posé sur la fiche mais pas la liste** = divergence possible (cas BUG-24). Règle : le « statut affiché »

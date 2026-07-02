@@ -11,6 +11,8 @@ using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Mandats.Contracts;
 using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Domain;
+using Liakont.Modules.Reference.Contracts;
+using Liakont.Modules.Reference.Contracts.DTOs;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
@@ -34,6 +36,21 @@ internal static class CheckTestDoubles
 
         public object? GetService(Type serviceType) =>
             _services.TryGetValue(serviceType, out var service) ? service : null;
+    }
+
+    /// <summary>
+    /// Référentiel de correspondance pays factice (ADR-0038) : PASSE-PLAT (un code brut est renvoyé tel quel,
+    /// aucun alias) — la normalisation read-time du CHECK devient un no-op, préservant exactement les assertions
+    /// d'avant l'ADR. Le vrai comportement d'aliasing est couvert par <c>PivotCountryNormalizerTests</c> et les
+    /// tests d'intégration du store.
+    /// </summary>
+    internal sealed class FakeCountryAliasReferential : ICountryAliasReferential
+    {
+        public Task<string?> ResolveAsync(string? rawCountryCode, CancellationToken cancellationToken = default) =>
+            Task.FromResult(rawCountryCode);
+
+        public Task<IReadOnlyList<CountryAliasDto>> GetAliasesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<CountryAliasDto>>(Array.Empty<CountryAliasDto>());
     }
 
     internal sealed class FakeTenantScopeFactory : ITenantScopeFactory

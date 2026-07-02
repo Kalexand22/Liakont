@@ -13,6 +13,7 @@ using Liakont.Modules.Mandats.Contracts;
 using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Infrastructure.Check;
+using Liakont.Modules.Reference.Contracts;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
@@ -605,6 +606,7 @@ public sealed class DocumentReceivedConsumerTests
             [typeof(IMarginRegistryStore)] = marginRegistry,
             [typeof(ISelfBilledGate)] = gate,
             [typeof(ITenantContext)] = new FakeTenantContext(CheckTestData.TenantSlug),
+            [typeof(ICountryAliasReferential)] = new FakeCountryAliasReferential(),
         };
 
         // La garde de capacité 389 (MND07) ne résout le registre PA QUE pour un document self-billed avec une PA

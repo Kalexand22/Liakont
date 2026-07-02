@@ -154,6 +154,36 @@ public sealed class DocumentReceivedConsumerIntegrationTests : IClassFixture<Pip
             "la garde fail-closed « marge non classée » ne doit PLUS firer sur un régime CLASSÉ (BUG-17 volet a).");
     }
 
+    [Fact]
+    public async Task Buyer_Country_Legacy_Alias_Is_Normalized_Before_BT55_So_The_Document_Is_Not_Blocked_On_Country()
+    {
+        // ADR-0038 (câblage CHECK) : un acheteur B2B dont le pays source est un code LEGACY non-ISO (« ENG »)
+        // serait BLOQUÉ par BT-55 (BUYER_COUNTRY_INVALID) s'il arrivait brut. Le référentiel normalise ENG→GB au
+        // read-time AVANT validation → BT-55 voit un code ISO valide. On assère l'ABSENCE du motif « pays » (isolé
+        // du reste de la validation) : si le câblage de normalisation au CHECK était retiré, le document serait
+        // bloqué avec BUYER_COUNTRY_INVALID et ce test ROUGIRAIT — anti faux-vert sur la voie CHECK.
+        var documentId = Guid.NewGuid();
+        var sourceReference = "no_ba=" + documentId.ToString("N");
+        var buyer = new PivotPartyDto(
+            "Acheteur UK Ltd",
+            siren: "945678902",
+            address: new PivotAddressDto(city: "London", countryCode: "ENG"));
+        var pivot = CheckIntegrationFixtures.BuildPivot(sourceReference, regimeCode: "NORMAL", customer: buyer);
+
+        await SeedAndStageAsync(documentId, sourceReference, pivot);
+
+        await ConsumeAsync(documentId, sourceReference, CheckIntegrationFixtures.PayloadHashOf(pivot));
+
+        (await _harness.GetDocumentStateAsync(documentId)).Should().Be(
+            "ReadyToSend",
+            "l'alias legacy ENG→GB (ADR-0038) est normalisé avant BT-55 (code ISO valide) → aucun blocage.");
+
+        var events = await _harness.GetEventsAsync(documentId);
+        events.Should().NotContain(
+            e => e.Detail != null && e.Detail.Contains("pays", StringComparison.OrdinalIgnoreCase),
+            "le pays acheteur normalisé (GB) est un code ISO valide : BT-55 ne doit poser AUCUN motif « pays ».");
+    }
+
     private async Task SeedAndStageAsync(Guid documentId, string sourceReference, PivotDocumentDto pivot)
     {
         var json = CanonicalJson.Serialize(pivot);

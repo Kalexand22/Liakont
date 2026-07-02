@@ -1,5 +1,12 @@
 # Plan — Configuration email d'instance multi-provider chiffrée
 
+> **✅ LIVRÉ (2026-07-01, branche `feat/recette-encheres-config-email-instance`).** Tous les lots ci-dessous
+> sont implémentés (avec un écart documenté : orchestration par **service console Host**
+> `IInstanceEmailConfigService` plutôt qu'un handler MediatR — l'assembly Host n'étant scanné par aucun
+> `AddMediatR` ; précédent `GeneriqueAccountResolver`). `verify-fast` + `run-tests` (7205 tests) verts.
+> Voir la **Note d'implémentation** d'ADR-0039. Fusion humaine à venir.
+
+
 > Spec : **ADR-0039** (`docs/adr/ADR-0039-config-email-instance-multi-provider-chiffree.md`), amende ADR-0018.
 > Demande : `tasks/bugs-recette-encheres-b2c.md` (« Config d'envoi d'emails en Supervision »).
 >

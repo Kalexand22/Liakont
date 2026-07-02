@@ -151,46 +151,27 @@ public class EncheresV6RowMapperTests
     }
 
     [Fact]
-    public void MapBaDocument_normalizes_non_iso_country_code_UK_nations_to_GB()
+    public void MapBaDocument_transports_country_code_raw_without_normalization()
     {
-        // La source EncheresV6 étiquette certaines nations du Royaume-Uni par un code non-ISO (« ENG »/« SCO »/
-        // « WAL »/« NIR » — codes de subdivision ISO 3166-2, pas des pays alpha-2) : l'agent les normalise vers
-        // « GB » (ISO 3166-1, sinon la plateforme BLOQUE — code pays invalide). Donnée legacy, pas fiscale.
+        // ADR-0038 : l'agent ne normalise PLUS le code pays (la table de correspondance ENG/JAP/BEL→ISO a migré
+        // côté PLATEFORME — référentiel éditable/audité, module Reference). L'adaptateur transporte le code BRUT
+        // (seul NullIfBlank rogne les espaces) : ni casse forcée, ni mapping. La plateforme normalise au read-time
+        // (CHECK/SEND/affichage) puis valide (BT-55) — un code non mappé y reste bloqué (fail-closed, CLAUDE.md n°2).
         EncheresV6Bordereau eng = MargeBa();
         eng.CodePays = "ENG";
-        EncheresV6RowMapper.MapBaDocument(eng, null).Customer!.Address!.CountryCode.Should().Be("GB");
+        EncheresV6RowMapper.MapBaDocument(eng, null).Customer!.Address!.CountryCode.Should().Be("ENG", "code non-ISO transporté brut (plus de normalisation agent)");
 
-        EncheresV6Bordereau sco = MargeBa();
-        sco.CodePays = " sco ";
-        EncheresV6RowMapper.MapBaDocument(sco, null).Customer!.Address!.CountryCode.Should().Be("GB", "casse et espaces tolérés");
+        EncheresV6Bordereau jap = MargeBa();
+        jap.CodePays = " jap ";
+        EncheresV6RowMapper.MapBaDocument(jap, null).Customer!.Address!.CountryCode.Should().Be("jap", "espaces rognés (NullIfBlank), mais ni casse ni mapping appliqués côté agent");
+
+        EncheresV6Bordereau inconnu = MargeBa();
+        inconnu.CodePays = "ZZ";
+        EncheresV6RowMapper.MapBaDocument(inconnu, null).Customer!.Address!.CountryCode.Should().Be("ZZ", "code inconnu transporté brut");
 
         EncheresV6Bordereau isoPays = MargeBa();
         isoPays.CodePays = "FR";
         EncheresV6RowMapper.MapBaDocument(isoPays, null).Customer!.Address!.CountryCode.Should().Be("FR", "un code ISO valide est transporté tel quel");
-
-        EncheresV6Bordereau inconnu = MargeBa();
-        inconnu.CodePays = "ZZ";
-        EncheresV6RowMapper.MapBaDocument(inconnu, null).Customer!.Address!.CountryCode.Should().Be("ZZ", "un code non listé reste strictement brut — l'adaptateur ne devine jamais un pays");
-    }
-
-    [Fact]
-    public void MapBaDocument_normalizes_non_iso_country_code_JAP_to_JP_via_extensible_table()
-    {
-        // BUG-18 : la source EncheresV6 étiquette le Japon « JAP » (non-ISO) — doc n°2000020 bloqué. La table de
-        // correspondance EXTENSIBLE (plus de liste codée en dur) le normalise vers « JP » (ISO 3166-1 alpha-2).
-        EncheresV6Bordereau jap = MargeBa();
-        jap.CodePays = "JAP";
-        EncheresV6RowMapper.MapBaDocument(jap, null).Customer!.Address!.CountryCode.Should().Be("JP");
-
-        EncheresV6Bordereau japCasse = MargeBa();
-        japCasse.CodePays = " jap ";
-        EncheresV6RowMapper.MapBaDocument(japCasse, null).Customer!.Address!.CountryCode.Should().Be("JP", "casse et espaces tolérés");
-
-        // Fail-closed (CLAUDE.md n°2) : un code non-ISO TOUJOURS absent de la table reste BRUT → la plateforme
-        // BLOQUE (jamais deviné). Le pays pilote l'aiguillage fiscal : une normalisation fausse mis-route.
-        EncheresV6Bordereau autreInconnu = MargeBa();
-        autreInconnu.CodePays = "XYZ";
-        EncheresV6RowMapper.MapBaDocument(autreInconnu, null).Customer!.Address!.CountryCode.Should().Be("XYZ", "un code non mappé reste bloqué côté plateforme — fail-closed");
     }
 
     [Fact]

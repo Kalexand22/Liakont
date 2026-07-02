@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using FluentAssertions;
 using Liakont.Host.Configuration;
 using Liakont.Host.Notifications;
+using Liakont.Host.Tests.Unit.InstanceEmail;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using MimeKit;
@@ -117,10 +118,8 @@ public sealed class SmtpEmailTransportTests
     [Fact]
     public async Task SendAsync_Is_NoOp_When_Not_Configured()
     {
-        var transport = new SmtpEmailTransport(
-            Options.Create(new SmtpOptions { Enabled = false }),
-            Options.Create(DefaultBranding()),
-            NullLogger<SmtpEmailTransport>.Instance);
+        // Aucune config d'instance (store vide) ET appsettings désactivé → repli no-op (ADR-0039 §6).
+        var transport = NewTransport(new SmtpOptions { Enabled = false }, new FakeInstanceEmailConfigStore());
 
         var act = async () => await transport.SendAsync("ops@liakont.test", "Sujet", "Corps");
 
@@ -135,13 +134,23 @@ public sealed class SmtpEmailTransportTests
     {
         // Enabled=true mais un champ obligatoire manquant : on reste no-op (pas de throw), c'est la branche
         // qui distingue le vrai transport du stub quand l'opérateur active SMTP en oubliant un champ.
-        var transport = new SmtpEmailTransport(
-            Options.Create(new SmtpOptions { Enabled = true, Host = host, FromAddress = fromAddress }),
-            Options.Create(DefaultBranding()),
-            NullLogger<SmtpEmailTransport>.Instance);
+        var transport = NewTransport(
+            new SmtpOptions { Enabled = true, Host = host, FromAddress = fromAddress },
+            new FakeInstanceEmailConfigStore());
 
         var act = async () => await transport.SendAsync("ops@liakont.test", "Sujet", "Corps");
 
         await act.Should().NotThrowAsync();
     }
+
+    // Construit le transport provider-aware avec des doubles (aucune config d'instance en base par défaut →
+    // le transport retombe sur les appsettings, comme avant ADR-0039).
+    private static SmtpEmailTransport NewTransport(SmtpOptions options, FakeInstanceEmailConfigStore store) =>
+        new(
+            Options.Create(options),
+            Options.Create(DefaultBranding()),
+            store,
+            new FakeSecretProtector(),
+            new FakeEmailOAuthTokenProvider(),
+            NullLogger<SmtpEmailTransport>.Instance);
 }

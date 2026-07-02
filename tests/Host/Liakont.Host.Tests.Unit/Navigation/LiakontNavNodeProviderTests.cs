@@ -194,9 +194,9 @@ public sealed class LiakontNavNodeProviderTests
         var parametrage = Node(root, "Paramétrage");
         parametrage.HasChildren.Should().BeTrue("avec liakont.settings, Paramétrage est un sous-menu");
         parametrage.Children.Select(c => c.Label).Should().Equal(
-            "Vue d'ensemble", "Profil légal", "Paramètres fiscaux", "Table TVA", "Comptes PA", "Alertes & supervision", "Agents d'extraction");
+            "Vue d'ensemble", "Profil légal", "Paramètres fiscaux", "Table TVA", "Référentiel pays", "Comptes PA", "Alertes & supervision", "Agents d'extraction");
         parametrage.Children.Select(c => c.Href).Should().Equal(
-            "/parametrage", "/parametrage/profil", "/parametrage/fiscal", "/parametrage/table-tva", "/parametrage/comptes-pa", "/parametrage/alertes", "/agents");
+            "/parametrage", "/parametrage/profil", "/parametrage/fiscal", "/parametrage/table-tva", "/parametrage/referentiel-pays", "/parametrage/comptes-pa", "/parametrage/alertes", "/agents");
     }
 
     [Fact]
@@ -292,6 +292,30 @@ public sealed class LiakontNavNodeProviderTests
         var clients = supervision.Children[1];
         clients.Label.Should().Be("Clients");
         clients.Href.Should().Be("/clients");
+    }
+
+    [Fact]
+    public void Supervision_Should_Hide_Email_Config_Without_Instance_Settings_Permission()
+    {
+        // ADR-0039 : « Configuration email » est un geste d'ÉCRITURE d'instance (liakont.instance.settings),
+        // distinct de la lecture seule liakont.supervision. Un superviseur SANS instance.settings ne la voit pas.
+        var root = BuildProvider(permissions: [LiakontPermissions.Supervision]).GetNavNode();
+
+        var supervision = root.Children.Single(n => n.Label == "Supervision");
+        supervision.Children.Select(c => c.Label).Should().NotContain("Configuration email");
+    }
+
+    [Fact]
+    public void Supervision_Should_Show_Email_Config_With_Instance_Settings_Permission()
+    {
+        // Porteur de liakont.supervision (aire d'instance visible) ET de liakont.instance.settings (écriture) :
+        // l'entrée « Configuration email » apparaît, rangée dans l'aire opérateur d'instance (ADR-0039, /email-instance).
+        var root = BuildProvider(permissions:
+            [LiakontPermissions.Supervision, LiakontPermissions.InstanceSettings]).GetNavNode();
+
+        var supervision = root.Children.Single(n => n.Label == "Supervision");
+        var email = supervision.Children.Single(c => c.Label == "Configuration email");
+        email.Href.Should().Be("/email-instance");
     }
 
     [Fact]

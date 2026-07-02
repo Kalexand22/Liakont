@@ -10,6 +10,7 @@ using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.Mandats.Contracts;
 using Liakont.Modules.Pipeline.Domain.B2cReporting;
 using Liakont.Modules.Pipeline.Infrastructure.B2cReporting;
+using Liakont.Modules.Reference.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Liakont.Modules.Transmission.Contracts;
@@ -103,6 +104,12 @@ internal static class DocumentCheckEvaluator
         // du tenant. Idempotent : un émetteur déjà porté (389 = mandant) n'est pas écrasé.
         var tenantSettings = services.GetRequiredService<ITenantSettingsQueries>();
         pivot = await PivotEmitterEnricher.EnrichFromTenantAsync(pivot, tenantSettings, companyId, cancellationToken);
+
+        // Code pays acheteur normalisé ISO 3166-1 au READ-TIME depuis le référentiel cross-instance (ADR-0038),
+        // AVANT BT-55 : un alias connu (ENG→GB) passe la validation, un code non mappé reste BRUT et BLOQUE
+        // (fail-closed, INV-REF-CTRY-03). Jamais à l'ingestion (l'empreinte anti-doublon F06 hashe le pivot SOURCE).
+        var countryAliases = services.GetRequiredService<ICountryAliasReferential>();
+        pivot = await PivotCountryNormalizer.NormalizeAsync(pivot, countryAliases, cancellationToken);
 
         var mappingService = services.GetRequiredService<ITvaMappingService>();
         var plan = CheckTvaMapping.BuildPlan(pivot);

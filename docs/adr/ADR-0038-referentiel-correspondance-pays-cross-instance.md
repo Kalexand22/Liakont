@@ -1,6 +1,6 @@
 # ADR-0038 — Référentiel de correspondance pays (ISO 3166) : normalisation cross-instance au read-time plateforme, hors agent
 
-- **Statut** : Proposé (2026-07-01).
+- **Statut** : Accepté (2026-07-01) — **implémenté** (branche `feat/recette-encheres-referentiel-pays`).
 - **Date** : 2026-07-01
 - **Nature** : cet ADR **précède** le chantier d'implémentation. Il corrige un écart de recette EncheresV6 (Karl,
   2026-07-01) : la table de correspondance des codes pays non-ISO (`ENG/SCO/WAL/NIR→GB`, `JAP→JP`) est
@@ -178,9 +178,31 @@ plus l'override SMTP/pays par tenant (aucun ici).
 
 | # | Point | Défaut défendable PRIS | Owner |
 |---|-------|------------------------|-------|
-| D1 | Home exact du référentiel neutre (module dédié `Reference` vs adjacent `TenantSettings`/`Settings` vs `Common`). | **Module dédié minimal `Liakont.Modules.Reference`** (Contracts + Infrastructure) — frontière la plus propre (Pipeline → Contracts, aucune inversion). Alternative si le module gêne : porter le store dans un module déjà cross-instance en écriture, Supervision restant en lecture. Sans impact sur le reste du design. | Karl + implémentation |
+| D1 | Home exact du référentiel neutre (module dédié `Reference` vs adjacent `TenantSettings`/`Settings` vs `Common`). | **TRANCHÉ à l'implémentation → module dédié minimal `Liakont.Modules.Reference`** (Contracts + Infrastructure) — frontière la plus propre (Pipeline → Contracts, aucune inversion). Alternative si le module gêne : porter le store dans un module déjà cross-instance en écriture, Supervision restant en lecture. Sans impact sur le reste du design. | Karl + implémentation |
 | D2 | TOCTOU : référentiel édité **entre** CHECK et SEND → le payload envoyé peut diverger du code validé. | Accepté comme **read-time-courant** (même sémantique que `PivotEmitterEnricher`) ; SEND ne doit pas émettre **en silence** un code désormais dé-aliasé (re-normalise au SEND, le fail-closed rejoue). À surveiller si un besoin de gel apparaît. | Karl |
 | D3 | Documents déjà ingérés : leur pivot source porte le code brut (empreinte inchangée) ; ils remontent normalisés au prochain read-time. | **Aucune migration de données** en build ([[calibrer-severite-review-sur-stade-build]]) ; une ré-extraction ré-émet normalement. À signaler au client au déploiement, jamais cadré en incident prod. | — |
+
+### Note d'implémentation (2026-07-01)
+
+- **D1 tranché → module dédié `Liakont.Modules.Reference`** (`Contracts` + `Infrastructure`), câblé dans
+  `AppBootstrap` (`AddReferenceModule()`). Pipeline ne référence que `Reference.Contracts`
+  (`ICountryAliasReferential`) — frontière n°6/14 respectée.
+- **Validation ISO de la cible — duplication assumée, verrouillée par un test de parité.** `CountryCodeValidator`
+  (source ISO 3166-1) vit dans `Validation.Domain` ; `Reference` **ne peut pas** le référencer (module → Domain
+  d'un autre module = P1, frontière n°14). La liste ISO est donc **dupliquée** dans un
+  `IsoCountryReference` **interne** à `Reference.Infrastructure`, et un **test de parité**
+  (`IsoCountryReferenceParityTests`, 676 combinaisons alpha-2 + cas limites) — le seul endroit autorisé à
+  référencer les DEUX modules (projet de test, hors production) — **échoue** si les deux listes divergent. La
+  production reste propre ; la dérive est empêchée par le test, pas par un couplage.
+- **Journal append-only** matérialisé par `reference.country_alias_change_log` + **triggers Postgres** qui
+  rejettent `UPDATE`/`DELETE` (FOR EACH ROW) et `TRUNCATE` (FOR EACH STATEMENT) ; test d'intégration
+  `The_change_log_rejects_update_delete_and_truncate` (Testcontainers) prouve les TROIS rejets sur base réelle
+  (dont la purge en masse TRUNCATE).
+- **Câblage read-time couvert de bout en bout** : `Replay_Normalizes_The_Buyer_Country_Alias_To_Its_Iso_Code`
+  (Pipeline.Tests.Integration) fait remonter un pays legacy `ENG→GB` à travers DI + base réelle (référentiel
+  résolu par `DocumentContentReplayService`) — supprimer un appel de câblage fait rougir la suite (anti faux-vert).
+- **Garde de frontière Pipeline→Reference.Infrastructure NON écrite** (honnêteté : aucun harnais NetArchTest
+  n'existe pour Pipeline aujourd'hui — cf. Conséquences). Non prétendue « verte ».
 
 ## Alternatives rejetées
 

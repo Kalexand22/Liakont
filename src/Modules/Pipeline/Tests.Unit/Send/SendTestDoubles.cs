@@ -12,6 +12,8 @@ using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Domain;
+using Liakont.Modules.Reference.Contracts;
+using Liakont.Modules.Reference.Contracts.DTOs;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.SupportTrace.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
@@ -30,6 +32,14 @@ internal static class SendTestDoubles
     {
         private readonly Dictionary<Type, object> _services = new();
 
+        public FakeServiceProvider()
+        {
+            // Référentiel de correspondance pays (ADR-0038) : identité par défaut (aucun alias). Le SEND le résout
+            // au read-time via PivotCountryNormalizer ; aucun test SEND n'exerce un alias, un passe-plat suffit et
+            // préserve le comportement d'avant l'ADR (la plateforme ne normalisait pas). Surchargeable via Add<>.
+            _services[typeof(ICountryAliasReferential)] = new FakeCountryAliasReferential();
+        }
+
         public FakeServiceProvider Add<TService>(TService instance)
             where TService : class
         {
@@ -39,6 +49,21 @@ internal static class SendTestDoubles
 
         public object? GetService(Type serviceType) =>
             _services.TryGetValue(serviceType, out var service) ? service : null;
+    }
+
+    /// <summary>
+    /// Référentiel de correspondance pays factice (ADR-0038) : PASSE-PLAT (un code brut est renvoyé tel quel,
+    /// aucun alias) — la normalisation read-time du SEND devient un no-op, préservant exactement les assertions
+    /// d'avant l'ADR. Le vrai comportement d'aliasing est couvert par <c>PivotCountryNormalizerTests</c> et les
+    /// tests d'intégration du store.
+    /// </summary>
+    internal sealed class FakeCountryAliasReferential : ICountryAliasReferential
+    {
+        public Task<string?> ResolveAsync(string? rawCountryCode, CancellationToken cancellationToken = default) =>
+            Task.FromResult(rawCountryCode);
+
+        public Task<IReadOnlyList<CountryAliasDto>> GetAliasesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<CountryAliasDto>>(Array.Empty<CountryAliasDto>());
     }
 
     internal sealed class FixedTimeProvider : TimeProvider

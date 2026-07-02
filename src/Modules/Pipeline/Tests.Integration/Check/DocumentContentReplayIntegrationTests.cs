@@ -143,6 +143,33 @@ public sealed class DocumentContentReplayIntegrationTests : IClassFixture<Pipeli
         replay.Available.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task Replay_Normalizes_The_Buyer_Country_Alias_To_Its_Iso_Code()
+    {
+        // ADR-0038 : le code pays acheteur arrive de la source sous une forme LEGACY non-ISO (« ENG ») ; la
+        // plateforme le NORMALISE au READ-TIME depuis le référentiel cross-instance (alias ENG→GB seedé en
+        // migration) — l'opérateur voit « GB ». Prouve le câblage RÉEL de bout en bout DocumentContentReplayService
+        // → PivotCountryNormalizer → référentiel Postgres (via DI + base réelle) : supprimer un appel de câblage
+        // ferait rougir ce test. Le pivot SOURCE (donc l'empreinte anti-doublon F06) reste inchangé : la
+        // normalisation n'a lieu qu'au read-time (INV-REF-CTRY-02).
+        var documentId = Guid.NewGuid();
+        var sourceReference = "no_ba=" + documentId.ToString("N");
+        var buyer = new PivotPartyDto(
+            "Acheteur UK Ltd",
+            siren: "945678902",
+            address: new PivotAddressDto(city: "London", countryCode: "ENG"));
+        var pivot = CheckIntegrationFixtures.BuildPivot(sourceReference, regimeCode: "NORMAL", customer: buyer);
+        pivot.Customer!.Address!.CountryCode.Should().Be("ENG", "le pivot source porte le code legacy tel quel");
+
+        await SeedAndStageAsync(documentId, sourceReference, pivot);
+
+        var replay = await _harness.ReplayContentAsync(documentId);
+
+        replay.Available.Should().BeTrue();
+        replay.MappedPivot!.Customer!.Address!.CountryCode.Should().Be(
+            "GB", "l'alias legacy ENG→GB (référentiel ADR-0038) est résolu au read-time via la base réelle");
+    }
+
     private async Task SeedAndStageAsync(Guid documentId, string sourceReference, PivotDocumentDto pivot)
     {
         var json = CanonicalJson.Serialize(pivot);

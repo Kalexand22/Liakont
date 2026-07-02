@@ -17,6 +17,7 @@ des champs `public const string`.
 | `liakont.actions` | `LiakontPermissions.Actions` | Actions opérateur : déblocage, relance, ré-émission, actions correctives. |
 | `liakont.settings` | `LiakontPermissions.Settings` | Paramétrage fiscal du tenant : table TVA, mappings, comptes Plateforme Agréée, seuils. |
 | `liakont.supervision` | `LiakontPermissions.Supervision` | Supervision : vues cross-tenant en lecture seule (module Supervision) **et administration d'instance** (OPS03 : écran Clients — création de tenants, suspension/réactivation ; les actions dispatchent in-process dans le scope du tenant cible, la garde de page est l'unique contrôle de ce chemin, parité WEB09). |
+| `liakont.instance.settings` | `LiakontPermissions.InstanceSettings` | Paramétrage **MUTANT** d'instance (ADR-0039), hors tenant : configuration d'envoi d'emails de l'instance (SMTP basic / Gmail / O365 OAuth2, secrets chiffrés). Distincte de `liakont.supervision` (lecture seule) : une écriture ne s'accroche pas à une permission « lecture seule ». |
 | `liakont.fleet` | `LiakontPermissions.Fleet` | Méta-supervision de flotte (OPS04) : dashboard cross-**instance** d'IT Innovations (état des instances, versions, alertes). Niveau au-dessus de `liakont.supervision`. |
 | `liakont.ged.read` | `LiakontPermissions.GedRead` | GED (option/upsell par tenant, F19) — consultation : recherche multidimensionnelle, fiche document, exploration de graphe (F19 §6.5, ADR-0035). Lecture de la GED, distincte de la consultation fiscale `liakont.read`. N'ouvre pas les axes/entités confidentiels. |
 | `liakont.ged.export` | `LiakontPermissions.GedExport` | GED — export : extraction/réversibilité (action `export` journalisée, ADR-0036 §4), gardée **séparément** de `liakont.ged.read` (consulter n'autorise pas à exporter). L'export masque toujours les valeurs confidentielles. |
@@ -44,14 +45,17 @@ défaut attribué à tout nouvel utilisateur est `lecture`.
 | `liakont.actions` |  | ✔ | ✔ | ✔ |
 | `liakont.settings` |  |  | ✔ | ✔ |
 | `liakont.supervision` |  |  |  | ✔ |
+| `liakont.instance.settings` |  |  |  | ✔ |
 | `liakont.ged.read` | ✔ | ✔ | ✔ | ✔ |
 | `liakont.ged.export` |  | ✔ | ✔ | ✔ |
 | `liakont.ged.confidential` |  |  |  | ✔ |
 
 Résumé : `lecture` → read ; `operateur` → read + actions ; `parametrage` → read + actions
-+ settings ; `superviseur` → les quatre permissions. **GED** (option/upsell par tenant) : chaque
-rôle éditeur reçoit `ged.read` (consultation) ; `ged.export` à partir d'`operateur` ;
-`ged.confidential` au seul `superviseur`.
++ settings ; `superviseur` → read + actions + settings + supervision + instance.settings
+(l'opérateur d'instance : la supervision cross-tenant en lecture ET le paramétrage d'instance
+en écriture, ADR-0039). **GED** (option/upsell par tenant) : chaque rôle éditeur reçoit
+`ged.read` (consultation) ; `ged.export` à partir d'`operateur` ; `ged.confidential` au seul
+`superviseur`.
 
 > **Colonnes GED (amendement GED06 — F19 §6.5, ADR-0032/0035/0036).** Les 3 permissions GED sont
 > **matérialisées en code** (`RolePermissionCatalog` + `const` — RL-35), **pas** du paramétrage

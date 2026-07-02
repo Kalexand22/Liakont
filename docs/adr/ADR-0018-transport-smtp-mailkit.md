@@ -1,6 +1,6 @@
 # ADR-0018 — Transport SMTP réel des notifications (MailKit) pour les alertes de supervision
 
-- **Statut** : Proposé (2026-06-08).
+- **Statut** : Proposé (2026-06-08) — **partiellement amendé par [ADR-0039](ADR-0039-config-email-instance-multi-provider-chiffree.md)** (2026-07-01) : la CONFIGURATION d'envoi devient paramétrable en console et chiffrée en base (multi-provider SMTP basic / Gmail / O365 XOAUTH2), la section `appsettings` `Smtp` restant le REPLI bootstrap. Le choix de MailKit (§1), le confinement au Host (§2) et le non-blocage à l'échec (§4) restent inchangés.
 - **Date** : 2026-06-08
 - **Contexte décisionnel** : `orchestration/items/SUP.yaml` (SUP03), `docs/conception/F12-Architecture-Plateforme-Agent.md`
   §5.3 (destinataires) et §6.1 (config SMTP au niveau instance), `CLAUDE.md` n°5 (tout nouveau package = ADR ;

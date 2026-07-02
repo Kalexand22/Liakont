@@ -51,6 +51,7 @@ public sealed class RolePermissionCatalogTests
                 LiakontPermissions.GedRead,
                 LiakontPermissions.GedExport,
                 LiakontPermissions.GedConfidential,
+                LiakontPermissions.InstanceSettings,
             },
         ],
     ];
@@ -81,6 +82,7 @@ public sealed class RolePermissionCatalogTests
                 LiakontPermissions.GedRead,
                 LiakontPermissions.GedExport,
                 LiakontPermissions.GedConfidential,
+                LiakontPermissions.InstanceSettings,
             ]);
     }
 
