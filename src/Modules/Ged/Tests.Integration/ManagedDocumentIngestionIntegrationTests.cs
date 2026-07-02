@@ -141,6 +141,35 @@ public sealed class ManagedDocumentIngestionIntegrationTests
     }
 
     [Fact]
+    public async Task Replaying_a_deferred_event_after_a_profile_is_validated_keeps_it_deferred_on_the_ingestion_channel()
+    {
+        var factory = _fixture.CreateTenantDatabase();
+        var staging = new InMemoryPayloadStagingStore();
+        var handler = BuildHandler(factory, staging);
+        var consumer = BuildConsumer(staging, (TenantA, factory));
+
+        await SeedAxisAsync(factory, "d", "string");
+        await IngestAsync(handler, TenantA, "SRC-1", "NOTE", new Dictionary<string, string> { ["d"] = "2026-06-30" });
+        var evt = await DrainSingleGedEventAsync(factory);
+
+        // 1er passage : aucun profil validé pour « NOTE » → DÉFÉRÉ (INV-GED-05).
+        await consumer.HandleAsync(evt, CancellationToken.None);
+        (await StatusAsync(factory, evt.Payload.ManagedDocumentId)).Should().Be("deferred");
+
+        // Un profil est créé+validé APRÈS coup, puis l'événement at-least-once est REJOUÉ.
+        await SeedValidatedProfileAsync(factory, "NOTE", "d", "$.fields.d");
+        await consumer.HandleAsync(evt, CancellationToken.None);
+
+        // ASYMÉTRIE DE CANAL (GDF10) : le canal d'ingestion GED05b ne REPREND JAMAIS un déféré (ResumeDeferred=false) —
+        // seule la reprise BACKFILL (job Host qui re-énumère le corpus) le fait. Un flip du défaut ou un
+        // ResumeDeferred:true posé par erreur sur le consommateur ferait ÉCHOUER ce test (garde de non-régression).
+        (await StatusAsync(factory, evt.Payload.ManagedDocumentId)).Should().Be("deferred", "le replay d'ingestion ne promeut pas un déféré, même profil validé depuis (idempotence terminale RL-04)");
+        (await CountStatusChangedLogAsync(factory, evt.Payload.ManagedDocumentId)).Should().Be(0, "aucune promotion ⇒ aucune trace status_changed sur le canal d'ingestion");
+        (await CountAxisLinksAsync(factory)).Should().Be(0, "un document resté déféré n'écrit aucun lien");
+        (await CountManagedDocumentsAsync(factory)).Should().Be(1);
+    }
+
+    [Fact]
     public async Task Consumer_resolves_declared_entities_and_relations_into_graph_links()
     {
         var factory = _fixture.CreateTenantDatabase();
@@ -514,6 +543,17 @@ public sealed class ManagedDocumentIngestionIntegrationTests
     {
         using var connection = await factory.OpenAsync();
         return await connection.ExecuteScalarAsync<long>("SELECT count(*) FROM ged_index.managed_documents");
+    }
+
+    private static async Task<long> CountStatusChangedLogAsync(IConnectionFactory factory, Guid managedDocumentId)
+    {
+        using var connection = await factory.OpenAsync();
+        return await connection.ExecuteScalarAsync<long>(
+            """
+            SELECT count(*) FROM ged_index.managed_document_change_log
+            WHERE managed_document_id = @Id AND change_type = 'status_changed'
+            """,
+            new { Id = managedDocumentId });
     }
 
     private static async Task<long> CountAxisLinksAsync(IConnectionFactory factory)
