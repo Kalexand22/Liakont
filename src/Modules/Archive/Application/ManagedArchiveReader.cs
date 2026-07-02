@@ -54,7 +54,16 @@ public sealed class ManagedArchiveReader : IManagedArchiveReader
         }
 
         byte[] manifestBytes = await _store.ReadAsync(tenant, manifestPath, cancellationToken);
-        (string sealedPackageHash, string packageDirectory, IReadOnlyList<string> fileNames) = ParseManifest(manifestBytes);
+        if (!TryParseManifest(manifestBytes, out (string PackageHash, string PackageDirectory, IReadOnlyList<string> FileNames) manifest))
+        {
+            return new GedArchiveIntegrityResult(
+                GedArchiveIntegrityStatus.Altered,
+                indexedContentHash,
+                null,
+                "Le manifest du paquet est illisible ou corrompu : l'intégrité ne peut pas être confirmée.");
+        }
+
+        (string sealedPackageHash, string packageDirectory, IReadOnlyList<string> fileNames) = manifest;
 
         if (fileNames.Count == 0)
         {
@@ -66,6 +75,9 @@ public sealed class ManagedArchiveReader : IManagedArchiveReader
         }
 
         // RE-LECTURE des octets réels de chaque pièce + recalcul de son empreinte (jamais l'empreinte du manifest).
+        // Chaque vérification relit en mémoire l'intégralité des octets des pièces sans borne ni cache —
+        // acceptable pour une console opérateur peu sollicitée ; un hachage en flux (streaming) est l'échappatoire
+        // si des paquets lourds sont attendus.
         var fingerprints = new List<ArchiveFileFingerprint>(fileNames.Count);
         foreach (string name in fileNames)
         {
@@ -114,8 +126,12 @@ public sealed class ManagedArchiveReader : IManagedArchiveReader
         }
 
         byte[] manifestBytes = await _store.ReadAsync(tenant, manifestPath, cancellationToken);
-        (_, string packageDirectory, _) = ParseManifest(manifestBytes);
+        if (!TryParseManifest(manifestBytes, out (string PackageHash, string PackageDirectory, IReadOnlyList<string> FileNames) manifest))
+        {
+            return null;
+        }
 
+        string packageDirectory = manifest.PackageDirectory;
         string htmlPath = ArchivePackageLayout.Combine(packageDirectory, GedArchivePackageLayout.ReadableHtmlFileName);
         if (!await _store.ExistsAsync(tenant, htmlPath, cancellationToken))
         {
@@ -128,37 +144,51 @@ public sealed class ManagedArchiveReader : IManagedArchiveReader
 
     // Extrait du manifest l'empreinte scellée, le répertoire du paquet (reconstruit depuis kind/clé/date) et les
     // noms des pièces de contenu. Le répertoire est reconstruit via GedArchivePackageLayout (mêmes règles
-    // d'assainissement qu'à l'écriture), jamais par découpage de chaîne du chemin de manifest.
-    private static (string PackageHash, string PackageDirectory, IReadOnlyList<string> FileNames) ParseManifest(byte[] manifestBytes)
+    // d'assainissement qu'à l'écriture), jamais par découpage de chaîne du chemin de manifest. Défensif : un
+    // manifest corrompu ou tronqué dans le coffre est une réalité opérationnelle (INV-ARCH-GED-2), pas une
+    // exception à laisser remonter — c'est à l'appelant de la traduire en verdict d'intégrité.
+    private static bool TryParseManifest(byte[] manifestBytes, out (string PackageHash, string PackageDirectory, IReadOnlyList<string> FileNames) result)
     {
-        using var document = JsonDocument.Parse(manifestBytes);
-        JsonElement root = document.RootElement;
-
-        string packageHash = root.TryGetProperty("packageHash", out JsonElement packageHashElement)
-            ? packageHashElement.GetString() ?? string.Empty
-            : string.Empty;
-
-        string archiveKind = root.GetProperty("archiveKind").GetString()!;
-        string archiveKey = root.GetProperty("archiveKey").GetString()!;
-        string filedOnText = root.GetProperty("filedOn").GetString()!;
-        DateOnly filedOn = DateOnly.ParseExact(filedOnText, "yyyy-MM-dd", CultureInfo.InvariantCulture);
-
-        string packageDirectory = GedArchivePackageLayout.PackageDirectory(
-            archiveKind, filedOn.Year, filedOn.Month, archiveKey);
-
-        var fileNames = new List<string>();
-        if (root.TryGetProperty("files", out JsonElement filesElement) && filesElement.ValueKind == JsonValueKind.Array)
+        result = default;
+        try
         {
-            foreach (JsonElement file in filesElement.EnumerateArray())
+            using var document = JsonDocument.Parse(manifestBytes);
+            JsonElement root = document.RootElement;
+
+            string packageHash = root.TryGetProperty("packageHash", out JsonElement packageHashElement)
+                ? packageHashElement.GetString() ?? string.Empty
+                : string.Empty;
+
+            if (!root.TryGetProperty("archiveKind", out JsonElement archiveKindElement) || archiveKindElement.GetString() is not { } archiveKind
+                || !root.TryGetProperty("archiveKey", out JsonElement archiveKeyElement) || archiveKeyElement.GetString() is not { } archiveKey
+                || !root.TryGetProperty("filedOn", out JsonElement filedOnElement) || filedOnElement.GetString() is not { } filedOnText
+                || !DateOnly.TryParseExact(filedOnText, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateOnly filedOn))
             {
-                if (file.TryGetProperty("name", out JsonElement nameElement) && nameElement.GetString() is { } name)
+                return false;
+            }
+
+            string packageDirectory = GedArchivePackageLayout.PackageDirectory(
+                archiveKind, filedOn.Year, filedOn.Month, archiveKey);
+
+            var fileNames = new List<string>();
+            if (root.TryGetProperty("files", out JsonElement filesElement) && filesElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (JsonElement file in filesElement.EnumerateArray())
                 {
-                    fileNames.Add(name);
+                    if (file.TryGetProperty("name", out JsonElement nameElement) && nameElement.GetString() is { } name)
+                    {
+                        fileNames.Add(name);
+                    }
                 }
             }
-        }
 
-        return (packageHash, packageDirectory, fileNames);
+            result = (packageHash, packageDirectory, fileNames);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private string RequireTenant()

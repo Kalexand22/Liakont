@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using FluentAssertions;
 using Liakont.Modules.Archive.Application;
 using Liakont.Modules.Archive.Contracts;
+using Liakont.Modules.Archive.Domain;
 using Liakont.Modules.Archive.Tests.Unit.Doubles;
 using Xunit;
 
@@ -70,6 +71,57 @@ public sealed class ManagedArchiveReaderTests
             .VerifyManagedPackageAsync("_ged/bordereau/2026/05/absent/manifest.json", "somehash");
 
         result.Status.Should().Be(GedArchiveIntegrityStatus.Missing);
+    }
+
+    [Fact]
+    public async Task Verify_WhenPieceBytesTampered_ReportsAltered()
+    {
+        GedArchivePackageResult archived = await CreateWriter().ArchiveManagedDocumentAsync(Request());
+
+        // Altération réelle du backend (contournement produit) : les octets de la pièce ne correspondent plus au
+        // manifest scellé. On vérifie avec l'empreinte indexée CORRECTE (celle scellée à l'archivage) pour isoler
+        // ce cas de la divergence d'index déjà couverte ci-dessus (INV-ARCH-GED-2).
+        string piecePath = ArchivePackageLayout.Combine(
+            GedArchivePackageLayout.PackageDirectory("bordereau", 2026, 5, "K-42"),
+            "piece.pdf");
+        _store.Tamper(Tenant, piecePath, Encoding.UTF8.GetBytes("%PDF-tampered"));
+
+        GedArchiveIntegrityResult result = await CreateReader()
+            .VerifyManagedPackageAsync(archived.ArchivePath, archived.ContentHash);
+
+        result.Status.Should().Be(GedArchiveIntegrityStatus.Altered);
+        result.Detail.Should().Contain("modifié");
+    }
+
+    [Fact]
+    public async Task Verify_WhenContentPieceMissing_ReportsMissing()
+    {
+        GedArchivePackageResult archived = await CreateWriter().ArchiveManagedDocumentAsync(Request());
+
+        string piecePath = ArchivePackageLayout.Combine(
+            GedArchivePackageLayout.PackageDirectory("bordereau", 2026, 5, "K-42"),
+            "piece.pdf");
+        _store.Remove(Tenant, piecePath);
+
+        GedArchiveIntegrityResult result = await CreateReader()
+            .VerifyManagedPackageAsync(archived.ArchivePath, archived.ContentHash);
+
+        result.Status.Should().Be(GedArchiveIntegrityStatus.Missing);
+        result.Detail.Should().Contain("introuvable");
+    }
+
+    [Fact]
+    public async Task Verify_WhenManifestCorrupt_ReportsAltered()
+    {
+        GedArchivePackageResult archived = await CreateWriter().ArchiveManagedDocumentAsync(Request());
+
+        _store.Tamper(Tenant, archived.ArchivePath, Encoding.UTF8.GetBytes("{not valid json"));
+
+        GedArchiveIntegrityResult result = await CreateReader()
+            .VerifyManagedPackageAsync(archived.ArchivePath, archived.ContentHash);
+
+        result.Status.Should().Be(GedArchiveIntegrityStatus.Altered);
+        result.Detail.Should().Contain("illisible ou corrompu");
     }
 
     [Fact]

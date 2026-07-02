@@ -58,7 +58,7 @@
     [Parameter]
     public Guid Id { get; set; }
 
-    private Guid _loadedId;
+    private Guid? _loadedId;
     private GedDocumentDetailViewModel? _model;
     private bool _notFound;
     private bool _loadFailed;
@@ -66,7 +66,7 @@
     protected override async Task OnParametersSetAsync()
     {
         // Charge une seule fois par identifiant distinct (un re-rendu sans changement d'Id ne recharge pas).
-        if (Id == _loadedId)
+        if (_loadedId == Id)
         {
             return;
         }
