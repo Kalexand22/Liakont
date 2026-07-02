@@ -14,7 +14,7 @@
 
     <SectionCard Title="Dispositif d'alerte (règles)" TestId="alertes-rules">
         <p class="liakont-alertes__intro">
-            La supervision évalue ces règles toutes les @Model.Device.EvaluationIntervalMinutes minutes (UTC, F12 §5.1).
+            La supervision évalue ces règles toutes les @Model.Device.EvaluationIntervalMinutes minutes (UTC).
             Les règles gelées sont déclarées mais pas encore évaluées (source de données à venir) — elles ne
             couvrent rien tant qu'elles sont gelées.
         </p>
@@ -54,7 +54,7 @@
 
     <SectionCard Title="Seuils des règles actives" TestId="alertes-thresholds">
         <p class="liakont-alertes__intro">
-            Seuls les seuils des règles actives sont modifiables (les valeurs par défaut viennent de F12 §5.2).
+            Seuls les seuils des règles actives sont modifiables (les valeurs par défaut sont fournies par le produit).
         </p>
         <div class="liakont-alertes__editor" data-testid="alertes-thresholds-editor">
             <div class="liakont-alertes__editor-grid">
@@ -95,7 +95,7 @@
                            @bind="Model.Form.AlertTenantContact"
                            disabled="@ThresholdsBusy"
                            data-testid="alertes-tenant-contact-toggle" />
-                    Envoyer les alertes critiques au contact d'alerte du tenant (F12 §5.3)
+                    Envoyer les alertes critiques au contact d'alerte du tenant
                 </label>
             </div>
 
@@ -137,7 +137,7 @@
             </div>
             <div class="liakont-alertes__row">
                 <dt>Contact du tenant</dt>
-                <dd>reçoit les alertes <strong>critiques</strong> par e-mail, uniquement si l'option ci-dessus est activée (F12 §5.3).</dd>
+                <dd>reçoit les alertes <strong>critiques</strong> par e-mail, uniquement si l'option ci-dessus est activée.</dd>
             </div>
         </dl>
 
@@ -181,7 +181,7 @@
 
     <SectionCard Title="Matrice de routage des alertes" TestId="alertes-routing-matrix">
         <p class="liakont-alertes__intro">
-            Extension du modèle simple (F12 §5.3.1) : routez certaines alertes vers des destinataires précis,
+            Extension du modèle simple : routez certaines alertes vers des destinataires précis,
             par règle ou par gravité. Tant que la matrice est vide, le routage par défaut s'applique
             (l'opérateur reçoit toutes les alertes ; le contact du tenant les critiques si l'option est activée).
             Une alerte sans entrée correspondante retombe sur ce modèle simple.

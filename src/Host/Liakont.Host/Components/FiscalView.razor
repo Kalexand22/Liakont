@@ -20,7 +20,7 @@
 
         <div class="liakont-fiscal__form" data-testid="fiscal-form">
             <FormField Label="TVA sur les débits" FieldId="fiscal-vat-on-debits"
-                       HelpText="Option fiscale du tenant (F09). « Non renseigné » suspend l'e-reporting de paiement.">
+                       HelpText="Option fiscale du tenant. « Non renseigné » suspend l'e-reporting de paiement.">
                 <select id="fiscal-vat-on-debits"
                         class="form-select"
                         @bind="Model.Form.VatOnDebits"
@@ -33,7 +33,7 @@
             </FormField>
 
             <FormField Label="Catégorie d'opération" FieldId="fiscal-operation-category"
-                       HelpText="Nature de l'opération du flux (liste fermée — F12-A §3.2).">
+                       HelpText="Nature de l'opération du flux (liste fermée).">
                 <select id="fiscal-operation-category"
                         class="form-select"
                         @bind="Model.Form.OperationCategory"
@@ -48,7 +48,7 @@
             </FormField>
 
             <FormField Label="Méthode d'imputation des frais" FieldId="fiscal-fee-imputation"
-                       HelpText="Imputation de la part frais pour l'e-reporting de paiement (liste fermée — F09 §5.2).">
+                       HelpText="Imputation de la part frais pour l'e-reporting de paiement (liste fermée).">
                 <select id="fiscal-fee-imputation"
                         class="form-select"
                         @bind="Model.Form.FeeImputationMethod"
@@ -63,7 +63,7 @@
             </FormField>
 
             <FormField Label="Fréquence déclarative" FieldId="fiscal-reporting-frequency"
-                       HelpText="Chaîne libre transmise telle quelle (énumération non figée — F12-A §3.3). Saisissez la valeur indiquée par votre expert-comptable ; laissez vide si la décision est en attente.">
+                       HelpText="Chaîne libre transmise telle quelle (énumération non figée). Saisissez la valeur indiquée par votre expert-comptable ; laissez vide si la décision est en attente.">
                 <input id="fiscal-reporting-frequency"
                        class="form-control"
                        type="text"

@@ -1,6 +1,6 @@
 # ADR-0039 — Configuration d'envoi d'emails d'instance : multi-provider (SMTP / Google / O365) chiffrée en base, gérée en console (amende ADR-0018)
 
-- **Statut** : Proposé (2026-07-01).
+- **Statut** : Accepté (2026-07-01) — implémenté (branche `feat/recette-encheres-config-email-instance`).
 - **Date** : 2026-07-01
 - **Nature** : cet ADR **précède** le chantier d'implémentation et **amende** ADR-0018 (transport SMTP MailKit).
   Il répond à une demande de recette (Karl, 2026-07-01) : pouvoir renseigner **en console** (opérateur
@@ -185,6 +185,44 @@ livraison Factur-X, `GeneriqueAccountResolver`, n'est **pas** fusionné ici).
 | D2 | Provider O365 : SMTP XOAUTH2 vs Graph `sendMail` (Microsoft désactive SMTP AUTH par défaut sur certains tenants). | **V1 = SMTP XOAUTH2** (zéro package) ; Graph = fast-follow (ADR + `Microsoft.Graph`/MSAL + capacité). Prérequis opérateur documenté. | Karl |
 | D3 | Obtention initiale du `refresh_token` (consentement interactif). | **Hors code** (flux one-time documenté ; opérateur colle le token). Assistant in-app (device-code) = fast-follow + packages. | — |
 | D4 | Permission : nouvelle `liakont.instance.settings` vs réutiliser `liakont.supervision`. | **Nouvelle `liakont.instance.settings`** (écriture assumée ; churn RBAC/Keycloak minime en build). | Karl |
+
+## Note d'implémentation (2026-07-01)
+
+Écarts et décisions prises à l'implémentation (défauts défendables de l'ADR appliqués, plus quelques
+précisions dictées par le code réel) :
+
+- **D1 → FleetSupervision** (défaut pris). Le store `IInstanceEmailConfigStore` + `InstanceEmailConfig`
+  (ciphertext-only) vivent dans **`FleetSupervision.Application`** (miroir de `IFleetInstanceStore`, PAS
+  Contracts : consommé au sein du module + Host), l'impl `PostgresInstanceEmailConfigStore` +
+  migration `V003__create_instance_email_config.sql` dans `Infrastructure`. Ligne singleton (PK + CHECK sur
+  `singleton_id = true`). Le module ne référence JAMAIS `ISecretProtector` (frontière n°6/14).
+- **Orchestration = service console Host, pas un handler MediatR.** L'ADR §5/§7 nommait un handler MediatR
+  `SaveInstanceEmailConfig` ; mais l'assembly **Host n'est scanné par AUCUN `AddMediatR`** (chaque module
+  fait le sien) — bootstrapper MediatR pour le Host juste pour ce cas aurait été du sur-engineering. On suit
+  le patron Host établi : un **service console** `IInstanceEmailConfigService` (précédent exact
+  `GeneriqueAccountResolver` = service Host qui déchiffre via `ISecretProtector`) orchestre
+  chiffrement + store + envoi de test. L'invariant « crypto au Host » (§5, INV-EMAIL-CFG-01) est intégralement
+  préservé.
+- **Nav sous Supervision** (conformément à la demande recette « en Supervision »). L'entrée
+  « Configuration email » (`/email-instance`, hors de l'espace `/supervision/{tenantId}`) est rangée dans
+  l'aire opérateur d'instance, gardée par la **présence** de `liakont.supervision` pour la visibilité et par
+  la permission neuve **`liakont.instance.settings`** pour l'usage ; le rôle `superviseur` reçoit les deux
+  (matrice §3 de `identity-permissions-liakont.md` mise à jour — la nouvelle permission est **sourcée**, pas
+  inventée). `SensitivePermissions` reste `{actions, settings}` (la sensibilité a une source autoritative
+  ADR-0017 : on n'y ajoute rien sans source).
+- **`SmtpOptions` (appsettings) INCHANGÉ** : le multi-provider vit UNIQUEMENT dans la config DB ; le repli
+  bootstrap reste SMTP basic (ADR-0018). `EmailDocumentDeliveryChannel` (livraison Factur-X par email, override
+  SMTP par tenant) n'est pas touché (hors périmètre, §Limite).
+- **Token provider sans verrou** : `HttpEmailOAuthTokenProvider` (Singleton, `IHttpClientFactory`) met le
+  jeton en cache par `(kind, client_id, refresh_token)` haché ; la rare course de premiers appels concurrents
+  est acceptée (précédent `SuperPdpTokenProvider`), évitant un `SemaphoreSlim` disposable. `scope` omis : le
+  rafraîchissement réutilise le consentement d'origine (Google et Microsoft).
+- **Correctif de référence** : MailKit 4.17 est en `Directory.Packages.props:69-70` (l'ADR citait à tort
+  `:65-66` = NetTopologySuite).
+- **Tests** : unitaires (résolution de config transport — précédence DB/appsettings, kind, purpose ;
+  service — chiffrement/lit-puis-conserve/`Has*`/envoi de test ; token provider — endpoint par fournisseur,
+  parsing, échec, cache, aucun secret en log ; page bUnit — gate, save, test, révélation OAuth, masquage) et
+  intégration Testcontainers (round-trip ciphertext + singleton). `verify-fast` + `run-tests` verts.
 
 ## Alternatives rejetées
 

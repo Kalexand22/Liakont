@@ -34,7 +34,7 @@ public static class MappingTableValidator
         if (!Enum.IsDefined(defaultBehavior))
         {
             violations.Add(
-                $"le comportement par défaut est inconnu ({(int)defaultBehavior}) ; seul « block » est admis (F03 §4.1)");
+                $"le comportement par défaut est inconnu ({(int)defaultBehavior}) ; seul « block » est admis");
         }
 
         ArgumentNullException.ThrowIfNull(rules);
@@ -64,7 +64,7 @@ public static class MappingTableValidator
                 // réel, jamais un joker fourre-tout (CLAUDE.md n°2 : aucune règle fiscale devinée).
                 violations.Add(
                     $"règle #{n} : le code régime source « * » (joker) n'est pas supporté — le modèle v6 " +
-                    "exige une règle EXPLICITE par régime source et par part (F03 §3 : mapping validé régime " +
+                    "exige une règle EXPLICITE par régime source et par part (mapping validé régime " +
                     "par régime). Déclarez une règle pour chaque code régime source réel (y compris la part " +
                     "frais), jamais un joker.");
             }
@@ -73,7 +73,7 @@ public static class MappingTableValidator
             {
                 violations.Add(
                     $"règle #{n} : catégorie de TVA inconnue ({(int)rule.Category}). Catégories admises : " +
-                    string.Join(", ", VatCategoryParser.AllowedCodes) + " (F03 §2.1)");
+                    string.Join(", ", VatCategoryParser.AllowedCodes));
             }
 
             if (!Enum.IsDefined(rule.Part))
@@ -92,7 +92,7 @@ public static class MappingTableValidator
                 if (string.IsNullOrWhiteSpace(rule.Vatex))
                 {
                     violations.Add(
-                        $"règle #{n} : catégorie E (exonéré) sans code VATEX — un motif d'exonération est obligatoire (F03 §2.2)");
+                        $"règle #{n} : catégorie E (exonéré) sans code VATEX — un motif d'exonération est obligatoire");
                 }
 
                 if (rule.RateMode == RateMode.Fixed && rule.RateValue is { } exemptRate && exemptRate != 0m)

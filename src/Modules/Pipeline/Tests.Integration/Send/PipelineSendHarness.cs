@@ -23,6 +23,7 @@ using Liakont.Modules.Mandats.Contracts.Queries;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Contracts.Queries;
 using Liakont.Modules.Pipeline.Infrastructure;
+using Liakont.Modules.Reference.Infrastructure;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.Staging.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
@@ -95,6 +96,7 @@ public sealed class PipelineSendHarness : IAsyncLifetime
         RunModuleMigrations(typeof(TvaMappingModuleRegistration).Assembly);
         RunModuleMigrations(typeof(TenantSettingsModuleRegistration).Assembly);
         RunModuleMigrations(typeof(StagingModuleRegistration).Assembly);
+        RunModuleMigrations(typeof(ReferenceModuleRegistration).Assembly);
         RunModuleMigrations(typeof(PipelineModuleRegistration).Assembly);
         RunModuleMigrations(typeof(ArchiveModuleRegistration).Assembly);
 
@@ -399,7 +401,12 @@ public sealed class PipelineSendHarness : IAsyncLifetime
 
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton<IConnectionFactory>(new NpgsqlConnectionFactory(databaseOptions));
+
+        // Une seule instance NpgsqlConnectionFactory exposée en IConnectionFactory ET ISystemConnectionFactory
+        // (le référentiel pays cross-instance ADR-0038 le résout), comme en production.
+        var connectionFactory = new NpgsqlConnectionFactory(databaseOptions);
+        services.AddSingleton<IConnectionFactory>(connectionFactory);
+        services.AddSingleton<ISystemConnectionFactory>(connectionFactory);
         services.AddSingleton<ITenantConnectionFactory>(new SingleDatabaseConnectionFactory(ConnectionString));
         services.AddSingleton(TimeProvider.System);
         services.AddDataProtection();
@@ -411,6 +418,7 @@ public sealed class PipelineSendHarness : IAsyncLifetime
         services.AddTvaMappingModule();
         services.AddTenantSettingsModule();
         services.AddStagingModule(config);
+        services.AddReferenceModule();
         services.AddPipelineModule();
         services.AddArchiveModule(config);
 

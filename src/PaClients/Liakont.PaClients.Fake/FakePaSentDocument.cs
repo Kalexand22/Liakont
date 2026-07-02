@@ -11,10 +11,13 @@ namespace Liakont.PaClients.Fake;
 /// <param name="IsSelfBilled">Indique si le pivot transmis est une auto-facture sous mandat.</param>
 /// <param name="SellerSiren">SIREN du vendeur fiscal projeté (BT-30 ; en 389 = le mandant), ou <c>null</c>.</param>
 /// <param name="SellerVatNumber">N° TVA du vendeur fiscal projeté (BT-31 ; en 389 = le mandant), ou <c>null</c>.</param>
+/// <param name="BuyerCountryCode">Code pays acheteur (BT-55) TEL QUE TRANSMIS — normalisé ISO au read-time
+/// (ADR-0038) : prouve que le payload sortant porte le code ISO (« GB »), jamais le code legacy source (« ENG »).</param>
 public sealed record FakePaSentDocument(
     string DocumentTypeCode,
     string FiscalNumber,
     string SourceNumber,
     bool IsSelfBilled,
     string? SellerSiren,
-    string? SellerVatNumber);
+    string? SellerVatNumber,
+    string? BuyerCountryCode);

@@ -12,6 +12,7 @@ using Liakont.Modules.Mandats.Contracts;
 using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Infrastructure.Check;
+using Liakont.Modules.Reference.Contracts;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
@@ -256,6 +257,7 @@ public sealed class DocumentRecheckServiceTests
             [typeof(IVentilationSnapshotStore)] = snapshots,
             [typeof(IMarginRegistryStore)] = marginRegistry,
             [typeof(ISelfBilledGate)] = gate,
+            [typeof(ICountryAliasReferential)] = new FakeCountryAliasReferential(),
         };
 
         var tenantContext = new FakeTenantContext(CheckTestData.TenantSlug);

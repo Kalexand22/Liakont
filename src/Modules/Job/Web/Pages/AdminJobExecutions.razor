@@ -8,6 +8,7 @@
 @inject IJobExecutionsQueries ExecutionsQueries
 @inject IJobTypeCatalog JobTypeCatalog
 @inject IActorContextAccessor ActorContext
+@inject ISystemScheduleHost SystemScheduleHost
 @inject NavigationManager Nav
 
 @* AdminJobExecutions (FIX211) : liste des EXÉCUTIONS de jobs (job.jobs), tenant-scopée, avec filtres
@@ -145,7 +146,13 @@
 
     private async Task<IReadOnlyList<JobDto>> LoadExecutionsAsync()
     {
-        var companyId = ActorContext.Current.CompanyId;
+        // BUG-29 — symétrique de BUG-4b (page des planifications) : un opérateur PLATEFORME (super-admin
+        // cross-tenant, sans société courante) consulte les exécutions des jobs SYSTÈME via la société porteuse,
+        // au lieu d'une liste vide. Un job système (fan-out tous tenants, ex. e-reporting B2C) est enregistré
+        // sous cette porteuse — sinon la planif « tourne bien » mais l'écran reste vide en permanence. La requête
+        // demeure tenant-scopée STRICTE (une seule company, jamais de fuite — CLAUDE.md n°9) : on résout seulement
+        // QUELLE company consulter.
+        var companyId = ActorContext.Current.CompanyId ?? SystemScheduleHost.CrossTenantHostCompanyId;
         if (companyId is null)
         {
             return [];

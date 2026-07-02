@@ -109,15 +109,22 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
         // /supervision/{tenantId} existe (la surbrillance plus-long-préfixe ferait double emploi).
         if (_permissions.HasPermission(LiakontPermissions.Supervision))
         {
-            children.Add(new NavNode
+            var supervisionChildren = new List<NavNode>
             {
-                Label = "Supervision",
-                Children =
-                [
-                    new NavNode { Label = "Vue d'ensemble", Href = "/supervision", ExactMatch = true },
-                    new NavNode { Label = "Clients", Href = "/clients" },
-                ],
-            });
+                new() { Label = "Vue d'ensemble", Href = "/supervision", ExactMatch = true },
+                new() { Label = "Clients", Href = "/clients" },
+            };
+
+            // Config d'envoi d'emails d'INSTANCE (ADR-0039) : geste d'ÉCRITURE d'instance (hors tenant),
+            // rangé dans l'aire opérateur d'instance (Supervision) conformément à la demande recette. Gardé
+            // par la permission neuve liakont.instance.settings (pas liakont.supervision, lecture seule) :
+            // l'entrée n'apparaît qu'au porteur de cette permission d'écriture (la page l'exige aussi).
+            if (_permissions.HasPermission(LiakontPermissions.InstanceSettings))
+            {
+                supervisionChildren.Add(new NavNode { Label = "Configuration email", Href = "/email-instance" });
+            }
+
+            children.Add(new NavNode { Label = "Supervision", Children = supervisionChildren });
         }
 
         // Flotte : méta-supervision cross-INSTANCE réservée à IT Innovations (OPS04). Le niveau AU-DESSUS de
@@ -179,6 +186,7 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
                 new NavNode { Label = "Profil légal", Href = "/parametrage/profil" },
                 new NavNode { Label = "Paramètres fiscaux", Href = "/parametrage/fiscal" },
                 new NavNode { Label = "Table TVA", Href = "/parametrage/table-tva" },
+                new NavNode { Label = "Référentiel pays", Href = "/parametrage/referentiel-pays" },
                 new NavNode { Label = "Comptes PA", Href = "/parametrage/comptes-pa" },
                 new NavNode { Label = "Alertes & supervision", Href = "/parametrage/alertes" },
 
