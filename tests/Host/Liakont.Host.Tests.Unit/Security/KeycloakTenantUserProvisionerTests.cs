@@ -27,7 +27,8 @@ using Xunit;
 /// <summary>
 /// Provisioning d'un utilisateur de tenant (OPS03 lot A) : refus explicites (rôle inconnu, tenant
 /// introuvable/désactivé, doublon username, conflit IdP username/email), résolution du company_id
-/// (profil puis registre), invitation envoyée de façon SYNCHRONE quand le SMTP est configuré (mot
+/// (profil puis registre), invitation envoyée de façon SYNCHRONE quand l'envoi d'email est
+/// configuré — disponibilité EFFECTIVE : config d'instance en base OU appsettings (BUG-31) — (mot
 /// de passe JAMAIS restitué alors, JAMAIS persisté), mot de passe temporaire remis UNE fois sinon
 /// (y compris sur échec d'envoi), compensation (suppression du compte IdP) quand la création du
 /// compte applicatif échoue, et REPRISE idempotente (compte applicatif préexistant RELIÉ).
@@ -45,6 +46,7 @@ public sealed class KeycloakTenantUserProvisionerTests
     private Guid? _profileCompanyId = ProfileCompanyId;
     private TenantDto? _tenant = Tenant();
     private UserDto? _existingAppUser;
+    private Exception? _probeFailure;
 
     private static TenantDto Tenant(bool isActive = true, string? realm = "stratum-acme", bool noCompanyId = false) => new()
     {
@@ -112,13 +114,13 @@ public sealed class KeycloakTenantUserProvisionerTests
     }
 
     [Fact]
-    public async Task Without_Smtp_The_Temporary_Password_Is_Returned_Once()
+    public async Task Without_Email_Configured_The_Temporary_Password_Is_Returned_Once()
     {
-        var result = await CreateSut(smtpConfigured: false).ProvisionUserAsync(Request());
+        var result = await CreateSut(emailConfigured: false).ProvisionUserAsync(Request());
 
         result.Success.Should().BeTrue();
         result.InvitationEmailSent.Should().BeFalse();
-        result.TemporaryPassword.Should().NotBeNullOrWhiteSpace("sans SMTP, l'opérateur reçoit le mot de passe UNE fois");
+        result.TemporaryPassword.Should().NotBeNullOrWhiteSpace("sans envoi d'email configuré, l'opérateur reçoit le mot de passe UNE fois");
         _emailTransport.Sent.Should().BeEmpty();
 
         // Le mot de passe remis est celui posé chez l'IdP, en mode temporaire (changement forcé).
@@ -127,9 +129,11 @@ public sealed class KeycloakTenantUserProvisionerTests
     }
 
     [Fact]
-    public async Task With_Smtp_The_Invitation_Is_Sent_And_The_Password_Never_Returned()
+    public async Task With_Email_Configured_The_Invitation_Is_Sent_And_The_Password_Never_Returned()
     {
-        var result = await CreateSut(smtpConfigured: true).ProvisionUserAsync(Request());
+        // « Configuré » = disponibilité EFFECTIVE (config d'instance en base OU appsettings — BUG-31) :
+        // une instance configurée UNIQUEMENT en base (Gmail) envoie bien l'invitation.
+        var result = await CreateSut(emailConfigured: true).ProvisionUserAsync(Request());
 
         result.Success.Should().BeTrue();
         result.InvitationEmailSent.Should().BeTrue();
@@ -145,11 +149,28 @@ public sealed class KeycloakTenantUserProvisionerTests
     {
         _emailTransport.ThrowOnSend = new InvalidOperationException("SMTP en panne");
 
-        var result = await CreateSut(smtpConfigured: true).ProvisionUserAsync(Request());
+        var result = await CreateSut(emailConfigured: true).ProvisionUserAsync(Request());
 
         result.Success.Should().BeTrue("le compte est créé — l'échec d'envoi n'avorte pas le provisioning");
         result.InvitationEmailSent.Should().BeFalse();
         result.TemporaryPassword.Should().NotBeNullOrWhiteSpace("l'opérateur reçoit le mot de passe à l'écran, une fois");
+    }
+
+    [Fact]
+    public async Task When_The_Availability_Probe_Fails_The_Password_Is_Returned_And_The_Account_Kept()
+    {
+        // La sonde de disponibilité (BUG-31) touche la base système : son échec vaut « pas d'envoi
+        // possible » — même repli que l'échec d'envoi. JAMAIS la compensation (suppression du compte
+        // IdP) ni un 500 pour un problème de config email.
+        _probeFailure = new InvalidOperationException("base système indisponible");
+
+        var result = await CreateSut(emailConfigured: true).ProvisionUserAsync(Request());
+
+        result.Success.Should().BeTrue("un problème de config email n'avorte pas le provisioning");
+        result.InvitationEmailSent.Should().BeFalse();
+        result.TemporaryPassword.Should().NotBeNullOrWhiteSpace("l'opérateur reçoit le mot de passe à l'écran, une fois");
+        _emailTransport.Sent.Should().BeEmpty();
+        _keycloak.DeletedUserIds.Should().BeEmpty("la compensation ne se déclenche jamais pour un problème d'email");
     }
 
     [Fact]
@@ -304,12 +325,8 @@ public sealed class KeycloakTenantUserProvisionerTests
         spec.RequiredActions.Should().Contain("UPDATE_PASSWORD", "le mot de passe temporaire doit être changé");
     }
 
-    private KeycloakTenantUserProvisioner CreateSut(bool smtpConfigured = false, bool dedicatedRealm = false)
+    private KeycloakTenantUserProvisioner CreateSut(bool emailConfigured = false, bool dedicatedRealm = false)
     {
-        var smtp = smtpConfigured
-            ? new SmtpOptions { Enabled = true, Host = "smtp.exemple.test", FromAddress = "noreply@exemple.test" }
-            : new SmtpOptions();
-
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
@@ -322,8 +339,8 @@ public sealed class KeycloakTenantUserProvisionerTests
             new FakeTenantScopeFactory(_sender, () => _profileCompanyId, () => _existingAppUser),
             _keycloak,
             _emailTransport,
+            new FakeEmailSendAvailability(emailConfigured, _probeFailure),
             new Microsoft.AspNetCore.Http.HttpContextAccessor(),
-            Options.Create(smtp),
             Options.Create(new KeycloakAdminOptions
             {
                 AdminBaseUrl = "http://localhost:8080",
@@ -546,6 +563,27 @@ public sealed class KeycloakTenantUserProvisionerTests
 
         public IAsyncEnumerable<object?> CreateStream(object request, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// Disponibilité d'envoi FIXÉE par le test — la résolution réelle (config d'instance en base
+    /// autoritaire, repli appsettings — BUG-31) est testée sur <c>SmtpEmailTransport</c>
+    /// (<c>SmtpEmailTransportProviderTests</c>). Peut LEVER (la sonde touche la base système) pour
+    /// prouver que l'échec de sonde suit le même repli que l'échec d'envoi.
+    /// </summary>
+    private sealed class FakeEmailSendAvailability : IEmailSendAvailability
+    {
+        private readonly bool _configured;
+        private readonly Exception? _throwOnProbe;
+
+        public FakeEmailSendAvailability(bool configured, Exception? throwOnProbe = null)
+        {
+            _configured = configured;
+            _throwOnProbe = throwOnProbe;
+        }
+
+        public Task<bool> IsConfiguredAsync(CancellationToken ct = default) =>
+            _throwOnProbe is null ? Task.FromResult(_configured) : Task.FromException<bool>(_throwOnProbe);
     }
 
     private sealed class RecordingEmailTransport : IEmailTransport

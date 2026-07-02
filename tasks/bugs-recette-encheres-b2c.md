@@ -1020,3 +1020,28 @@ revue Claude **clean** au round 3). Détail + commit sous chaque bug.
 - **Overlay read-time posé sur la fiche mais pas la liste** = divergence possible (cas BUG-24). Règle : le « statut affiché »
   doit avoir **une seule dérivation** consommée par liste + fiche (idéalement l'**état persisté** correct). Auditer les autres
   overlays fiche-seule (récap marge, mentions) — non-statut donc moins critiques.
+
+## BUG-31 (P2 — config email d'instance) 🐞 — L'invitation email (création d'utilisateur / reset mot de passe) ignore la config email EN BASE — relevé Karl 2026-07-02
+- **Relevé Karl** : envoi Gmail testé OK (page « Configuration email », ADR-0039) ; puis création d'un
+  utilisateur → « ça m'affiche le mot de passe sans jamais parler d'envoi d'email ».
+- **Cause (sourcée code)** : les gardes amont testaient `SmtpOptions.IsConfigured` (appsettings, ADR-0018)
+  — `KeycloakTenantUserProvisioner.TrySendInvitationAsync` et
+  `KeycloakTenantUserManagementService.TrySendResetEmailAsync` — alors que la config d'envoi vit désormais
+  EN BASE (chiffrée, autoritaire — ADR-0039). Config Gmail en base + appsettings vides → garde faussement
+  « non configuré » → invitation jamais tentée, mot de passe temporaire affiché à l'opérateur. Le transport
+  aval (`SmtpEmailTransport.ResolveAsync`), lui, résolvait déjà correctement (DB puis appsettings).
+- **✅ RÉSOLU (2026-07-02)** : nouvelle abstraction Host `IEmailSendAvailability.IsConfiguredAsync()`
+  implémentée par `SmtpEmailTransport` (MÊME précédence que l'envoi — helper partagé `IsAuthoritativeDbConfig` :
+  DB autoritaire → repli appsettings — mais SANS déchiffrer : null-checks seulement) et consommée par les DEUX
+  gardes (invitation + reset) à la place de `SmtpOptions`. DI : même instance scoped que `IEmailTransport`
+  (assertion d'identité dans `SmtpTransportRegistrationTests`). Méthode privée morte
+  `SmtpEmailTransport.IsConfigured()` (sémantique périmée du bug) supprimée.
+- **Durci en review (round 1, 3 P2)** : la sonde touche la base système → elle passe DANS le try/catch des
+  deux services (un échec de sonde vaut « pas d'envoi possible » : mot de passe remis à l'opérateur — jamais
+  la compensation IdP du provisioner, jamais un 500 post-reset) ; et elle ne déchiffre JAMAIS (une clé
+  invalide fait échouer l'ENVOI, rattrapé, pas la sonde). Tests : `IsConfiguredAsync` (DB seule = LE bug /
+  appsettings seule / rien / protector qui lève) + provisioner « sonde en échec → compte gardé, mdp remis ».
+- **⚠️ Angle mort restant (chantier séparé, non traité ici)** : `EmailDocumentDeliveryChannel` (transmission
+  Factur-X par email) lit AUSSI `SmtpOptions` (appsettings) et bloque si non configuré — une instance
+  configurée UNIQUEMENT en base (a fortiori Gmail/O365 OAuth) ne peut pas transmettre par ce canal. Le
+  raccorder exige de porter le canal en provider-aware (OAuth compris) : à backloguer comme item propre.

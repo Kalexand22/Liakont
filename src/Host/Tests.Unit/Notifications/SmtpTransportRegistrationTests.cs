@@ -34,14 +34,19 @@ public sealed class SmtpTransportRegistrationTests
         services.AddSingleton<ISecretProtector>(new FakeSecretProtector());
         services.AddSingleton<IEmailOAuthTokenProvider>(new FakeEmailOAuthTokenProvider());
 
-        // Reproduit l'enregistrement du composition root (AppBootstrap) : Replace du stub par le vrai transport.
-        services.Replace(ServiceDescriptor.Scoped<IEmailTransport, SmtpEmailTransport>());
+        // Reproduit l'enregistrement du composition root (AppBootstrap) : Replace du stub par le vrai
+        // transport, et disponibilité d'envoi (BUG-31) servie par la MÊME instance scoped.
+        services.AddScoped<SmtpEmailTransport>();
+        services.Replace(ServiceDescriptor.Scoped<IEmailTransport>(sp => sp.GetRequiredService<SmtpEmailTransport>()));
+        services.AddScoped<IEmailSendAvailability>(sp => sp.GetRequiredService<SmtpEmailTransport>());
 
         using var provider = services.BuildServiceProvider();
         using var scope = provider.CreateScope();
 
         var transport = scope.ServiceProvider.GetRequiredService<IEmailTransport>();
+        var availability = scope.ServiceProvider.GetRequiredService<IEmailSendAvailability>();
 
         transport.Should().BeOfType<SmtpEmailTransport>();
+        availability.Should().BeSameAs(transport, "la garde du provisioning interroge le transport RÉEL (config en base OU appsettings — BUG-31)");
     }
 }
