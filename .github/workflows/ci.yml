@@ -84,6 +84,28 @@ jobs:
         shell: pwsh
         run: ./tools/lint-package-currency.ps1
 
+      # Gardes de généricité GED (GED11, RL-27, F19 §7/§8) : deux lints outillés, CHACUN précédé de son
+      # self-test qui prouve qu'il discrimine (vert sur le code réel, rouge sur une violation injectée) —
+      # un lint pass-by-default serait un faux-vert. Logique pure (pas de dotnet). Tout step qui échoue
+      # fait échouer le pipeline (aucun continue-on-error).
+      - name: Self-test du lint anti-littéral de généricité GED
+        shell: pwsh
+        run: ./tools/test-ged-generic-literals-lint.ps1
+
+      # Lint (règle 7) : ÉCHOUE si un littéral de vocabulaire métier est codé en dur dans src/Modules/Ged/**.
+      - name: Lint anti-littéral de généricité GED
+        shell: pwsh
+        run: ./tools/lint-ged-generic-literals.ps1
+
+      - name: Self-test du lint anti-jointure cross-schéma GED
+        shell: pwsh
+        run: ./tools/test-ged-cross-schema-lint.ps1
+
+      # Lint (règle 9) : ÉCHOUE sur une jointure SQL ged_* → documents./mandats./tvamapping. (invisible à NetArchTest).
+      - name: Lint anti-jointure cross-schéma GED
+        shell: pwsh
+        run: ./tools/lint-ged-cross-schema.ps1
+
       # Unit + intégration. Les tests d'intégration utilisent Testcontainers, qui pilote le
       # Docker natif du runner ubuntu (pas besoin d'un service: postgres). Staging/Sandbox
       # (API réelles PA) et E2E (Playwright) sont exclus — voir l'en-tête. Le wrapper ci-test.ps1
