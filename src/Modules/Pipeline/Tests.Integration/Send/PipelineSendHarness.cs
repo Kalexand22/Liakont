@@ -313,6 +313,37 @@ public sealed class PipelineSendHarness : IAsyncLifetime
     }
 
     /// <summary>
+    /// Seede une émission B2C TENTÉE puis REJETÉE par la PA (<c>Pending → RejectedByPa</c>) pour un document : il
+    /// devient « déjà tenté » (exclu du re-POST par l'attempt-once) et reste <c>ReadyToSend</c>, MAIS n'a AUCUNE
+    /// entrée <c>Issued</c>. Sert à prouver que le rattrapage ne le transitionne JAMAIS à <c>EReported</c>.
+    /// </summary>
+    public async Task SeedRejectedB2cEmissionAsync(Guid documentId, string sourceReference, DateOnly aggregateDate)
+    {
+        await using var scope = _provider!.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IB2cMarginEmissionStore>();
+        var batchId = Guid.NewGuid();
+
+        B2cMarginEmissionEntry Entry(B2cMarginEmissionStatus status, string? detail) => new()
+        {
+            DocumentId = documentId,
+            SourceReference = sourceReference,
+            AggregateDate = aggregateDate,
+            CurrencyCode = "EUR",
+            Category = "TMA1",
+            Role = "SE",
+            ContentHash = "rejected-" + batchId.ToString("N"),
+            EmissionBatchId = batchId,
+            Status = status,
+            PaEmissionId = null,
+            PaResponseSnapshot = null,
+            Detail = detail,
+        };
+
+        await store.AppendAsync(Entry(B2cMarginEmissionStatus.Pending, null));
+        await store.AppendAsync(Entry(B2cMarginEmissionStatus.RejectedByPa, "[SPDP_B2C_REJECTED] Rejet de l'agrégat."));
+    }
+
+    /// <summary>
     /// Entrées du journal d'émission B2C marge (<c>pipeline.b2c_margin_emissions</c>) pour un document, dans
     /// l'ordre d'insertion (seq). Prouve l'attempt-once (Pending écrit avant le POST) et l'issue (Issued + id PA).
     /// </summary>

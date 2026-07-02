@@ -561,7 +561,7 @@ public sealed class DocumentDetailConsoleQueryServiceTests
 
         public Task<B2cMarginEmissionDetailDto?> GetEmissionDetailAsync(Guid emissionBatchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
-        public Task<B2cResidualEmissionDto?> GetResidualIssuedEmissionForDocumentAsync(Guid documentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<B2cResidualEmissionDto>> GetResidualIssuedEmissionsAsync(IReadOnlyCollection<Guid> documentIds, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     // Fake du rejeu read-time (BUG-5) : renvoie un pivot relu, « indisponible » (repli snapshot) ou lève (robustesse).

@@ -168,36 +168,38 @@ public sealed class PostgresB2cMarginEmissionQueries : IB2cMarginEmissionQueries
             sql, new { DocumentId = documentId }, cancellationToken: cancellationToken));
     }
 
-    public async Task<B2cResidualEmissionDto?> GetResidualIssuedEmissionForDocumentAsync(Guid documentId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<B2cResidualEmissionDto>> GetResidualIssuedEmissionsAsync(IReadOnlyCollection<Guid> documentIds, CancellationToken cancellationToken = default)
     {
-        using var conn = await _connectionFactory.OpenAsync(cancellationToken);
-
-        // Dernière émission ISSUED du document (created_utc, seq décroissants) : lot + référence source — pour
-        // rejouer, au rattrapage (ADR-0037 D3), le gel du lien reporting↔pièce ET la transition d'état sans
-        // re-transmission. Seules les issues confirmées sont retenues (une entrée Pending/Rejected ne résout
-        // rien). Lecture seule, tenant-scopée (la connexion EST le tenant).
-        const string sql = """
-            SELECT emission_batch_id, source_reference
-            FROM pipeline.b2c_margin_emissions
-            WHERE document_id = @DocumentId
-              AND status = 'Issued'
-            ORDER BY created_utc DESC, seq DESC
-            LIMIT 1
-            """;
-
-        var row = await conn.QueryFirstOrDefaultAsync(new CommandDefinition(
-            sql, new { DocumentId = documentId }, cancellationToken: cancellationToken));
-
-        if (row is null)
+        if (documentIds.Count == 0)
         {
-            return null;
+            return Array.Empty<B2cResidualEmissionDto>();
         }
 
-        return new B2cResidualEmissionDto
+        using var conn = await _connectionFactory.OpenAsync(cancellationToken);
+
+        // UNE requête pour tous les candidats (pas de N+1) : la dernière émission ISSUED de CHAQUE document
+        // (DISTINCT ON document_id, created_utc/seq décroissants) — lot + référence source — pour rejouer, au
+        // rattrapage (ADR-0037 D3), le gel du lien reporting↔pièce ET la transition d'état sans re-transmission.
+        // Seules les issues confirmées sont retenues (status = 'Issued') : un candidat resté Pending (crash avant
+        // l'issue) ou RejectedByPa/Technical (D1) est ABSENT du résultat → jamais un faux EReported. Lecture seule,
+        // tenant-scopée (la connexion EST le tenant).
+        const string sql = """
+            SELECT DISTINCT ON (document_id) document_id, emission_batch_id, source_reference
+            FROM pipeline.b2c_margin_emissions
+            WHERE document_id = ANY(@Ids)
+              AND status = 'Issued'
+            ORDER BY document_id, created_utc DESC, seq DESC
+            """;
+
+        var rows = await conn.QueryAsync(new CommandDefinition(
+            sql, new { Ids = documentIds.ToArray() }, cancellationToken: cancellationToken));
+
+        return rows.Select(row => new B2cResidualEmissionDto
         {
+            DocumentId = (Guid)row.document_id,
             EmissionBatchId = (Guid)row.emission_batch_id,
             SourceReference = (string)row.source_reference,
-        };
+        }).ToList();
     }
 
     private static B2cMarginEmissionAggregateDto Map(dynamic row)

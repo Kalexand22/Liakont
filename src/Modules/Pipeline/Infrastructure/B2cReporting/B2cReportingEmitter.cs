@@ -137,23 +137,21 @@ internal static partial class B2cReportingEmitter
             return 0; // aucun candidat (aucun document tenté encore ReadyToSend) → rien à rattraper.
         }
 
+        // UNE seule requête pour tous les candidats (pas de N+1) : ne remontent que les VRAIS résiduels e-reportés
+        // (émission Issued). Un candidat resté Pending (crash avant l'issue) ou RejectedByPa/Technical (D1) est
+        // ABSENT → jamais un faux EReported (sûreté fiscale portée par le filtre status = 'Issued' de la requête).
         var emissionQueries = services.GetRequiredService<IB2cMarginEmissionQueries>();
+        var residuals = await emissionQueries.GetResidualIssuedEmissionsAsync(candidateDocumentIds, cancellationToken);
         var reconciled = 0;
 
-        foreach (var documentId in candidateDocumentIds)
+        foreach (var residual in residuals)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // N'est un résiduel E-REPORTÉ que s'il porte une émission Issued : un document seulement Pending
-            // (crash avant l'issue) ou RejectedByPa/Technical (D1) n'est PAS e-reporté → on le laisse tel quel
-            // (jamais un faux EReported).
-            var residual = await emissionQueries.GetResidualIssuedEmissionForDocumentAsync(documentId, cancellationToken);
-            if (residual is null)
-            {
-                continue;
-            }
-
-            var contribution = new B2cContributionRef { DocumentId = documentId, SourceReference = residual.SourceReference };
+            // Rejoue la finalisation COMPLÈTE (gel du lien D2 + transition EReported) — mêmes garanties de
+            // résilience et d'idempotence qu'au run nominal ; le gel est ré-appliqué (idempotent) pour couvrir le
+            // sous-cas où c'est LUI qui avait échoué (sinon le document serait EReported sans lien de traçabilité).
+            var contribution = new B2cContributionRef { DocumentId = residual.DocumentId, SourceReference = residual.SourceReference };
             if (await FinalizeAcceptedContributionAsync(services, companyId, contribution, residual.EmissionBatchId, logger, cancellationToken))
             {
                 reconciled++;

@@ -107,6 +107,35 @@ public sealed class B2cMarginAggregatorJobTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Residual_Candidate_Without_Issued_Emission_Is_Never_Marked_EReported()
+    {
+        // GDF02 (sûreté fiscale) : un document B2C TENTÉ puis REJETÉ par la PA (Pending → RejectedByPa) reste
+        // ReadyToSend et devient candidat au rattrapage — mais il n'est PAS e-reporté (aucune entrée Issued). Le
+        // rattrapage ne doit JAMAIS le transitionner à EReported (état « déclaré à l'administration » mensonger)
+        // ni geler de lien de traçabilité. La sûreté repose sur le filtre status = 'Issued' de la requête de
+        // rattrapage — ce test le prouve de bout en bout (job réel).
+        await _harness.UsePublishedFakeAsync();
+
+        var documentId = Guid.NewGuid();
+        var sourceReference = "ba-" + documentId.ToString("N");
+        var declaration = CheckIntegrationFixtures.BuildB2cMarginDeclaration(sourceReference, "NORMAL");
+        await _harness.SeedDetectedAndStageAsync(documentId, declaration);
+        await _harness.MarkReadyToSendAsync(documentId);
+
+        // Émission TENTÉE mais REJETÉE (Pending → RejectedByPa) : « handled » (exclu du re-POST), aucune entrée Issued.
+        await _harness.SeedRejectedB2cEmissionAsync(documentId, sourceReference, new DateOnly(2026, 1, 20));
+
+        await _harness.RunB2cMarginAsync();
+
+        (await _harness.GetDocumentStateAsync(documentId)).Should()
+            .Be("ReadyToSend", "un document rejeté (aucune émission Issued) n'est JAMAIS e-reporté par le rattrapage.");
+        (await _harness.GetReportingPieceLinksAsync(documentId)).Should()
+            .BeEmpty("aucun lien de traçabilité n'est gelé pour un document non e-reporté.");
+        _harness.PaCallCount(SendB2cTransaction, MarginTxDetail).Should()
+            .Be(0, "le document est déjà tenté (attempt-once) → jamais un 2e POST.");
+    }
+
+    [Fact]
     public async Task Margin_Emission_Aggregates_Are_Read_Grouped_By_Emission_Batch_With_Current_Status()
     {
         // Vue console (B4) : le journal append-only (Pending puis Issued PAR DOCUMENT) est lu REGROUPÉ par lot
