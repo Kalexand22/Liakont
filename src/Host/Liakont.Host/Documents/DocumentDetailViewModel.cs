@@ -51,6 +51,14 @@ public sealed record DocumentDetailViewModel
     /// </summary>
     public Guid? EReportedBatchId { get; init; }
 
+    /// <summary>
+    /// <c>true</c> quand le PDF d'origine du document (bordereau poussé par l'agent avec le document,
+    /// stocké par le module Ingestion) est présent pour ce tenant : la fiche propose alors le lien
+    /// « pièce jointe » (<c>GET /api/v1/documents/{id}/piece-jointe</c>). <c>false</c> = pas de lien
+    /// (document sans PDF en source : cas normal, jamais une erreur).
+    /// </summary>
+    public bool HasSourcePdf { get; init; }
+
     /// <summary>Référence d'archive WORM du document (onglet Archive), ou <c>null</c> s'il n'est pas archivé.</summary>
     public ArchiveReferenceDto? Archive { get; init; }
 

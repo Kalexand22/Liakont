@@ -86,6 +86,31 @@ public sealed class DocumentDetailViewTests : BunitContext
         cut.Find("[data-testid='document-detail-supplier-siren']").TextContent.Should().Contain("non renseigné");
     }
 
+    [Fact]
+    public void Should_Show_The_Source_Pdf_Link_When_The_Ingested_File_Exists()
+    {
+        // Pièce jointe (PDF d'origine poussé par l'agent) : le lien ouvre l'endpoint de consultation
+        // tenant-scopé, dans un nouvel onglet. Proposé seulement quand le fichier est présent.
+        var doc = Doc("100352", "Issued");
+        var model = BuildModel(doc: doc, hasSourcePdf: true);
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        var link = cut.Find("[data-testid='document-detail-source-pdf-link']");
+        link.TextContent.Should().Contain("document d'origine");
+        link.GetAttribute("href").Should().Be($"/api/v1/documents/{doc.Id}/piece-jointe");
+        link.GetAttribute("target").Should().Be("_blank");
+    }
+
+    [Fact]
+    public void Should_Not_Show_The_Source_Pdf_Link_When_No_File_Was_Ingested()
+    {
+        // Un document sans PDF en source est un cas NORMAL : aucun lien mort, aucune mention.
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(hasSourcePdf: false)));
+
+        cut.FindAll("[data-testid='document-detail-source-pdf-link']").Should().BeEmpty();
+    }
+
     [Theory]
     [InlineData("encheresv6:ba:9000004", "Bordereau acheteur")]
     [InlineData("encheresv6:bv:9000005", "Bordereau vendeur")]
@@ -680,7 +705,8 @@ public sealed class DocumentDetailViewTests : BunitContext
         bool isArchived = false,
         DocumentContentView? content = null,
         MarginRecapView? marginRecap = null,
-        Guid? eReportedBatchId = null) => new()
+        Guid? eReportedBatchId = null,
+        bool hasSourcePdf = false) => new()
     {
         Document = doc ?? Doc("2026-000", "Issued"),
         Events = events ?? [],
@@ -690,6 +716,7 @@ public sealed class DocumentDetailViewTests : BunitContext
         Content = content ?? DocumentContentView.Empty,
         MarginRecap = marginRecap,
         EReportedBatchId = eReportedBatchId,
+        HasSourcePdf = hasSourcePdf,
     };
 
     private static DocumentContentView Content(

@@ -34,4 +34,10 @@ internal sealed class InMemoryPoolStore : IIngestedPdfStore
 
     public Task<string> SavePooledPdfAsync(string tenantId, string fileName, Stream content, CancellationToken cancellationToken = default) =>
         throw new System.NotSupportedException();
+
+    public Task<bool> LinkedPdfExistsAsync(string tenantId, string sourceReference, CancellationToken cancellationToken = default) =>
+        throw new System.NotSupportedException();
+
+    public Task<Stream?> TryOpenLinkedPdfAsync(string tenantId, string sourceReference, CancellationToken cancellationToken = default) =>
+        throw new System.NotSupportedException();
 }

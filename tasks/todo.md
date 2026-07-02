@@ -1,4 +1,13 @@
-# Lot : rapatriement des PDF BA/BV via les tables GED (recette enchères)
+# Lot 2 : affichage de la pièce jointe sur la fiche document (suite du lot GED-PDF)
+
+Livré 02/07 soir : lecture liée sur IIngestedPdfStore (+FileSystem impl, 3 doubles de test à jour),
+sonde HasSourcePdf dans DocumentDetailConsoleQueryService (miroir récap de marge), endpoint Host
+GET /api/v1/documents/{id}/piece-jointe (liakont.read, tenant-scopé, inline+nosniff+nom assaini),
+lien sur DocumentDetailView. Review clean round 3 (2 P2 r1→r2 : couverture handler puis couverture
+HTTP réelle Console.Api.Tests.Integration + nosniff). verify-fast PASS, run-tests PASS (7 385),
+suite Console.Api 185/185. Recette agent : 396 PDF poussés/reçus (tenant volontaire).
+
+# Lot 1 : rapatriement des PDF BA/BV via les tables GED (recette enchères)
 
 Feu vert Karl 02/07. Branche : feat/recette-encheres-ged-extraction.
 Design validé : source PDF « tables GED » lue en ODBC (lecture seule), chemin reconstruit

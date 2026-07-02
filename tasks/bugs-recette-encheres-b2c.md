@@ -1100,10 +1100,22 @@ revue Claude **clean** au round 3). Détail + commit sous chaque bug.
     acquittement était perdu définitivement) — idempotence par la clé PDF (chemin). Échec ODBC de la
     collecte = `SourceUnavailableException` propagée (cycle réessayable, jamais de PDF perdu en silence) ;
     anomalie de donnée = Warning français + bordereau transmis sans pièce (70 BA réels sans PDF : légitime).
-- **⏳ RESTE** : (a) recette Karl (agents : ajouter `gedPdf`/`gedPdfRoot` à l'agent.json installé, relancer
-  un run, vérifier la pièce jointe sur un document dans la console) — NB : les documents déjà acquittés ne
-  sont ré-examinés que s'ils repassent dans la fenêtre d'extraction ; pour un rattrapage complet, ré-extraire
-  la période (reset du filigrane/queue locale — le serveur dédoublonne) ; (b) install prod : la déclaration
+- **✅ FAIT (2026-07-02, fin de journée) — recette agent + affichage console** :
+  - agent volontaire2 reconfiguré (gedPdf/gedPdfRoot), binaires du paquet rafraîchis, queue purgée →
+    **415 documents ré-extraits, 396 PDF collectés et poussés, 0 erreur ; 396 fichiers reçus côté serveur**
+    (`App_Data/ingestion-pdf/volontaire/linked/`). NB relevé : le service pointe le PAQUET
+    `artifacts/agent-installers/...` (pas le bin du repo) — rafraîchir le paquet à chaque livraison agent.
+  - **le dernier mètre manquait** : la fiche document n'affichait pas la pièce (composant socle
+    `DocumentAttachment` orphelin — gestionnaire upload/delete, mauvais outil pour une pièce ingérée en
+    lecture seule ; aucune lecture du store). Lot livré : lecture `LinkedPdfExistsAsync`/`TryOpenLinkedPdfAsync`
+    sur `IIngestedPdfStore`, sonde `HasSourcePdf` dans l'assemblage de la fiche (panne = lien omis, jamais
+    de détail cassé), endpoint Host `GET /api/v1/documents/{id}/piece-jointe` (garde liakont.read,
+    tenant-scopé, inline + nosniff + nom assaini), lien « Voir le document d'origine (PDF) » sur la fiche.
+    Review clean (round 3 ; P2 traités : couverture HTTP réelle via `Liakont.Console.Api.Tests.Integration`
+    — 403/404 isolation/404 sans PDF/200 inline+nosniff — et en-tête nosniff), verify-fast + run-tests PASS.
+- **⏳ RESTE** : (a) vérif visuelle Karl (fiche d'un BA/BV avec PDF) ; (b) install prod : la déclaration
   des tables GED au dictionnaire Zen devient une étape d'installation (wizard) puisque l'agent lit via le
-  même ODBC ; (c) éventuel fast-follow : liaison GED des factures client (flux 7) si la clé réelle est
-  élucidée un jour (Ref_numerique1=0 aujourd'hui).
+  même ODBC ; (c) fast-follow éventuels : liaison GED des factures client (flux 7, `Ref_numerique1=0` —
+  clé réelle non élucidée) ; filtre du TYPE de document GED poussé (la GED lie aussi des pièces « libres »
+  — ex. scan de carte d'identité type `LIBRE926` sur le BA 100225 : minimisation des données à trancher,
+  filtrer Type_modele BA/BV ?) ; instance judiciaire (dossier 1) sans agent actif.

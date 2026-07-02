@@ -46,4 +46,18 @@ public interface IIngestedPdfStore
     /// (anti path-traversal). L'appelant dispose le flux.
     /// </summary>
     Task<Stream> OpenPooledPdfAsync(string tenantId, string poolPdfId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Indique si un PDF RATTACHÉ existe pour le document désigné par sa référence source, dans le
+    /// tenant donné (sonde d'affichage de la fiche document : le lien « pièce jointe » n'est proposé
+    /// que si le fichier est réellement présent — jamais de lien mort).
+    /// </summary>
+    Task<bool> LinkedPdfExistsAsync(string tenantId, string sourceReference, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Ouvre en LECTURE SEULE le flux du PDF RATTACHÉ au document désigné par sa référence source, ou
+    /// renvoie <c>null</c> s'il n'existe pas (un document sans pièce jointe est un cas normal : tous les
+    /// documents source n'ont pas de PDF). L'appelant dispose le flux.
+    /// </summary>
+    Task<Stream?> TryOpenLinkedPdfAsync(string tenantId, string sourceReference, CancellationToken cancellationToken = default);
 }

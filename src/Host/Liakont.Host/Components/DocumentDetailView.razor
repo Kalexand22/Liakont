@@ -50,6 +50,22 @@
                         <dt>SIREN émetteur</dt>
                         <dd data-testid="document-detail-supplier-siren">@EffectiveSupplierSiren</dd>
                     </div>
+                    @* Pièce jointe : le PDF d'origine reçu de la source avec le document (module Ingestion).
+                     * Lien proposé SEULEMENT quand le fichier est présent (jamais de lien mort) — un document
+                     * sans PDF en source est un cas normal, aucune mention n'est alors affichée. *@
+                    @if (Model.HasSourcePdf)
+                    {
+                        <div class="liakont-doc-detail__row">
+                            <dt>Pièce jointe</dt>
+                            <dd>
+                                <a class="liakont-doc-detail__source-pdf-link"
+                                   href="@($"/api/v1/documents/{Model.Document.Id}/piece-jointe")"
+                                   target="_blank"
+                                   rel="noopener"
+                                   data-testid="document-detail-source-pdf-link">Voir le document d'origine (PDF)</a>
+                            </dd>
+                        </div>
+                    }
                     <div class="liakont-doc-detail__row">
                         <dt>État</dt>
                         <dd>
