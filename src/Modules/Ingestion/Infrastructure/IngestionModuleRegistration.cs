@@ -8,6 +8,7 @@ using Liakont.Modules.Ingestion.Infrastructure.Queries;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Stratum.Common.Infrastructure.Database;
+using Stratum.Common.Infrastructure.Outbox;
 
 /// <summary>
 /// Enregistrement DI du module Ingestion (registre d'agents, authentification par clé API, heartbeat,
@@ -49,7 +50,9 @@ public static class IngestionModuleRegistration
         services.TryAddScoped<IDocumentIntake, NoOpDocumentIntake>();
 
         // Correspondance type d'événement → payload CLR pour le worker d'outbox (DocumentReceived, SourceAltered).
-        services.AddHostedService<IngestionEventTypeRegistrar>();
+        // GDF01 : contributeur appliqué AU BUILD DI (avant le premier poll de l'OutboxWorker), en remplacement de
+        // l'ancien AddHostedService<IngestionEventTypeRegistrar> qui enregistrait en concurrence avec le worker.
+        services.AddSingleton<IEventTypeRegistrar, IngestionEventTypeRegistrar>();
 
         return services;
     }
