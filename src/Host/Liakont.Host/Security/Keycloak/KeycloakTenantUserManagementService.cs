@@ -41,9 +41,9 @@ internal sealed partial class KeycloakTenantUserManagementService : ITenantUserM
     private readonly ITenantScopeFactory _scopeFactory;
     private readonly IKeycloakUserProvisioner _keycloak;
     private readonly IEmailTransport _emailTransport;
+    private readonly IEmailSendAvailability _emailAvailability;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly KeycloakAdminOptions _keycloakOptions;
-    private readonly SmtpOptions _smtpOptions;
     private readonly bool _dedicatedRealmPerTenant;
     private readonly ILogger<KeycloakTenantUserManagementService> _logger;
 
@@ -52,9 +52,9 @@ internal sealed partial class KeycloakTenantUserManagementService : ITenantUserM
         ITenantScopeFactory scopeFactory,
         IKeycloakUserProvisioner keycloak,
         IEmailTransport emailTransport,
+        IEmailSendAvailability emailAvailability,
         IHttpClientFactory httpClientFactory,
         IOptions<KeycloakAdminOptions> keycloakOptions,
-        IOptions<SmtpOptions> smtpOptions,
         IConfiguration configuration,
         ILogger<KeycloakTenantUserManagementService> logger)
     {
@@ -62,9 +62,9 @@ internal sealed partial class KeycloakTenantUserManagementService : ITenantUserM
         _scopeFactory = scopeFactory;
         _keycloak = keycloak;
         _emailTransport = emailTransport;
+        _emailAvailability = emailAvailability;
         _httpClientFactory = httpClientFactory;
         _keycloakOptions = keycloakOptions.Value;
-        _smtpOptions = smtpOptions.Value;
         _dedicatedRealmPerTenant =
             configuration.GetValue<bool>($"{KeycloakAdminOptions.SectionName}:DedicatedRealmPerTenant");
         _logger = logger;
@@ -252,29 +252,38 @@ internal sealed partial class KeycloakTenantUserManagementService : ITenantUserM
     private async Task<bool> TrySendResetEmailAsync(
         KeycloakUserRepresentation user, string temporaryPassword, CancellationToken ct)
     {
-        if (!_smtpOptions.IsConfigured || string.IsNullOrWhiteSpace(user.Email))
+        if (string.IsNullOrWhiteSpace(user.Email))
         {
             return false;
         }
 
-        var consoleUrl = _keycloakOptions.AppBaseUrl.TrimEnd('/');
-        var body =
-            $"""
-            Bonjour,
-
-            Le mot de passe de votre accès à la console Liakont vient d'être réinitialisé.
-
-            Nom d'utilisateur : {user.Username}
-            Mot de passe temporaire : {temporaryPassword}
-
-            À votre prochaine connexion, vous devrez choisir un nouveau mot de passe.
-            {(string.IsNullOrWhiteSpace(consoleUrl) ? string.Empty : $"Connexion : {consoleUrl}")}
-
-            Si vous n'êtes pas à l'origine de cette demande, contactez votre opérateur Liakont.
-            """;
-
         try
         {
+            // Sonde de disponibilité (BUG-31) DANS le try : config d'instance en base OU appsettings —
+            // jamais SmtpOptions seul, qui ignore la config en base. Le mot de passe temporaire est
+            // DÉJÀ posé chez l'IdP : un échec de sonde vaut « pas d'envoi possible » (mot de passe
+            // remis à l'opérateur), jamais un 500 qui le perdrait.
+            if (!await _emailAvailability.IsConfiguredAsync(ct))
+            {
+                return false;
+            }
+
+            var consoleUrl = _keycloakOptions.AppBaseUrl.TrimEnd('/');
+            var body =
+                $"""
+                Bonjour,
+
+                Le mot de passe de votre accès à la console Liakont vient d'être réinitialisé.
+
+                Nom d'utilisateur : {user.Username}
+                Mot de passe temporaire : {temporaryPassword}
+
+                À votre prochaine connexion, vous devrez choisir un nouveau mot de passe.
+                {(string.IsNullOrWhiteSpace(consoleUrl) ? string.Empty : $"Connexion : {consoleUrl}")}
+
+                Si vous n'êtes pas à l'origine de cette demande, contactez votre opérateur Liakont.
+                """;
+
             await _emailTransport.SendAsync(user.Email, "Réinitialisation de votre mot de passe Liakont", body, ct);
             return true;
         }

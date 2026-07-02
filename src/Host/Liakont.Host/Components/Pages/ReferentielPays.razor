@@ -78,30 +78,30 @@ else
                    Width="480px"
                    TestId="referentiel-pays-edit-dialog">
         <ChildContent>
-            <p class="referentiel-pays-dialog__text">
+            <p>
                 Saisissez le code pays tel qu'il arrive de la source (par exemple « BEL ») et le code ISO 3166-1
                 alpha-2 officiel correspondant (par exemple « BE »). Un code source déjà présent est mis à jour.
             </p>
-            <div class="referentiel-pays-dialog__field">
-                <label class="referentiel-pays-dialog__label" for="referentiel-pays-source">Code source</label>
+            @* Champs au gabarit du design system (FormField + form-control — même pattern qu'AlertesView) :
+               label au-dessus, champ pleine largeur. Jamais de classes CSS maison non définies (BUG-32). *@
+            <FormField Label="Code source" FieldId="referentiel-pays-source" Required="true">
                 <input id="referentiel-pays-source"
-                       class="referentiel-pays-dialog__input"
+                       class="form-control"
                        type="text"
                        value="@_sourceCode"
                        @oninput="OnSourceChanged"
                        disabled="@_editBusy"
                        data-testid="referentiel-pays-source" />
-            </div>
-            <div class="referentiel-pays-dialog__field">
-                <label class="referentiel-pays-dialog__label" for="referentiel-pays-iso">Code ISO cible</label>
+            </FormField>
+            <FormField Label="Code ISO cible" FieldId="referentiel-pays-iso" Required="true">
                 <input id="referentiel-pays-iso"
-                       class="referentiel-pays-dialog__input"
+                       class="form-control"
                        type="text"
                        value="@_isoCode"
                        @oninput="OnIsoChanged"
                        disabled="@_editBusy"
                        data-testid="referentiel-pays-iso" />
-            </div>
+            </FormField>
         </ChildContent>
         <Actions>
             <StratumButton Text="@(_editBusy ? "Enregistrement…" : "Enregistrer")"

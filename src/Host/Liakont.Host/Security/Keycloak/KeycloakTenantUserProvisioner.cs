@@ -31,7 +31,8 @@ using Stratum.Modules.Notification.Contracts;
 /// attributs (<c>stratum_user_id</c>, et <c>company_id</c> pour les realms antérieurs au mapper
 /// hardcodé) → invitation email envoyée de façon SYNCHRONE via <see cref="IEmailTransport"/> — le
 /// mot de passe temporaire n'est JAMAIS persisté (ni file de jobs, ni logs : règle n°18) ; sans
-/// SMTP configuré (ou envoi en échec), il est remis UNE FOIS à l'appelant.
+/// envoi d'email configuré (<see cref="IEmailSendAvailability"/> : config d'instance en base OU
+/// appsettings — BUG-31) ou sur envoi en échec, il est remis UNE FOIS à l'appelant.
 /// </summary>
 internal sealed partial class KeycloakTenantUserProvisioner : ITenantUserProvisioningService
 {
@@ -39,8 +40,8 @@ internal sealed partial class KeycloakTenantUserProvisioner : ITenantUserProvisi
     private readonly ITenantScopeFactory _scopeFactory;
     private readonly IKeycloakUserProvisioner _keycloak;
     private readonly IEmailTransport _emailTransport;
+    private readonly IEmailSendAvailability _emailAvailability;
     private readonly IHttpContextAccessor _httpContextAccessor;
-    private readonly SmtpOptions _smtpOptions;
     private readonly KeycloakAdminOptions _keycloakOptions;
     private readonly bool _dedicatedRealmPerTenant;
     private readonly ILogger<KeycloakTenantUserProvisioner> _logger;
@@ -50,8 +51,8 @@ internal sealed partial class KeycloakTenantUserProvisioner : ITenantUserProvisi
         ITenantScopeFactory scopeFactory,
         IKeycloakUserProvisioner keycloak,
         IEmailTransport emailTransport,
+        IEmailSendAvailability emailAvailability,
         IHttpContextAccessor httpContextAccessor,
-        IOptions<SmtpOptions> smtpOptions,
         IOptions<KeycloakAdminOptions> keycloakOptions,
         IConfiguration configuration,
         ILogger<KeycloakTenantUserProvisioner> logger)
@@ -60,8 +61,8 @@ internal sealed partial class KeycloakTenantUserProvisioner : ITenantUserProvisi
         _scopeFactory = scopeFactory;
         _keycloak = keycloak;
         _emailTransport = emailTransport;
+        _emailAvailability = emailAvailability;
         _httpContextAccessor = httpContextAccessor;
-        _smtpOptions = smtpOptions.Value;
         _keycloakOptions = keycloakOptions.Value;
 
         // Même drapeau que la sélection DI du provisioner de realm (NoOp vs Keycloak,
@@ -314,36 +315,40 @@ internal sealed partial class KeycloakTenantUserProvisioner : ITenantUserProvisi
 
     /// <summary>
     /// Envoie l'invitation de façon SYNCHRONE (jamais par la file de jobs : le mot de passe
-    /// temporaire ne doit JAMAIS être persisté — règle n°18). Retourne <c>false</c> si le SMTP
-    /// n'est pas configuré OU si l'envoi échoue (tracé) — l'appelant remet alors le mot de passe
-    /// temporaire à l'opérateur, une seule fois.
+    /// temporaire ne doit JAMAIS être persisté — règle n°18). Retourne <c>false</c> si aucun envoi
+    /// d'email n'est configuré (ni config d'instance en base — ADR-0039 — ni appsettings, BUG-31)
+    /// OU si l'envoi échoue (tracé) — l'appelant remet alors le mot de passe temporaire à
+    /// l'opérateur, une seule fois.
     /// </summary>
     private async Task<bool> TrySendInvitationAsync(
         TenantUserProvisionRequest request, string temporaryPassword, CancellationToken ct)
     {
-        if (!_smtpOptions.IsConfigured)
-        {
-            return false;
-        }
-
-        var consoleUrl = _keycloakOptions.AppBaseUrl.TrimEnd('/');
-        var body =
-            $"""
-            Bonjour {request.DisplayName},
-
-            Un accès à la console Liakont vient d'être créé pour vous.
-
-            Nom d'utilisateur : {request.Username}
-            Mot de passe temporaire : {temporaryPassword}
-
-            À votre première connexion, vous devrez choisir un nouveau mot de passe.
-            {(string.IsNullOrWhiteSpace(consoleUrl) ? string.Empty : $"Connexion : {consoleUrl}")}
-
-            Si vous n'êtes pas à l'origine de cette demande, contactez votre opérateur Liakont.
-            """;
-
         try
         {
+            // Sonde de disponibilité (BUG-31) DANS le try : elle interroge la base système — son
+            // échec vaut « pas d'envoi possible » (mot de passe remis à l'opérateur) et ne doit
+            // JAMAIS déclencher la compensation (suppression du compte IdP) du catch appelant.
+            if (!await _emailAvailability.IsConfiguredAsync(ct))
+            {
+                return false;
+            }
+
+            var consoleUrl = _keycloakOptions.AppBaseUrl.TrimEnd('/');
+            var body =
+                $"""
+                Bonjour {request.DisplayName},
+
+                Un accès à la console Liakont vient d'être créé pour vous.
+
+                Nom d'utilisateur : {request.Username}
+                Mot de passe temporaire : {temporaryPassword}
+
+                À votre première connexion, vous devrez choisir un nouveau mot de passe.
+                {(string.IsNullOrWhiteSpace(consoleUrl) ? string.Empty : $"Connexion : {consoleUrl}")}
+
+                Si vous n'êtes pas à l'origine de cette demande, contactez votre opérateur Liakont.
+                """;
+
             await _emailTransport.SendAsync(request.Email, "Votre accès à la console Liakont", body, ct);
             return true;
         }
