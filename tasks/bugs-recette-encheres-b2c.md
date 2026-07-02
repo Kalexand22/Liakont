@@ -906,6 +906,11 @@ revue Claude **clean** au round 3). Détail + commit sous chaque bug.
   `ISystemScheduleHost` (porteuse système), cohérence avec `AdminJobSchedules` / BUG-4b.
 - **Critère d'acceptation** : un job système planifié qui s'exécute est **visible** dans « Exécutions de jobs » pour
   l'opérateur plateforme ; aucune fuite des jobs tenant réels vers un autre tenant ; test.
+- **✅ RÉSOLU (2026-07-02)** : repli BUG-4b répliqué sur `AdminJobExecutions.LoadExecutionsAsync` —
+  `ActorContext.Current.CompanyId ?? SystemScheduleHost.CrossTenantHostCompanyId`. Un opérateur plateforme sans
+  société courante consulte les exécutions de la **porteuse système** (`5c8ed001-…`) au lieu d'une liste vide ; la
+  query `PostgresJobExecutionsQueries` reste tenant-scopée STRICTE (aucune fuite — CLAUDE.md n°9). Tests bUnit :
+  plateforme → requête sur la porteuse ; socle nu (pas de porteuse) → toujours vide. verify-fast Release vert.
 
 ## Écran « Politiques » (= Politiques d'audit) — utilité produit à trancher 🧩 — question Karl 2026-07-01
 - **Question Karl** : « écran Politiques => ça sert à quoi ? »
