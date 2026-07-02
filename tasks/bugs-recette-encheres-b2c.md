@@ -1045,3 +1045,16 @@ revue Claude **clean** au round 3). Détail + commit sous chaque bug.
   Factur-X par email) lit AUSSI `SmtpOptions` (appsettings) et bloque si non configuré — une instance
   configurée UNIQUEMENT en base (a fortiori Gmail/O365 OAuth) ne peut pas transmettre par ce canal. Le
   raccorder exige de porter le canal en provider-aware (OAuth compris) : à backloguer comme item propre.
+- **✅ VALIDÉ recette Karl (2026-07-02)** : « ça marche » — invitation Gmail reçue à la création d'utilisateur
+  sur l'env Isatech, plus d'affichage du mot de passe.
+
+## BUG-32 (P3 cosmétique — UI) 🎨 — Dialog « Ajouter ou modifier une correspondance » (Référentiel pays) : champs non alignés, visuel brut — relevé Karl 2026-07-02
+- **Relevé Karl** : « l'affichage de l'écran de création de correspondance pays est bizarre … c'est surtout
+  l'alignement des champs et le visuel qui n'est pas propre. »
+- **Cause (sourcée code)** : le corps du dialog (`ReferentielPays.razor`) utilisait des classes CSS
+  `referentiel-pays-dialog__field/__label/__input/__text` **définies nulle part** (pas de `.razor.css`, rien
+  dans `components.css`/`app.css`) → labels inline collés aux inputs, largeurs inégales, aucun habillage.
+- **✅ RÉSOLU (2026-07-02)** : markup remplacé par le gabarit du design system — `FormField` (socle
+  `Stratum.Common.UI.Components`, label au-dessus + Required) + `input.form-control` (pleine largeur stylée),
+  même pattern qu'`AlertesView`. `data-testid` inchangés (tests bUnit verts, 6/6). Rappel de la règle :
+  jamais de classes CSS maison non définies dans une page console (design system Stratum obligatoire).
