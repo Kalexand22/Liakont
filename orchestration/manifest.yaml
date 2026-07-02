@@ -270,7 +270,15 @@ meta:
   #   coffre-fort documentaire au-dessus du WORM existant) ne dépend en rien d'une prod cliente. Segment désormais
   #   gardé uniquement par [GATE_PIPELINE, GATE_CONSOLE_WEB, GATE_AGENT] (toutes done) → GED02 (deps vides) éligible
   #   immédiatement. GATE_DEMO_ISATECH NON modifiée (reste gate_pending, garde toujours CMP04 + GATE_PROD_CMP).
-  version: 39
+  # version 40 (2026-07-02, geste opérateur interactif — Karl) = seed du lot GDF : correctifs de la review
+  #   d'intégration GED (diff main...feat/ged, 328 fichiers ; 12 finders × 8 angles + vérification adversariale
+  #   1-vote par candidat ; 23 findings CONFIRMÉS, 4 PLAUSIBLE latents) → 13 items. GDF01→GDF10 (P1/P2 produit +
+  #   gardes CI) BLOQUENT GATE_GED (depends_on étendu) : la PR de gate (#77) ne doit PAS être mergée avant.
+  #   GDF11→GDF13 = fast-follow HORS gate (surface Archive latente sans appelant prod, P2 UI mineurs, garde-fous
+  #   d'outillage). Détails/verdicts : items/GDF.yaml. ⚠️ À SEEDER dans $ORCH_REPO/state.yaml APRÈS merge :
+  #   GDF01→GDF13 en `pending` (édition directe OK, items neufs) + GATE_GED gate_pending→pending (mutation de
+  #   statut → via orch-state.ps1 ; ses nouvelles deps ne sont pas done).
+  version: 40
   host: multi_agent_v1
 
 segments:
@@ -456,7 +464,7 @@ segments:
   ged:
     branch: feat/ged
     base: main
-    lots: [GED]
+    lots: [GED, GDF]
     gate: GATE_GED
     # v39 (2026-07-01, geste opérateur — Karl) : GATE_DEMO_ISATECH RETIRÉE des prérequis. Coupler le DÉVELOPPEMENT
     # du lot GED à une gate de démo/prod réelle était à l'envers (on construit la feature AVANT d'avoir un client en
@@ -887,10 +895,25 @@ items:
   - { id: GED09c, lot: GED, blueprint: blazor-page-item, priority: 11120, depends_on: [GED08, GED06, GED13] }
   - { id: GED10, lot: GED, priority: 11130, depends_on: [GED05b, GED07] }
   - { id: GED11, lot: GED, blueprint: tooling-item, priority: 11140, depends_on: [GED03c, GED08] }
-  - { id: GATE_GED, type: gate, executor: human, priority: 11200, depends_on: [GED09a, GED09b, GED09c, GED10, GED11] }
+  # ── GDF (correctifs review d'intégration GED 2026-07-02 — GDF01→GDF10 bloquent GATE_GED) ──
+  - { id: GDF01, lot: GDF, priority: 11150, depends_on: [] }
+  - { id: GDF02, lot: GDF, priority: 11152, depends_on: [] }
+  - { id: GDF03, lot: GDF, priority: 11154, depends_on: [GDF02] }
+  - { id: GDF04, lot: GDF, priority: 11156, depends_on: [] }
+  - { id: GDF05, lot: GDF, blueprint: blazor-page-item, priority: 11158, depends_on: [] }
+  - { id: GDF06, lot: GDF, blueprint: tooling-item, priority: 11160, depends_on: [] }
+  - { id: GDF07, lot: GDF, priority: 11162, depends_on: [] }
+  - { id: GDF08, lot: GDF, priority: 11164, depends_on: [] }
+  - { id: GDF09, lot: GDF, priority: 11166, depends_on: [GDF04] }
+  - { id: GDF10, lot: GDF, priority: 11168, depends_on: [] }
+  - { id: GATE_GED, type: gate, executor: human, priority: 11200, depends_on: [GED09a, GED09b, GED09c, GED10, GED11, GDF01, GDF02, GDF03, GDF04, GDF05, GDF06, GDF07, GDF08, GDF09, GDF10] }
   # Fast-follow (HORS gate) — items individuels ; GED20 `blocked` sur D1, GED21-24 `pending`.
   - { id: GED20, lot: GED, priority: 11500, depends_on: [GED07] }
   - { id: GED21, lot: GED, priority: 11510, depends_on: [GED08] }
   - { id: GED22, lot: GED, priority: 11520, depends_on: [GED08] }
   - { id: GED23, lot: GED, priority: 11530, depends_on: [GED05b] }
   - { id: GED24, lot: GED, priority: 11540, depends_on: [GED03c] }
+  # Fast-follow GDF (HORS gate) — voir items/GDF.yaml.
+  - { id: GDF11, lot: GDF, priority: 11580, depends_on: [GDF08] }
+  - { id: GDF12, lot: GDF, blueprint: blazor-page-item, priority: 11590, depends_on: [GDF05] }
+  - { id: GDF13, lot: GDF, blueprint: tooling-item, priority: 11600, depends_on: [GDF06] }
