@@ -1,0 +1,306 @@
+# Lot GDF — Correctifs de la review d'intégration GED (diff main...feat/ged, 2026-07-02)
+# Source : review multi-agents en session interactive (Karl, 2026-07-02) sur les 328 fichiers du
+#   segment ged : 12 finders (8 angles : ligne-à-ligne ×5 zones, comportements supprimés, cross-file,
+#   reuse/simplification/efficacité/altitude/conventions) + vérification adversariale 1-vote par
+#   candidat. 23 findings CONFIRMÉS, 4 PLAUSIBLE latents. Chaque item cite fichier:ligne et le
+#   verdict de vérification.
+# Branche : feat/ged (segment `ged`, base main) — le code corrigé vit sur feat/ged.
+# GDF01→GDF10 BLOQUENT GATE_GED (depends_on étendu, manifest v40) : la PR de gate (#77) ne doit
+#   pas être mergée avant. GDF11→GDF13 = fast-follow HORS gate.
+# Règles non négociables : mêmes que le lot GED (items/GED.yaml, en-tête) ; chaque item ne
+#   re-liste que ce qui le concerne. Rappels transverses : DEFER jamais deviner (n°3) ;
+#   append-only intégral — jamais réparer par UPDATE/DELETE (n°4) ; messages opérateur FR (n°12) ;
+#   pages Blazor testées (n°19) ; toute modif du socle vendored → provenance (n°11).
+
+items:
+
+  GDF01:
+    title: "Drain outbox fiabilisé au démarrage : types d'événements (GED + Ingestion) enregistrés AVANT tout poll — un event_type inconnu n'est plus consommé à vide"
+    description: |
+      (Review 2026-07-02, CONFIRMED.) Course constructible : OutboxWorker (hosted service enregistré
+      par AddStratumEvents, AppBootstrap.cs:153) démarre avant GedEventTypeRegistrar (IHostedService,
+      AppBootstrap.cs:419 → GedModuleRegistration.cs:84) et son ExecuteAsync polle IMMÉDIATEMENT sans
+      délai initial (OutboxWorker.cs:98 ; delay seulement après batch vide). Un event_type inconnu est
+      marqué processed DÉFINITIVEMENT, sans dead-letter (OutboxWorker.cs:180-190). Au redémarrage du
+      Host avec des 'ged.managed-document.received' pendants → consommés à vide → documents ingérés
+      jamais indexés (registre 'Accepted', ged_index vide), silencieusement. La même course pré-existe
+      pour IngestionEventTypeRegistrar (IngestionModuleRegistration.cs:52) : corriger le MÉCANISME,
+      pas un cas — enregistrement des types AVANT le démarrage des hosted services (au build DI /
+      IStartupFilter / ordonnancement structurel), plutôt que « types inconnus laissés pending »
+      (un typo de type deviendrait un re-poll infini). Les tests GED actuels contournent l'OutboxWorker
+      (ManagedDocumentIngestionIntegrationTests.cs:281-295) — le test du fix ne doit PAS le contourner.
+      Si le fix touche du socle vendored (Stratum.*) → provenance obligatoire (n°11).
+    acceptance:
+      - "Test : événements ged.managed-document.received pendants au démarrage → réellement consommés (jamais marqués processed à vide) ; le mécanisme couvre aussi le canal Ingestion."
+      - "Structurel : aucun poll de l'OutboxWorker ne peut précéder l'enregistrement des types (pas un Task.Delay ni un retry heuristique)."
+      - "Toute modification du socle vendored consignée dans la provenance (n°11)."
+      - "verify-fast passes ; run-tests (intégration) EXÉCUTÉS et verts ; codex-review clean or only accepted P2s."
+
+  GDF02:
+    title: "B2cReportingEmitter : boucle post-acceptation fiabilisée — aucun document déclaré ne reste ReadyToSend sans signal NI rattrapage"
+    description: |
+      (Review 2026-07-02, CONFIRMED ×3.) Après acceptation PA du lot agrégé 10.3 (entrées journal
+      Issued), deux fuites laissent des documents déclarés en ReadyToSend À VIE : (1) une exception de
+      FreezeReportingPieceLinkAsync (B2cReportingEmitter.cs:157, non protégé — contrairement à
+      MarkDocumentEReportedAsync l.216-228) tombe dans le catch générique l.175-179 → contributions
+      restantes jamais transitionnées, sans log 7461, et le log 7460 (« entrées Pending conservées »,
+      l.315) est alors FAUX ; (2) l'OperationCanceledException re-propagée (l.171-174) au shutdown
+      abandonne la boucle sans 7460 ni 7461. L'état résiduel journal-Issued/state-ReadyToSend est
+      DÉFINITIF : GetHandledDocumentIdsAsync (PostgresB2cMarginEmissionStore.cs:36, SELECT DISTINCT
+      sans filtre de statut) exclut ces documents de tous les runs suivants et V012 est one-shot.
+      Correctif : protéger le gel par contribution (poursuivre la boucle), terminer/journaliser
+      proprement sous annulation, ET fournir un rattrapage en régime permanent (ex. la sélection de
+      l'emitter re-tente les contributions Issued-sans-EReported, ou job de réconciliation dédié) —
+      conforme ADR-0037, aucune règle fiscale inventée (n°2). Inclut la couverture perdue : une
+      émission RejectedByPa ne résout AUCUN lot (l'ancien test …Was_Only_Attempted_Or_Rejected a été
+      remplacé par un seed Pending seul, B2cMarginEmissionDetailQueryIntegrationTests.cs:129-143).
+    acceptance:
+      - "Test : exception au gel d'une contribution → les contributions restantes sont transitionnées EReported ; log 7461 émis pour le résiduel ; le texte du 7460 ne ment plus."
+      - "Test : annulation au milieu de la boucle → au re-run, les documents journal-Issued/state-ReadyToSend sont rattrapés (plus d'état résiduel définitif)."
+      - "Test réintroduit : Pending→RejectedByPa ne résout aucun lot de déclaration."
+      - "Transition EReported sourcée ADR-0037 (n°2) ; DocumentEvent append-only intact (n°4)."
+      - "verify-fast passes ; run-tests (intégration) EXÉCUTÉS et verts ; codex-review clean or only accepted P2s."
+
+  GDF03:
+    title: "Console : cohérence d'affichage pour l'état résiduel « déclaré mais resté ReadyToSend » (CanSend + badge/lien déclaration)"
+    description: |
+      (Review 2026-07-02, CONFIRMED ×2 ; dépend de GDF02.) Le diff EReported a supprimé le croisement
+      read-time avec le journal d'émission : DocumentActionBar.razor:145 (CanSend => IsReadyToSend
+      seul → le bouton « Envoyer » réapparaît sur un document déjà déclaré) et
+      DocumentDetailConsoleQueryService.cs:123-126 (ResolveEReportedBatchIdAsync rend null si
+      state != 'EReported' → badge « E-reporté », lien « Voir la déclaration » et message de l'onglet
+      Contrôles perdus — retour du symptôme BUG-24 pour la population résiduelle de GDF02). VÉRIFIÉ :
+      la double transmission fiscale est bloquée par la garde serveur (SendTenantJob.cs:555-559 défère
+      toute déclaration 10.3) — le défaut est l'UI de conformité mensongère, pas un double envoi.
+      Trancher SELON le rattrapage livré par GDF02 : si la fenêtre résiduelle devient transitoire
+      (réconciliation automatique), (a) rétablir un filet read-time léger OU (b) documenter la fenêtre
+      (décision consignée dans l'item) ; sans rattrapage automatique, (a) obligatoire.
+    acceptance:
+      - "Pour un document journal-Issued/state-ReadyToSend : le bouton « Envoyer » n'est plus présenté de façon trompeuse ET la fiche expose la déclaration (badge/lien) — OU la fenêtre est prouvée transitoire (rattrapage GDF02) et la décision est consignée."
+      - "Tests bUnit mis à jour (DocumentActionBarTests / DocumentDetailConsoleQueryServiceTests) — n°19."
+      - "verify-fast passes ; run-tests EXÉCUTÉS et verts ; codex-review clean or only accepted P2s."
+
+  GDF04:
+    title: "GedMapper durci : cardinalité profil↔catalogue (DEFER, jamais d'écrasement silencieux) + appariement ids/libellés + dédup des valeurs multi"
+    description: |
+      (Review 2026-07-02, CONFIRMED ×3 — src/Modules/Ged/Domain/Mapping/GedMapper.cs.)
+      (1) l.77 : la cardinalité n'est vérifiée que contre rule.IsMulti du profil, jamais recoupée avec
+      is_multi_value du catalogue (AxisMappingTarget ne le porte pas ; aucune validation à
+      l'enregistrement du profil — GedMappingProfileRepository) : un profil multi sur un axe mono
+      produit N appends dont chacun supersède le précédent en silence (dernier gagnant arbitraire,
+      PostgresGedIndexUnitOfWork.cs:169-189) au lieu du DEFER « ambiguïté mono-valeur » (INV-GED-05,
+      n°3). (2) l.119-131 : DisplaySource n'est retenu que si exactement 1 libellé sort, puis attaché
+      à CHAQUE externalId → M==1/N>1 = le même libellé collé aux N entités (displayName d'une AUTRE
+      entité) ; M==N>1 = tous les libellés perdus. Appariement positionnel attendu (M==N) ; M≠N →
+      comportement défini (DEFER ou libellé absent, documenté), jamais le libellé d'une autre entité.
+      (3) l.83-97 : aucune dédup sur un axe IsMulti (GedSelector.cs:47-48 conserve les doublons ; V009
+      sans contrainte unique) → liens courants strictement identiques en double (append-only, jamais
+      corrigés) → facettes/fiche en double. Dédupliquer avant append.
+    acceptance:
+      - "Mismatch profil-multi/axe-mono → DEFER avec message FR actionnable (jamais de supersession silencieuse) — au mapping et/ou à la validation du profil contre le catalogue (trancher, documenter)."
+      - "Libellés appariés positionnellement (M==N, golden) ; M==1/N>1 et M≠N → comportement défini et testé (jamais le libellé d'une autre entité)."
+      - "Valeurs multi dédupliquées avant append : aucun lien courant strictement identique en double (test)."
+      - "verify-fast passes ; run-tests EXÉCUTÉS et verts ; codex-review clean or only accepted P2s."
+
+  GDF05:
+    title: "Pages GED — protections croisées : prerender désactivé sur GedObjet (UNE trace d'audit par consultation) + garde anti-réponse-tardive sur GedDocument"
+    description: |
+      (Review 2026-07-02, CONFIRMED ×2 — symétrie manquante entre les fixes GED09b/GED09c.)
+      (1) GedObjet.razor:2 garde le prerender actif (@rendermode InteractiveServer nu ;
+      AddInteractiveServerRenderMode sans désactivation globale) alors qu'OnParametersSetAsync
+      déclenche RunExploreAsync qui écrit la trace 'explore_entity' (GedGraphQueryService.cs:68/93) :
+      passe SSR + circuit interactif = DEUX traces dans consultation_log (append-only, INV-GED-11 —
+      journal probant gonflé, comptage de consultation faux) + double CTE de graphe. GedDocument.razor:2
+      (+ commentaire l.16-19) désactive le prerender pour EXACTEMENT cette raison. (2)
+      GedDocument.razor:78-103 : LoadAsync écrit _model/_notFound/_loadFailed après l'await sans
+      re-vérifier Id (la garde l.69 ne couvre que les re-rendus à Id identique) → navigation
+      /ged/document/A → /ged/document/B pendant un GetAsync(A) en vol : fiche A affichée sous l'URL B,
+      ou _loadFailed de A masquant la fiche B. Le modèle est la garde forRoot de GedObjet
+      (l.76/99/110/126, GED09c). Option plus profonde À ÉVALUER (non obligatoire) : rendre le writer
+      de trace insensible au prerender (ex. RendererInfo.IsInteractive) pour protéger les futures
+      pages traçantes — si retenue, la consigner.
+    acceptance:
+      - "Ouvrir /ged/objet/{type}/{id} écrit EXACTEMENT UNE trace explore_entity (test) ; plus de double requête de graphe au prerender."
+      - "Navigation A→B pendant un chargement en vol : la fiche B s'affiche, la réponse tardive de A est écartée (test bUnit de page, pattern GedObjetTests re-entrance/late-response)."
+      - "Tests de pages présents ET EXÉCUTÉS verts (n°19) ; aucune logique métier en page."
+      - "verify-fast passes ; codex-review clean or only accepted P2s."
+
+  GDF06:
+    title: "Lints GED11 durcis : lecture UTF-8 explicite (PS 5.1, .cs sans BOM) + regex cross-schéma insensible à la casse pour .sql — self-tests prouvant chaque trou FERMÉ"
+    description: |
+      (Review 2026-07-02, CONFIRMED ×3 — prouvés PAR EXÉCUTION.) (1) lint-ged-generic-literals.ps1:55
+      (et lint-ged-cross-schema.ps1:56) lisent via Get-Content -Raw SANS -Encoding : sous Windows
+      PowerShell 5.1 (verify-fast.ps1:217-241 invoque `powershell`), un .cs UTF-8 SANS BOM — la norme
+      du repo — est décodé CP1252 → « enchères » devient « enchÃ¨res » et échappe au scan : FAUX-VERT
+      LOCAL de la garde n°7 (la CI ubuntu/pwsh, UTF-8 par défaut, divergerait : local vert / CI rouge).
+      (2) Le self-test (test-ged-generic-literals-lint.ps1:42) écrit ses cas avec Set-Content -Encoding
+      utf8 (= BOM en 5.1) et n'injecte aucun mot accentué dans une position scannée → structurellement
+      AVEUGLE au trou (le fix RL-27 « lecture UTF-8 explicite » n'avait été appliqué qu'au contrôle de
+      synchro l.122, pas au scan du lint). (3) lint-ged-cross-schema.ps1:41 : le `[a-z_]` post-point
+      est case-SENSITIVE (hors du groupe (?i:)) → `JOIN documents.Documents d` (SQL fonctionnel,
+      repli de casse Postgres) passe le lint. L'exclusion PascalCase est LÉGITIME pour les .cs (accès
+      membre `request.Documents.Count`) mais pas pour les .sql — $lang est déjà distingué (l.58) :
+      appliquer (?i) au segment post-point pour les .sql seulement. RL-27 : chaque fix DOIT être prouvé
+      par un self-test (cas .cs sans BOM avec littéral accentué ; cas .sql en casse mixte).
+    acceptance:
+      - "Lint anti-littéral : échoue sur « enchères » dans un .cs UTF-8 SANS BOM, sous l'interpréteur utilisé par verify-fast (powershell 5.1) ET sous pwsh — self-test couvrant le cas sans-BOM accentué."
+      - "Lint cross-schéma : échoue sur `JOIN documents.Documents` dans un .sql ; reste vert sur `request.Documents.Count` dans un .cs (self-test des deux cas)."
+      - "Les self-tests étendus tournent dans verify-fast ET ci.yml et échouent réellement le pipeline."
+      - "verify-fast passes ; codex-review clean or only accepted P2s."
+
+  GDF07:
+    title: "Écriture manuelle d'un axe searchable → re-projection de document_search (le plein-texte ne reste plus figé sur l'ingestion)"
+    description: |
+      (Review 2026-07-02, CONFIRMED.) SetAxisValueCommandHandler.cs:61-64 se limite à
+      AppendAxisLinkAsync+Commit ; le SEUL appelant de RefreshDocumentAsync est
+      ManagedDocumentSearchProjector.cs:47, déclenché exclusivement par ManagedDocumentReceivedV1
+      (ingestion). Une correction opérateur ('Beta'→'Alpha' sur un axe searchable) est donc introuvable
+      en recherche plein-texte et l'ANCIENNE valeur supersédée continue de remonter le document,
+      indéfiniment. Précision vérifiée : les filtres d'axes (PostgresDocumentSearchIndex.cs:173) et les
+      facettes (l.195-200) requêtent current_axis_links en direct et voient la correction — seul le
+      search_vector (document_search) est figé. Correctif : re-projeter après une écriture manuelle
+      d'axe searchable (appel au projector après commit, ou événement), cohérent avec le modèle
+      « document_search = dérivé reconstructible » (GED08, règle 4 — le refresh du dérivé n'est pas
+      une mutation d'audit).
+    acceptance:
+      - "Test intégration : SetAxisValue sur un axe searchable → la recherche plein-texte trouve la nouvelle valeur et ne trouve plus l'ancienne."
+      - "Axe non-searchable → pas de re-projection inutile (test)."
+      - "verify-fast passes ; run-tests EXÉCUTÉS et verts ; codex-review clean or only accepted P2s."
+
+  GDF08:
+    title: "ManagedArchiveReader fail-closed : TOUT manifest corrompu rend un verdict Altered — jamais une exception jusqu'à la fiche"
+    description: |
+      (Review 2026-07-02, CONFIRMED.) TryParseManifest (ManagedArchiveReader.cs:188-191) ne rattrape
+      que JsonException alors que : le bloc try appelle GedArchivePackageLayout.PackageDirectory
+      (l.170-171) → SanitizeSegment qui lève ArgumentException sur segment vide/invalide
+      (ArchivePackageLayout.cs:63/82) — constructible avec un manifest JSON valide mais altéré
+      ("archiveKey":"", "archiveKind":"/") ; GetString() sur une valeur non-string (packageHash
+      numérique) lève InvalidOperationException non rattrapée (l.159/162) ; un nom de pièce vide passe
+      le parse puis explose HORS du try dans Combine (l.84). L'appelant
+      GedDocumentConsoleQueryService.cs:82 n'a aucun try/catch → la fiche /ged/document plante au lieu
+      d'afficher le verdict d'altération — en contradiction directe avec le contrat des l.147-149.
+      Correctif : valider/rattraper l'ENSEMBLE du parcours manifest→layout→fichiers et traduire toute
+      corruption en GedArchiveIntegrityStatus.Altered avec détail FR (n°12). Fail-closed : ne jamais
+      rendre Verified sur un doute.
+    acceptance:
+      - "Tests : manifest JSON valide mais archiveKey vide / packageHash non-string / files[].name vide → verdict Altered avec détail FR, jamais d'exception."
+      - "La fiche affiche le verdict (test au niveau GedDocumentConsoleQueryService : plus d'exception propagée)."
+      - "Aucun chemin ne rend Verified sur un manifest douteux (fail-closed)."
+      - "verify-fast passes ; run-tests EXÉCUTÉS et verts ; codex-review clean or only accepted P2s."
+
+  GDF09:
+    title: "Normalisation & facettes cohérentes : forme canonique des numbers sans échelle + trim des strings + comptage de facettes par document DISTINCT"
+    description: |
+      (Review 2026-07-02, CONFIRMED ×3.) (1) ValueNormalizer.cs:96 : pour un axe number SANS
+      value_scale (état légitime, V005 « null = brut »), normalized_value = parsed.ToString(Invariant)
+      qui PRÉSERVE l'échelle du littéral : « 1.5 » ≠ « 1.50 » → deux buckets de facette/dédup pour le
+      même nombre (les facettes groupent par normalized_value, PostgresDocumentSearchIndex.cs:195-202).
+      Canonicaliser (ex. échelle minimale/zéros de fin retirés) — décision documentée ; ATTENTION aux
+      normalized_value déjà écrits (append-only, n°4) : jamais de réécriture — dérive tolérée hors prod
+      ou re-normalisation par supersession, à trancher dans l'item. (2) l.59-60 : value_string reçoit
+      rawValue NON trimé alors que NormalizeEnum trime (l.65) et que Casefold trime la clé canonique
+      (l.147) → espaces parasites et incohérence colonne typée / clé canonique. (3)
+      PostgresDocumentSearchIndex.cs:195 : facettes en count(*) sur les LIGNES de liens courants au
+      lieu de count(DISTINCT dal.managed_document_id) → le « N document(s) » affiché
+      (GedSearchView.razor:115) est gonflé par les doublons multi (voir GDF04-3 pour la cause amont —
+      les DEUX corrections sont requises, le comptage doit être juste même avec des liens multiples
+      légitimes de valeurs distinctes).
+    acceptance:
+      - "« 1.5 » et « 1.50 » (axe number sans échelle) → MÊME normalized_value (golden) ; décision de forme canonique documentée ; aucune ligne existante modifiée (n°4)."
+      - "value_string trimé, cohérent avec la clé canonique (golden Text avec espaces)."
+      - "Facettes = count(DISTINCT managed_document_id) (test intégration : un document portant 2 liens courants de même valeur compte pour 1)."
+      - "value_number reste decimal/numeric (n°1) ; verify-fast passes ; run-tests EXÉCUTÉS et verts ; codex-review clean or only accepted P2s."
+
+  GDF10:
+    title: "Backfill : sortie de l'impasse deferred — reprise possible après validation du profil OU message honnête (le defer_reason ne prescrit plus une action sans effet)"
+    description: |
+      (Review 2026-07-02, CONFIRMED — limitation V1 assumée mais message trompeur.) Un document
+      backfillé rangé deferred est bloqué À VIE : l'ID déterministe (GedArchivedDocumentBackfill.cs:31)
+      retombe sur la même ligne dont TOUT statut existant court-circuite en AlreadyPresent
+      (GedDocumentIndexer.cs:114-120/180-185) — comportement PROUVÉ par
+      GedArchivedDocumentBackfillIntegrationTests.cs:66-69 ; aucun chemin de reprise n'existe (le
+      re-push agent ne s'applique pas au canal backfill). Or le defer_reason affiché à l'opérateur
+      prescrit « créer et valider un profil pour ce type » (GedMapper.cs:40) — action SANS EFFET. La
+      limitation est documentée (IGedArchivedDocumentBackfill.cs:13-19, SCENARIOS.md:128-131).
+      Trancher : (a) RECOMMANDÉ — reprise ciblée : un re-run du backfill re-mappe les documents
+      status='deferred' (idempotence conservée : indexed reste no-op ; c'est la promesse implicite du
+      message actuel) ; ou (b) message FR honnête (« reprise indisponible en V1 — geste support ») +
+      SCENARIOS.md aligné + décision consignée.
+    acceptance:
+      - "Option (a) : backfill → deferred → profil validé → re-run → document INDEXÉ (test intégration) ; un document indexed reste no-op au replay."
+      - "Option (b) : message FR honnête avec action corrective réelle (n°12) + docs alignées + décision consignée."
+      - "DEFER reste DEFER (jamais BLOCK ni rejet silencieux, n°3) ; verify-fast passes ; run-tests EXÉCUTÉS et verts ; codex-review clean or only accepted P2s."
+
+  GDF11:
+    title: "[fast-follow, HORS gate] Surface Archive générique durcie AVANT le câblage consommateur : clés injectives post-sanitisation + Kind scellé dans l'idempotence d'addendum + contrat ContentHash clarifié"
+    description: |
+      (Review 2026-07-02 : 1 CONFIRMED contractuel + 2 PLAUSIBLE latents — aucun appelant de
+      production aujourd'hui, le câblage consommateur GED est déféré ; à durcir AVANT qu'il arrive.)
+      (1) GedArchivePackageLayout.cs:35 + ArchivePackageLayout.cs:76-89 : SanitizeSegment n'est PAS
+      injectif (« K:42 » et « K?42 » → « K_42 ») → même PackageDirectory → pour le 2e document à
+      contenu différent, ArchiveWriteConflictException DÉTERMINISTE et permanente (inarchivable à
+      vie) ; à contenu identique, fausse dédup sous la clé de l'autre. Encoder injectivement (ex.
+      suffixe hash de la clé brute). (2) GenericArchiveService.cs:94-100/142-149 : l'idempotence d'un
+      addendum est indexée sur la seule empreinte de CONTENU — deux addenda aux octets identiques mais
+      Kind différents → le 2e rendu AlreadyArchived, son Kind jamais scellé (métadonnée probante
+      perdue en silence) : inclure le Kind dans la clé d'idempotence (chemin ou comparaison → conflit
+      explicite). (3) GedArchivePackageResult.ContentHash a DEUX sémantiques (paquet =
+      PackageHasher(nom+sha) ; addendum = sha du contenu seul, GedArchivePackageBuilder.cs:82) et la
+      doc du champ (GedArchivePackageResult.cs:14) est fausse pour l'addendum ; VerifyManagedPackageAsync
+      (ManagedArchiveReader.cs:98) rendrait un FAUX « Altered » sur un manifest d'addendum → types/doc
+      distincts ou champ clarifié, et comportement DÉFINI de Verify sur un manifest d'addendum.
+      WORM intact partout (n°4).
+    acceptance:
+      - "Deux ArchiveKey distincts ne peuvent JAMAIS entrer en collision de répertoire (test « K:42 »/« K?42 »)."
+      - "Addendum même contenu / Kind différent → conflit explicite ou scellement distinct, jamais AlreadyArchived silencieux (test)."
+      - "Contrat ContentHash cohérent et documenté ; Verify sur un manifest d'addendum a un comportement défini et testé."
+      - "Aucun chemin update/delete sur le coffre (n°4) ; verify-fast passes ; run-tests EXÉCUTÉS et verts ; codex-review clean or only accepted P2s."
+
+  GDF12:
+    title: "[fast-follow, HORS gate] P2 console GED : saisie non soumise préservée + exploration annulée au départ de la page + mapping d'intégrité exhaustif"
+    description: |
+      (Review 2026-07-02, CONFIRMED ×3 — P2 UX/robustesse.) (1) GedSearchView.razor:173 :
+      OnParametersSet réécrase _query avec le paramètre Query à CHAQUE re-rendu du parent → une saisie
+      liée par oninput mais non soumise est perdue au clic facette / retrait de chip / fin de
+      « Charger plus » (ne resynchroniser que si le PARAMÈTRE a changé depuis la dernière valeur vue).
+      (2) GedObjet.razor:90-95 : ExploreAsync appelé sans CancellationToken et la page n'implémente pas
+      IDisposable → le CTE de graphe court côté Postgres après le départ de la page ; la chaîne aval
+      propage déjà un token (GedGraphQueryService.cs:64 → CommandDefinition,
+      PostgresDocumentSearchIndex.cs:236-248) : CTS annulé au dispose, idem GedRecherche/GedDocument.
+      (3) GedDocumentIntegrityState.cs:8-24 + GedDocumentConsoleQueryService.cs:109-116 : enum miroir
+      du contrat Archive avec un switch `_ => NotArchived` qui AVALE toute valeur future de
+      GedArchiveIntegrityStatus (un futur statut serait affiché « pas encore rangé dans le coffre » —
+      verdict d'intégrité trompeur) → mapping exhaustif qui échoue bruyamment sur une valeur inconnue
+      (exception + test), ou port direct du statut contrat + IsFiscalLinked.
+    acceptance:
+      - "La saisie en cours n'est plus perdue lors d'un re-rendu déclenché par facette/pagination (test bUnit GedSearchView)."
+      - "Quitter la page pendant une exploration annule la requête (token propagé jusqu'à Dapper, test)."
+      - "Valeur d'intégrité inconnue → échec bruyant testé (plus de default silencieux)."
+      - "n°19 ; verify-fast passes ; codex-review clean or only accepted P2s."
+
+  GDF13:
+    title: "[fast-follow, HORS gate] Garde-fous d'outillage : anti-doublon de numéro de migration + test d'oubli du HashSet ContractAssemblies + mécanique de lint mutualisée"
+    description: |
+      (Review 2026-07-02, CONFIRMED ×3 — dette/garde-fous.) (1) Deux migrations V018__*.sql coexistent
+      dans src/Modules/Ged/Infrastructure/Migrations (relation_inference_rules ET
+      ged_ingestion_received_documents) : toléré par DbUp (ordre = nom complet de ressource ; schémas
+      disjoints, donc bénin AUJOURD'HUI) mais la collision de numéros entre items parallèles est un
+      pattern récurrent (V017 GED05b↔GED13 ; V010 Documents) géré par discipline humaine seule —
+      ajouter une assertion (GedMigrationScaffoldTests, généralisable si peu coûteux) qui ÉCHOUE sur
+      un doublon de numéro par module, et renuméroter le V018 d'ingestion (→ V021) si retenu. (2)
+      AgentApiJson.cs:56-60 : le HashSet ContractAssemblies (garde anti-drop STJ des membres inconnus,
+      RDL04) est maintenu à la main sans AUCUN test qui échoue à l'oubli d'un futur assembly de
+      contrat agent (piège déjà payé à GED05a) : test qui énumère les assemblies Liakont.Agent.Contracts*
+      réellement référencés par les DTO bindés et exige leur présence dans le set. (3) tools/ : la
+      boucle de scan (garde 0-fichier, blanchiment, rendu des hits) et le harnais de self-test
+      (Invoke-Lint/Check/New-Case/tmpRoot, ~50 lignes) sont DUPLIQUÉS entre les deux paires lint/test —
+      la mécanique a DÉJÀ divergé une fois (fix encodage appliqué à un seul endroit, cf. GDF06) :
+      mutualiser dans ged-lint-lib.ps1 (fonction de scan paramétrée + helpers de self-test), chaque
+      lint ne gardant que vocabulaire/regex/messages. La synchro vocabulaire lint↔test par regex sur
+      le source C# est fragile mais FAIL-CLOSED (vérifié : 0 match → rouge) — fichier de données
+      unique optionnel si coût faible. Dépend de GDF06 (mêmes fichiers).
+    acceptance:
+      - "Un doublon de numéro de migration injecté fait échouer le test (et le self-test du garde-fou le prouve)."
+      - "Retirer un assembly du HashSet, ou binder un DTO d'un assembly de contrat non listé, fait échouer un test."
+      - "Les 2 lints partagent la mécanique de scan et de self-test (un fix s'applique UNE fois) ; self-tests toujours verts ; aucun affaiblissement des gardes (RL-27)."
+      - "verify-fast passes ; codex-review clean or only accepted P2s."
