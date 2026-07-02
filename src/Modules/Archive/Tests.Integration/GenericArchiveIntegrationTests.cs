@@ -44,9 +44,11 @@ public sealed class GenericArchiveIntegrationTests : IDisposable
     {
         GedArchivePackageResult result = await _service.ArchiveManagedDocumentAsync(Request());
 
-        // Rangé write-once sous _ged/ dans le coffre RÉEL (fichier sur disque).
-        result.ArchivePath.Should().Be("_ged/bordereau/2026/05/K-42/manifest.json");
-        string manifestOnDisk = Path.Combine(_archiveRoot, Tenant, "_ged", "bordereau", "2026", "05", "K-42", "manifest.json");
+        // Rangé write-once sous _ged/ dans le coffre RÉEL (fichier sur disque). La clé est encodée de façon
+        // injective (slug lisible + empreinte) : on dérive le chemin sur disque du chemin réel, jamais en dur.
+        result.ArchivePath.Should().MatchRegex("^_ged/bordereau/2026/05/K-42-[0-9a-f]{16}/manifest.json$");
+        string manifestOnDisk = Path.Combine(
+            _archiveRoot, Tenant, result.ArchivePath.Replace('/', Path.DirectorySeparatorChar));
         File.Exists(manifestOnDisk).Should().BeTrue();
 
         // Option C : AUCUNE ligne de chaîne fiscale pour un document GED-seul (le coffre fiscal n'est pas touché).

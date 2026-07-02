@@ -11,7 +11,7 @@ using System;
 /// (fast-follow GED20).
 /// </summary>
 /// <param name="ArchivePath">Chemin (relatif au tenant) du manifest du paquet dans le coffre (sous <c>_ged/…</c>).</param>
-/// <param name="ContentHash">Empreinte SHA-256 (hex minuscule) du contenu du paquet — reportée dans <c>managed_documents.content_hash</c> par l'appelant.</param>
+/// <param name="ContentHash">Empreinte de PAQUET (hex minuscule) : SHA-256 de la liste <c>nom:sha256</c> des pièces de contenu (<c>PackageHasher</c>). Sémantique UNIFORME paquet ET addendum (pour un addendum, empreinte de paquet sur son unique pièce stockée), de sorte que la vérification la recalcule à l'identique. Reportée dans <c>managed_documents.content_hash</c> par l'appelant.</param>
 /// <param name="ArchivedUtc">Horodatage de rangement (UTC).</param>
 /// <param name="AlreadyArchived">Vrai si un paquet identique était déjà rangé (re-rangement idempotent, no-op).</param>
 public sealed record GedArchivePackageResult(

@@ -8,9 +8,12 @@ using System.Globalization;
 /// <c>_ged/{kind}/{année}/{mois}/{clé}/</c> — un espace d'octets WORM SÉPARÉ de la chaîne fiscale
 /// (<c>{année}/{mois}/…</c>, <see cref="ArchivePackageLayout"/>). Le préfixe <c>_ged/</c> garantit qu'un
 /// paquet GED est STRUCTURELLEMENT absent d'un export de contrôle fiscal (qui n'énumère que la chaîne fiscale,
-/// dont les chemins commencent par <c>{année}/{mois}/…</c>). Les segments dynamiques (kind, clé) sont ASSAINIS
-/// via <see cref="ArchivePackageLayout.SanitizeSegment"/> (anti path-traversal, comme le paquet fiscal) ; le
-/// préfixe est un littéral FIXE, jamais fourni par l'appelant.
+/// dont les chemins commencent par <c>{année}/{mois}/…</c>). Le <c>kind</c> (catégorie produit contrôlée) est
+/// ASSAINI via <see cref="ArchivePackageLayout.SanitizeSegment"/> (anti path-traversal) ; la <c>clé</c>
+/// (identifiant par-document fourni par l'appelant) est encodée de façon INJECTIVE via
+/// <see cref="ArchivePackageLayout.InjectiveSegment"/> (slug lisible + empreinte de la valeur brute), pour que
+/// deux clés distinctes ne collisionnent jamais dans le même répertoire ; le préfixe <c>_ged/</c> est un
+/// littéral FIXE, jamais fourni par l'appelant.
 /// </summary>
 public static class GedArchivePackageLayout
 {
@@ -31,8 +34,12 @@ public static class GedArchivePackageLayout
             throw new ArgumentOutOfRangeException(nameof(filedMonth), filedMonth, "Le mois de rangement doit être compris entre 1 et 12.");
         }
 
+        // Le KIND est une valeur produit CONTRÔLÉE (catégorie navigable, jamais une donnée par-document) : un
+        // segment lisible assaini suffit. La CLÉ, elle, est l'identifiant par-document fourni par l'appelant
+        // (ex-numéro de document, potentiellement « : », « ? », « / ») : elle DOIT être injective, sinon deux
+        // documents distincts collisionneraient dans le même répertoire (conflit WORM permanent). GDF11 finding 1.
         string kind = ArchivePackageLayout.SanitizeSegment(archiveKind);
-        string key = ArchivePackageLayout.SanitizeSegment(archiveKey);
+        string key = ArchivePackageLayout.InjectiveSegment(archiveKey);
         string year = filedYear.ToString("D4", CultureInfo.InvariantCulture);
         string month = filedMonth.ToString("D2", CultureInfo.InvariantCulture);
         return $"{GedRootSegment}/{kind}/{year}/{month}/{key}/";

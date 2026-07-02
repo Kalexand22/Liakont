@@ -50,6 +50,29 @@ public sealed class ManagedArchiveReaderTests
     }
 
     [Fact]
+    public async Task Verify_OnAddendumManifest_IsDefined_AndConfirmsIntegrity()
+    {
+        // Un manifest d'ADDENDUM scelle l'empreinte de PAQUET sur sa pièce stockée (même primitive que le paquet) :
+        // la vérification le recalcule UNIFORMÉMENT et confirme l'intégrité — jamais un faux « Altered ». GDF11 finding 3.
+        GenericArchiveService writer = CreateWriter();
+        await writer.ArchiveManagedDocumentAsync(Request());
+        var addendum = new GedArchiveAddendumRequest(
+            ArchiveKind: "bordereau",
+            ArchiveKey: "K-42",
+            FiledOn: new DateOnly(2026, 5, 12),
+            Kind: "note",
+            Attachment: new ArchiveAttachment("note.txt", "text/plain", Encoding.UTF8.GetBytes("addendum")));
+        GedArchivePackageResult added = await writer.AddManagedAddendumAsync(addendum);
+
+        GedArchiveIntegrityResult result = await CreateReader()
+            .VerifyManagedPackageAsync(added.ArchivePath, added.ContentHash);
+
+        result.Status.Should().Be(GedArchiveIntegrityStatus.Verified);
+        result.RecomputedContentHash.Should().Be(added.ContentHash);
+        result.Detail.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Verify_WhenIndexedHashDiffersFromRecomputed_ReportsAltered()
     {
         GedArchivePackageResult archived = await CreateWriter().ArchiveManagedDocumentAsync(Request());
