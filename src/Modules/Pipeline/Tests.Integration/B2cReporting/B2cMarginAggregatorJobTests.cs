@@ -86,14 +86,24 @@ public sealed class B2cMarginAggregatorJobTests : IAsyncLifetime
         (await _harness.GetDocumentStateAsync(documentId)).Should()
             .Be("ReadyToSend", "précondition : le document résiduel est figé ReadyToSend malgré une émission Issued.");
 
+        // Précondition : le résidu n'a PAS de lien reporting↔pièce (sous-cas où c'est le GEL qui avait échoué).
+        (await _harness.GetReportingPieceLinksAsync(documentId)).Should()
+            .BeEmpty("précondition : le lien de traçabilité n'a pas été gelé (l'échec de finalisation le simule).");
+
         await _harness.RunB2cMarginAsync();
 
         (await _harness.GetDocumentStateAsync(documentId)).Should()
-            .Be("EReported", "le rattrapage rejoue la transition ReadyToSend → EReported (ADR-0037 D3) — plus d'état résiduel définitif.");
+            .Be("EReported", "le rattrapage rejoue la finalisation → transition ReadyToSend → EReported (ADR-0037 D3) — plus d'état résiduel définitif.");
         _harness.PaCallCount(SendB2cTransaction, MarginTxDetail).Should()
             .Be(0, "le document résiduel est déjà tenté (journal Issued) → JAMAIS un 2e POST (attempt-once).");
         (await _harness.GetB2cMarginEmissionsAsync(documentId)).Count(e => e.Status == "Issued").Should()
-            .Be(1, "aucune nouvelle émission n'est écrite : seule la transition d'état est rejouée.");
+            .Be(1, "aucune nouvelle émission n'est écrite : seule la finalisation est rejouée.");
+
+        // Le rattrapage rejoue AUSSI le gel du lien (D2, idempotent) : le document n'est plus EReported « nu »,
+        // sa traçabilité d'export fiscal est restaurée (couvre le sous-cas où le gel initial avait échoué).
+        var links = await _harness.GetReportingPieceLinksAsync(documentId);
+        links.Should().ContainSingle("le rattrapage gèle le lien reporting↔pièce manquant (traçabilité D2 restaurée).");
+        links.Single().SourceReference.Should().Be(sourceReference);
     }
 
     [Fact]

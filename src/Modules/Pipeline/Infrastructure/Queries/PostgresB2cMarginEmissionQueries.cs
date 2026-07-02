@@ -168,6 +168,38 @@ public sealed class PostgresB2cMarginEmissionQueries : IB2cMarginEmissionQueries
             sql, new { DocumentId = documentId }, cancellationToken: cancellationToken));
     }
 
+    public async Task<B2cResidualEmissionDto?> GetResidualIssuedEmissionForDocumentAsync(Guid documentId, CancellationToken cancellationToken = default)
+    {
+        using var conn = await _connectionFactory.OpenAsync(cancellationToken);
+
+        // Dernière émission ISSUED du document (created_utc, seq décroissants) : lot + référence source — pour
+        // rejouer, au rattrapage (ADR-0037 D3), le gel du lien reporting↔pièce ET la transition d'état sans
+        // re-transmission. Seules les issues confirmées sont retenues (une entrée Pending/Rejected ne résout
+        // rien). Lecture seule, tenant-scopée (la connexion EST le tenant).
+        const string sql = """
+            SELECT emission_batch_id, source_reference
+            FROM pipeline.b2c_margin_emissions
+            WHERE document_id = @DocumentId
+              AND status = 'Issued'
+            ORDER BY created_utc DESC, seq DESC
+            LIMIT 1
+            """;
+
+        var row = await conn.QueryFirstOrDefaultAsync(new CommandDefinition(
+            sql, new { DocumentId = documentId }, cancellationToken: cancellationToken));
+
+        if (row is null)
+        {
+            return null;
+        }
+
+        return new B2cResidualEmissionDto
+        {
+            EmissionBatchId = (Guid)row.emission_batch_id,
+            SourceReference = (string)row.source_reference,
+        };
+    }
+
     private static B2cMarginEmissionAggregateDto Map(dynamic row)
     {
         return new B2cMarginEmissionAggregateDto
