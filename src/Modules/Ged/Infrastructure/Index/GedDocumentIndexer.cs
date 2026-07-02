@@ -128,25 +128,26 @@ internal sealed partial class GedDocumentIndexer : IGedDocumentIndexer
             return GedIndexOutcome.AlreadyPresent;
         }
 
-        var links = request.SoftLinks;
-        var pivot = new ManagedDocument(
-            managedDocumentId,
-            ingested.SourceReference,
-            ingested.DocumentType,
-            status: "indexed",
-            fiscalDocumentId: links?.FiscalDocumentId,
-            archiveEntryId: links?.ArchiveEntryId,
-            archivePath: links?.ArchivePath,
-            contentHash: links?.ContentHash);
-
         if (isDeferredResume)
         {
-            // Mutation TRACÉE (managed_document_change_log, append-only) — la fiche est mutable, l'audit ne l'est pas.
-            await unitOfWork.PromoteDeferredToIndexedAsync(pivot, cancellationToken);
+            // Reprise : seul le STATUT est muté (deferred→indexed), TRACÉ dans managed_document_change_log (append-only) ;
+            // title/doc_kind/soft-links restent tels qu'écrits au déférement (même entrée de coffre immuable), non réécrits.
+            await unitOfWork.PromoteDeferredToIndexedAsync(managedDocumentId, cancellationToken);
         }
         else
         {
-            await unitOfWork.UpsertManagedDocumentAsync(pivot, cancellationToken);
+            var links = request.SoftLinks;
+            await unitOfWork.UpsertManagedDocumentAsync(
+                new ManagedDocument(
+                    managedDocumentId,
+                    ingested.SourceReference,
+                    ingested.DocumentType,
+                    status: "indexed",
+                    fiscalDocumentId: links?.FiscalDocumentId,
+                    archiveEntryId: links?.ArchiveEntryId,
+                    archivePath: links?.ArchivePath,
+                    contentHash: links?.ContentHash),
+                cancellationToken);
         }
 
         foreach (var axisValue in document.Axes)

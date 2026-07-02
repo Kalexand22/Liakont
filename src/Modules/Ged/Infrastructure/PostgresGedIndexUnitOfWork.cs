@@ -45,19 +45,14 @@ internal sealed class PostgresGedIndexUnitOfWork : IGedIndexUnitOfWork
         """;
 
     // Reprise ciblée du backfill (GDF10) : PROMEUT un document DÉFÉRÉ devenu mappable vers 'indexed'. `managed_documents`
-    // est MUTABLE sur ses méta-colonnes (V008) — l'UPDATE est GARDÉ par `status = 'deferred'` (transition depuis le seul
-    // statut légitime ; une course perdue lit déjà 'indexed' sous le verrou consultatif → 0 ligne, aucune double
-    // promotion). `defer_reason` est effacé (le document n'est plus en attente). `updated_utc` horodate la mutation.
+    // est MUTABLE (V008) mais seul le STATUT change ici (transition auditée) : title/doc_kind/soft-links ont déjà été
+    // écrits AU DÉFÉREMENT depuis la MÊME entrée de coffre IMMUABLE — les réécrire créerait une mutation de méta-colonne
+    // non auditée. Garde `status = 'deferred'` : une course perdue lit déjà 'indexed' sous le verrou consultatif → 0 ligne,
+    // aucune double promotion. `defer_reason` est effacé (le document n'est plus en attente) ; `updated_utc` horodate.
     private const string PromoteDeferredToIndexedSql = """
         UPDATE ged_index.managed_documents
         SET status = 'indexed',
-            title = @Title,
-            doc_kind = @DocKind,
             defer_reason = NULL,
-            fiscal_document_id = @FiscalDocumentId,
-            archive_entry_id = @ArchiveEntryId,
-            archive_path = @ArchivePath,
-            content_hash = @ContentHash,
             updated_utc = now()
         WHERE id = @Id AND status = 'deferred'
         """;
@@ -184,22 +179,11 @@ internal sealed class PostgresGedIndexUnitOfWork : IGedIndexUnitOfWork
             cancellationToken: cancellationToken));
     }
 
-    public async Task<int> PromoteDeferredToIndexedAsync(ManagedDocument document, CancellationToken cancellationToken = default)
+    public async Task<int> PromoteDeferredToIndexedAsync(Guid managedDocumentId, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(document);
-
         var promoted = await _txn.Connection.ExecuteAsync(new CommandDefinition(
             PromoteDeferredToIndexedSql,
-            new
-            {
-                document.Id,
-                document.Title,
-                document.DocKind,
-                document.FiscalDocumentId,
-                document.ArchiveEntryId,
-                document.ArchivePath,
-                document.ContentHash,
-            },
+            new { Id = managedDocumentId },
             _txn.Transaction,
             cancellationToken: cancellationToken));
 
@@ -209,7 +193,7 @@ internal sealed class PostgresGedIndexUnitOfWork : IGedIndexUnitOfWork
         {
             await _txn.Connection.ExecuteAsync(new CommandDefinition(
                 InsertManagedDocumentStatusChangedLogSql,
-                new { document.Id },
+                new { Id = managedDocumentId },
                 _txn.Transaction,
                 cancellationToken: cancellationToken));
         }

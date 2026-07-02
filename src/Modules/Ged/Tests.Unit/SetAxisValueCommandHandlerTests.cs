@@ -305,7 +305,7 @@ public sealed class SetAxisValueCommandHandlerTests
         public Task UpsertManagedDocumentAsync(ManagedDocument document, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task<int> PromoteDeferredToIndexedAsync(ManagedDocument document, CancellationToken cancellationToken = default) =>
+        public Task<int> PromoteDeferredToIndexedAsync(Guid managedDocumentId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
         public Task<Guid> ResolveOrCreateEntityAsync(Guid entityTypeId, string? identityValue, string displayName, string source, CancellationToken cancellationToken = default) =>
