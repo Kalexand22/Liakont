@@ -79,8 +79,15 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
             return;
         }
 
-        // 1) Découverte + résolution + agrégation (cœur PUR fail-closed). Aucun envoi tant que la marge n'est pas résolue.
+        // 0) Rattrapage AVANT toute nouvelle émission (ADR-0037 D3) : réconcilie l'état résiduel « émission
+        //    ACCEPTÉE (journal Issued) mais document resté ReadyToSend » d'un run précédent interrompu (fenêtre de
+        //    crash/annulation) — rejoue la SEULE transition d'état (idempotente, non-throwante), JAMAIS un re-POST
+        //    (ces documents sont dans `handled` → exclus de la découverte). Agnostique au canal : ce job tourne pour
+        //    CHAQUE tenant à chaque cadence (fan-out), il porte donc le filet permanent des 4 voies e-reporting B2C.
         var handled = await services.GetRequiredService<IB2cMarginEmissionStore>().GetHandledDocumentIdsAsync(cancellationToken);
+        await B2cReportingEmitter.ReconcileResidualEReportsAsync(services, handled, logger, cancellationToken);
+
+        // 1) Découverte + résolution + agrégation (cœur PUR fail-closed). Aucun envoi tant que la marge n'est pas résolue.
         var discovery = await DiscoverContributionsAsync(services, tenantId, companyId.Value, handled, logger, cancellationToken);
         var transactions = B2cTransactionAggregationCalculator.Aggregate(discovery.Contributions);
 

@@ -20,8 +20,10 @@ using Liakont.Modules.Documents.Infrastructure;
 using Liakont.Modules.Ingestion.Contracts;
 using Liakont.Modules.Mandats.Contracts.DTOs;
 using Liakont.Modules.Mandats.Contracts.Queries;
+using Liakont.Modules.Pipeline.Application;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Contracts.Queries;
+using Liakont.Modules.Pipeline.Domain.B2cReporting;
 using Liakont.Modules.Pipeline.Infrastructure;
 using Liakont.Modules.Reference.Infrastructure;
 using Liakont.Modules.Staging.Contracts;
@@ -276,6 +278,38 @@ public sealed class PipelineSendHarness : IAsyncLifetime
         await using var scope = _provider!.CreateAsyncScope();
         var job = new Liakont.Modules.Pipeline.Infrastructure.B2cReporting.B2cPlainTaxableReportingTenantJob(PipelineRunTrigger.Scheduled);
         await job.ExecuteAsync(new Stratum.Common.Abstractions.Jobs.TenantJobContext(TenantSlug, scope.ServiceProvider));
+    }
+
+    /// <summary>
+    /// Seede un état RÉSIDUEL « émission ACCEPTÉE mais document resté <c>ReadyToSend</c> » (fenêtre de
+    /// crash/annulation entre le POST accepté et la transition d'état, ADR-0037 D3) : écrit dans le journal
+    /// d'émission B2C une entrée <c>Pending</c> puis <c>Issued</c> pour le document, SANS transitionner son état.
+    /// Le rattrapage du job doit ensuite porter le document à <c>EReported</c> — sans nouvelle transmission.
+    /// </summary>
+    public async Task SeedResidualIssuedB2cEmissionAsync(Guid documentId, string sourceReference, DateOnly aggregateDate)
+    {
+        await using var scope = _provider!.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IB2cMarginEmissionStore>();
+        var batchId = Guid.NewGuid();
+
+        B2cMarginEmissionEntry Entry(B2cMarginEmissionStatus status, string? paEmissionId) => new()
+        {
+            DocumentId = documentId,
+            SourceReference = sourceReference,
+            AggregateDate = aggregateDate,
+            CurrencyCode = "EUR",
+            Category = "TMA1",
+            Role = "SE",
+            ContentHash = "residual-" + batchId.ToString("N"),
+            EmissionBatchId = batchId,
+            Status = status,
+            PaEmissionId = paEmissionId,
+            PaResponseSnapshot = null,
+            Detail = null,
+        };
+
+        await store.AppendAsync(Entry(B2cMarginEmissionStatus.Pending, null));
+        await store.AppendAsync(Entry(B2cMarginEmissionStatus.Issued, "residual-pa-id"));
     }
 
     /// <summary>

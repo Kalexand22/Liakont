@@ -66,6 +66,37 @@ public sealed class B2cMarginAggregatorJobTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Residual_Issued_But_ReadyToSend_Document_Is_Reconciled_To_EReported_Without_Re_Posting()
+    {
+        // GDF02 / ADR-0037 D3 : un document dont l'émission a été ACCEPTÉE (entrée journal Issued) mais dont la
+        // transition d'état a échoué (fenêtre de crash/annulation) reste figé ReadyToSend et EXCLU des runs par
+        // l'attempt-once → affiché « À envoyer » à vie. Le rattrapage EN RÉGIME PERMANENT du job le porte à
+        // EReported en rejouant la SEULE transition d'état — JAMAIS un 2e POST (l'API SuperPDP n'a aucune clé
+        // d'idempotence). Prouve que l'état résiduel n'est plus définitif.
+        await _harness.UsePublishedFakeAsync();
+
+        var documentId = Guid.NewGuid();
+        var sourceReference = "ba-" + documentId.ToString("N");
+        var declaration = CheckIntegrationFixtures.BuildB2cMarginDeclaration(sourceReference, "NORMAL");
+        await _harness.SeedDetectedAndStageAsync(documentId, declaration);
+        await _harness.MarkReadyToSendAsync(documentId);
+
+        // État résiduel : émission ACCEPTÉE journalisée (Pending → Issued), mais document JAMAIS transitionné.
+        await _harness.SeedResidualIssuedB2cEmissionAsync(documentId, sourceReference, new DateOnly(2026, 1, 20));
+        (await _harness.GetDocumentStateAsync(documentId)).Should()
+            .Be("ReadyToSend", "précondition : le document résiduel est figé ReadyToSend malgré une émission Issued.");
+
+        await _harness.RunB2cMarginAsync();
+
+        (await _harness.GetDocumentStateAsync(documentId)).Should()
+            .Be("EReported", "le rattrapage rejoue la transition ReadyToSend → EReported (ADR-0037 D3) — plus d'état résiduel définitif.");
+        _harness.PaCallCount(SendB2cTransaction, MarginTxDetail).Should()
+            .Be(0, "le document résiduel est déjà tenté (journal Issued) → JAMAIS un 2e POST (attempt-once).");
+        (await _harness.GetB2cMarginEmissionsAsync(documentId)).Count(e => e.Status == "Issued").Should()
+            .Be(1, "aucune nouvelle émission n'est écrite : seule la transition d'état est rejouée.");
+    }
+
+    [Fact]
     public async Task Margin_Emission_Aggregates_Are_Read_Grouped_By_Emission_Batch_With_Current_Status()
     {
         // Vue console (B4) : le journal append-only (Pending puis Issued PAR DOCUMENT) est lu REGROUPÉ par lot
