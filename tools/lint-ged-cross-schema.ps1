@@ -43,6 +43,14 @@ $rx = [regex]::new($pattern)
 
 $files = @(Get-GedLintFiles -Root $Root -Extensions @('.cs', '.sql'))
 
+# Anti-faux-vert : un scan à ZÉRO fichier désactiverait la garde en silence (module renommé/déplacé, ou
+# code déplacé sous un segment exclu bin/obj/Tests.*). C'est le mode d'échec « pass-by-default » que
+# GED11/RL-27 combat → on ÉCHOUE au lieu de rendre un OK vide. (En marche normale : ~130 fichiers.)
+if ($files.Count -eq 0) {
+    Write-Host "[LINT-GED-XSCHEMA] ECHEC : 0 fichier de code scanné sous « $Root » — module GED introuvable/renommé/déplacé, ou déplacé sous un segment exclu ? La garde se désactiverait en silence (faux-vert)." -ForegroundColor Red
+    exit 1
+}
+
 $offenders = @()
 foreach ($f in $files) {
     $raw = Get-Content -LiteralPath $f.FullName -Raw

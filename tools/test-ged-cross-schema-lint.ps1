@@ -44,6 +44,15 @@ function New-Case([string]$name, [string]$relFile, [string]$content) {
     return $dir
 }
 
+# Ajoute un fichier de code bénin (aucun cross-schéma) dans le répertoire du cas : garantit que le scan
+# n'est PAS vide, de sorte qu'un cas d'exclusion prouve « fichier exclu ignoré » et non « scan vide »
+# (qui échoue désormais via la garde anti-faux-vert 0-fichier).
+function Add-GenericFile([string]$dir) {
+    $p = Join-Path $dir 'Domain/_GenericOk.cs'
+    New-Item -ItemType Directory -Path (Split-Path -Parent $p) -Force | Out-Null
+    Set-Content -LiteralPath $p -Value 'public sealed class GenericOk { public int Value => 0; }' -Encoding utf8
+}
+
 try {
     # 1) Code réel du module : aucun cross-schéma → le lint DOIT passer (exit 0). Preuve « vert sur le code réel ».
     Check 'code reel (aucun cross-schéma)' (Invoke-Lint $realRoot) 0
@@ -70,8 +79,17 @@ try {
     Check 'accès membre C# PascalCase (.Documents.Count)' (Invoke-Lint $c6) 0
 
     # 7) Référence cross-schéma dans un projet de TEST → le lint DOIT passer (exit 0). Exclusion Tests.Integration.
+    #    Un fichier générique bénin est ajouté pour que le scan ne soit pas vide (sinon la garde 0-fichier
+    #    échouerait et masquerait ce que le cas veut prouver).
     $c7 = New-Case 'test-project' 'Tests.Integration/JoinTests.cs' 'class T { const string Sql = "SELECT * FROM documents.documents"; }'
+    Add-GenericFile $c7
     Check 'référence dans Tests.Integration (exclu)' (Invoke-Lint $c7) 0
+
+    # 8) Scan à ZÉRO fichier (racine sans aucun .cs/.sql) → le lint DOIT échouer (exit 1). Prouve la garde
+    #    anti-faux-vert « pass-by-default » : un module renommé/déplacé ne doit pas rendre un OK vide.
+    $c8 = Join-Path $tmpRoot 'empty-root'
+    New-Item -ItemType Directory -Path $c8 -Force | Out-Null
+    Check 'scan vide (module introuvable/renommé) → échec' (Invoke-Lint $c8) 1
 }
 finally {
     Remove-Item -LiteralPath $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
