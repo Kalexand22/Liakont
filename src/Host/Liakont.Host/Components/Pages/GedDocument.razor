@@ -1,5 +1,5 @@
 @page "/ged/document/{Id:guid}"
-@rendermode InteractiveServer
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @attribute [Authorize(Policy = LiakontPermissions.GedRead)]
 @using Liakont.Host.Components
 @using Liakont.Host.Ged
@@ -12,7 +12,11 @@
  * IGedDocumentConsoleQueries (aucun accès base direct, aucune logique métier — délégué aux Contracts Ged/Archive
  * et au journal de consultation) et délègue le rendu à la vue pure GedDocumentView. La permission liakont.ged.read
  * garde l'accès à la page ; le masquage des axes/entités CONFIDENTIELS est appliqué SERVER-SIDE (le modèle ne les
- * porte pas sans le droit liakont.ged.confidential). Un échec de chargement reste VISIBLE (bandeau) et tracé. *@
+ * porte pas sans le droit liakont.ged.confidential). Un échec de chargement reste VISIBLE (bandeau) et tracé.
+ * Le prerender est DÉSACTIVÉ (rendermode explicite ci-dessus) : le chargement écrit une trace de consultation
+ * probante ("view_document", §6.6) qui doit être enregistrée EXACTEMENT une fois par consultation ; avec le
+ * prerender par défaut, la page serait instanciée deux fois (passe SSR puis circuit interactif) et doublerait
+ * cette trace d'audit. *@
 
 <PageTitle>Document GED — Liakont</PageTitle>
 
