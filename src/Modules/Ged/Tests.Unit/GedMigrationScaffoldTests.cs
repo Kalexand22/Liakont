@@ -2,6 +2,7 @@ namespace Liakont.Modules.Ged.Tests.Unit;
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -34,6 +35,13 @@ public sealed class GedMigrationScaffoldTests
     // GED11 (RL-27) ; ce test couvre la surface SQL livrée par GED03a (« check anti-littéral vert »).
     private static readonly string[] ForbiddenBusinessVocabulary =
         ["lot", "vente", "pv", "encheres", "enchères", "adjudication", "acheteur", "bordereau"];
+
+    // Numéro de version d'un script de migration embarqué : le préfixe Vnnn du nom de RESSOURCE, capté juste
+    // après le segment « .Migrations. » (ex. « …Infrastructure.Migrations.V018__create_ged_… » → 18). DbUp
+    // ordonne les scripts par nom de ressource complet : deux scripts « V018__… » distincts coexistent sans
+    // erreur (schémas disjoints), mais la collision de numéros entre items parallèles est un piège récurrent
+    // (V017 GED05b↔GED13, V018 GED24↔GED05b) jusque-là géré par la seule discipline humaine.
+    private static readonly Regex MigrationNumberPattern = new(@"\.Migrations\.V(\d+)__", RegexOptions.Compiled);
 
     [Fact]
     public void Each_ged_schema_is_created_by_exactly_one_embedded_migration()
@@ -95,6 +103,73 @@ public sealed class GedMigrationScaffoldTests
             + "ne seraient jamais appliqués par le runner DbUp";
         options.Assemblies.Should().Contain(InfrastructureAssembly, reason);
     }
+
+    [Fact]
+    public void Ged_migrations_have_no_duplicate_version_number()
+    {
+        var resourceNames = LoadMigrationScripts().Keys;
+
+        // Anti-faux-vert : si l'extracteur ne captait AUCUN numéro (regex/format de ressource cassé), la
+        // recherche de doublons rendrait vide et le test passerait à vide. On exige d'abord que le préfixe
+        // Vnnn soit reconnu sur une part réaliste des scripts embarqués (marche normale : 20 scripts GED).
+        var parsedNumbers = resourceNames
+            .Select(ExtractMigrationNumber)
+            .Where(number => number.HasValue)
+            .ToList();
+        parsedNumbers.Count.Should().BeGreaterThan(10, "l'extracteur de numéro doit reconnaître les scripts GED embarqués (sinon garde à vide)");
+
+        var duplicates = FindDuplicateMigrationNumbers(resourceNames);
+
+        var reason =
+            "deux migrations du même module ne doivent pas partager un numéro Vnnn : DbUp tolère la coexistence "
+            + "(ordre = nom de ressource complet, schémas disjoints), mais la collision entre items parallèles est "
+            + "un piège récurrent (V017 GED05b↔GED13, V018 GED24↔GED05b) — renuméroter le doublon ; "
+            + $"numéros en double : {string.Join(", ", duplicates.Select(number => $"V{number:D3}"))}";
+        duplicates.Should().BeEmpty(reason);
+    }
+
+    [Fact]
+    public void Duplicate_migration_number_detector_flags_a_collision()
+    {
+        // Self-test du garde-fou lui-même (RL-27) : le détecteur DOIT lever un doublon injecté, sinon la garde
+        // ci-dessus serait un faux-vert. Deux ressources « V021__… » distinctes → le numéro 21 est signalé ;
+        // le numéro unique 22 ne l'est pas.
+        var resourceNames = new[]
+        {
+            "Liakont.Modules.Ged.Infrastructure.Migrations.V021__alpha.sql",
+            "Liakont.Modules.Ged.Infrastructure.Migrations.V021__beta.sql",
+            "Liakont.Modules.Ged.Infrastructure.Migrations.V022__gamma.sql",
+        };
+
+        FindDuplicateMigrationNumbers(resourceNames).Should().Equal(21);
+    }
+
+    /// <summary>
+    /// Extrait le numéro de version <c>Vnnn</c> d'un nom de ressource de migration embarquée, ou <c>null</c>
+    /// si le nom ne porte pas le préfixe attendu (fichier hors convention).
+    /// </summary>
+    private static int? ExtractMigrationNumber(string resourceName)
+    {
+        var match = MigrationNumberPattern.Match(resourceName);
+        return match.Success
+            ? int.Parse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture)
+            : null;
+    }
+
+    /// <summary>
+    /// Rend les numéros de version partagés par au moins deux scripts de migration (triés croissant). Vide
+    /// = aucun doublon. Base commune de la garde réelle et de son self-test.
+    /// </summary>
+    private static List<int> FindDuplicateMigrationNumbers(IEnumerable<string> resourceNames) =>
+        resourceNames
+            .Select(ExtractMigrationNumber)
+            .Where(number => number.HasValue)
+            .Select(number => number!.Value)
+            .GroupBy(number => number)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .OrderBy(number => number)
+            .ToList();
 
     /// <summary>
     /// Charge les scripts de migration embarqués tels que DbUp les découvre : ressources dont le nom contient

@@ -40,42 +40,27 @@ $alt = ($forbidden | ForEach-Object { [regex]::Escape($_) }) -join '|'
 $pattern = "(?<!\p{L})(?i:$alt)(?!\p{L})"
 $rx = [regex]::new($pattern)
 
-$files = @(Get-GedLintFiles -Root $Root -Extensions @('.cs', '.sql'))
+# Scan mutualisé (Invoke-GedLintScan, ged-lint-lib.ps1) : lecture UTF-8 explicite, blanchiment des
+# commentaires, découpe en lignes. Ce lint n'apporte que son MATCHER (le vocabulaire interdit $rx).
+$scan = Invoke-GedLintScan -Root $Root -Extensions @('.cs', '.sql') -LineMatcher {
+    param($line, $lang)
+    $rx.Matches($line) | ForEach-Object { $_.Value }
+}
 
 # Anti-faux-vert : un scan à ZÉRO fichier désactiverait la garde en silence (module renommé/déplacé, ou
 # code déplacé sous un segment exclu bin/obj/Tests.*). C'est le mode d'échec « pass-by-default » que
 # GED11/RL-27 combat → on ÉCHOUE au lieu de rendre un OK vide. (En marche normale : ~130 fichiers.)
-if ($files.Count -eq 0) {
-    Write-Host "[LINT-GED-LITERAL] ECHEC : 0 fichier de code scanné sous « $Root » — module GED introuvable/renommé/déplacé, ou déplacé sous un segment exclu ? La garde se désactiverait en silence (faux-vert)." -ForegroundColor Red
+if ($scan.FileCount -eq 0) {
+    Write-Host "[LINT-GED-LITERAL] ECHEC : 0 fichier de code scanné sous « $($scan.Root) » — module GED introuvable/renommé/déplacé, ou déplacé sous un segment exclu ? La garde se désactiverait en silence (faux-vert)." -ForegroundColor Red
     exit 1
 }
 
-$offenders = @()
-foreach ($f in $files) {
-    # Lecture EXPLICITE en UTF-8 (RL-27) : la norme du repo est .cs UTF-8 SANS BOM ; Get-Content -Raw de
-    # Windows PowerShell 5.1 (l'interpréteur invoqué par verify-fast) décoderait un tel fichier en CP1252
-    # → « enchères » deviendrait « enchÃ¨res » et échapperait au scan (faux-vert LOCAL, la CI pwsh UTF-8
-    # divergerait). ReadAllText(UTF8) décode en UTF-8 et gère aussi un BOM éventuel (détection préambule).
-    $raw = [System.IO.File]::ReadAllText($f.FullName, [System.Text.Encoding]::UTF8)
-    if (-not $raw) { continue }
-    $lang = if ($f.Extension -ieq '.sql') { 'sql' } else { 'cs' }
-    $code = Convert-CommentsToBlanks -Text $raw -Language $lang
-    $lines = $code -split "`n"
-    for ($ln = 0; $ln -lt $lines.Count; $ln++) {
-        $m = $rx.Matches($lines[$ln])
-        foreach ($hit in $m) {
-            $rel = $f.FullName.Substring($Root.Length).TrimStart('\', '/')
-            $offenders += "  $rel : ligne $($ln + 1) → « $($hit.Value) »"
-        }
-    }
-}
-
-if ($offenders.Count -gt 0) {
+if ($scan.Offenders.Count -gt 0) {
     Write-Host "[LINT-GED-LITERAL] ECHEC : vocabulaire metier code en dur dans src/Modules/Ged/** (regle 7)." -ForegroundColor Red
-    $offenders | ForEach-Object { Write-Host $_ -ForegroundColor Red }
+    $scan.Offenders | ForEach-Object { Write-Host "  $($_.Rel) : ligne $($_.Line) → « $($_.Value) »" -ForegroundColor Red }
     Write-Host "Le meta-modele GED est generique : deplacer ces axes/entites/roles vers le parametrage tenant (seeds fictifs deployments/<demo>/)." -ForegroundColor Red
     exit 1
 }
 
-Write-Host "[LINT-GED-LITERAL] OK : aucun littéral métier codé en dur dans src/Modules/Ged/** ($($files.Count) fichiers, règle 7)." -ForegroundColor Green
+Write-Host "[LINT-GED-LITERAL] OK : aucun littéral métier codé en dur dans src/Modules/Ged/** ($($scan.FileCount) fichiers, règle 7)." -ForegroundColor Green
 exit 0

@@ -135,3 +135,118 @@ function Convert-CommentsToBlanks {
 
     return $sb.ToString()
 }
+
+# 3. Invoke-GedLintScan : LA boucle de scan partagée des deux lints (RL-27, GDF13). Un seul endroit lit les
+#    fichiers en UTF-8 EXPLICITE (norme du repo = .cs sans BOM ; Get-Content -Raw de PS 5.1 les décoderait en
+#    CP1252 → « enchères » deviendrait « enchÃ¨res » et échapperait au scan, faux-vert LOCAL / divergence CI
+#    pwsh), blanchit les commentaires, découpe en lignes et applique le MATCHER fourni par le lint. Chaque lint
+#    ne garde plus que son vocabulaire/regex ($LineMatcher) et ses messages/rendus. Un correctif de la mécanique
+#    (encodage, blanchiment, garde 0-fichier) s'applique UNE fois (cf. GDF06 : le fix encodage n'avait été posé
+#    qu'à un endroit → divergence). Retour : objet { Root ; FileCount ; Offenders[] } où chaque offender porte
+#    { Rel ; Line ; Value }. La DÉCISION 0-fichier/rendu reste au lint (messages propres à chacun).
+# $LineMatcher : scriptblock param($line, $lang) → chaînes captées sur cette ligne ($lang = 'cs' | 'sql').
+function Invoke-GedLintScan {
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][string[]]$Extensions,
+        [Parameter(Mandatory)][scriptblock]$LineMatcher
+    )
+
+    $resolvedRoot = (Resolve-Path -LiteralPath $Root).Path
+    $files = @(Get-GedLintFiles -Root $resolvedRoot -Extensions $Extensions)
+    $offenders = New-Object System.Collections.Generic.List[object]
+
+    foreach ($f in $files) {
+        $raw = [System.IO.File]::ReadAllText($f.FullName, [System.Text.Encoding]::UTF8)
+        if (-not $raw) { continue }
+        $lang = if ($f.Extension -ieq '.sql') { 'sql' } else { 'cs' }
+        $code = Convert-CommentsToBlanks -Text $raw -Language $lang
+        $lines = $code -split "`n"
+        for ($ln = 0; $ln -lt $lines.Count; $ln++) {
+            foreach ($val in @(& $LineMatcher $lines[$ln] $lang)) {
+                $rel = $f.FullName.Substring($resolvedRoot.Length).TrimStart('\', '/')
+                $offenders.Add([pscustomobject]@{ Rel = $rel; Line = ($ln + 1); Value = $val })
+            }
+        }
+    }
+
+    return [pscustomobject]@{ Root = $resolvedRoot; FileCount = $files.Count; Offenders = $offenders }
+}
+
+# ── Harnais de self-test partagé (GDF13) ────────────────────────────────────────────────────────────────
+# Les deux self-tests (test-ged-generic-literals-lint.ps1 / test-ged-cross-schema-lint.ps1) partageaient ~50
+# lignes de mécanique (tmpRoot, écriture des cas, fichier bénin de remplissage, invocation du lint, assertion
+# d'exit). Mutualisées ici pour qu'un correctif s'applique UNE fois ; chaque self-test ne garde que ses CAS.
+
+# Répertoire temporaire unique d'une passe de self-test.
+function New-GedLintTmpRoot {
+    param([Parameter(Mandatory)][string]$Prefix)
+    $path = Join-Path ([System.IO.Path]::GetTempPath()) ("$Prefix-" + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    return $path
+}
+
+# Écrit un fichier de cas sous $TmpRoot/$Name/$RelFile et rend le répertoire du cas (à passer en -Root au lint).
+# -NoBom : écrit en UTF-8 SANS BOM (reproduit la norme réelle du repo .cs sans BOM — le seul écrivain qui
+# prouve que la lecture UTF-8 explicite du lint capte un littéral accentué décodé correctement, RL-27).
+# Sans -NoBom : Set-Content -Encoding utf8 (BOM en PS 5.1) — suffisant pour les cas non accentués.
+function New-GedLintCase {
+    param(
+        [Parameter(Mandatory)][string]$TmpRoot,
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$RelFile,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Content,
+        [switch]$NoBom
+    )
+    $dir = Join-Path $TmpRoot $Name
+    $path = Join-Path $dir $RelFile
+    New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
+    if ($NoBom) {
+        [System.IO.File]::WriteAllText($path, $Content, (New-Object System.Text.UTF8Encoding($false)))
+    }
+    else {
+        Set-Content -LiteralPath $path -Value $Content -Encoding utf8
+    }
+    return $dir
+}
+
+# Ajoute un fichier de code GÉNÉRIQUE bénin dans un répertoire de cas : garantit que le scan n'est PAS vide,
+# de sorte qu'un cas d'exclusion prouve « fichier exclu ignoré » et non « scan vide » (qui échoue via la garde
+# anti-faux-vert 0-fichier).
+function Add-GedLintGenericFile {
+    param([Parameter(Mandatory)][string]$Dir)
+    $p = Join-Path $Dir 'Domain/_GenericOk.cs'
+    New-Item -ItemType Directory -Path (Split-Path -Parent $p) -Force | Out-Null
+    Set-Content -LiteralPath $p -Value 'public sealed class GenericOk { public int Value => 0; }' -Encoding utf8
+}
+
+# Lance le lint sur une racine et rend son code de sortie. $PsExe = l'interpréteur courant (pwsh en CI,
+# powershell.exe en local via verify-fast) → le self-test exerce EXACTEMENT l'interpréteur du pipeline.
+function Invoke-GedLintExe {
+    param(
+        [Parameter(Mandatory)][string]$LintPath,
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][string]$PsExe
+    )
+    & $PsExe -NoProfile -ExecutionPolicy Bypass -File $LintPath -Root $Root *> $null
+    return $LASTEXITCODE
+}
+
+# Assertion d'exit d'un cas : accumule l'échec dans $Failures (List[string], passée par référence) et trace le
+# résultat sous le $Tag du self-test.
+function Assert-GedLintExit {
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$Failures,
+        [Parameter(Mandatory)][string]$Tag,
+        [Parameter(Mandatory)][string]$Label,
+        [Parameter(Mandatory)][int]$Got,
+        [Parameter(Mandatory)][int]$Want
+    )
+    if ($Got -ne $Want) {
+        $Failures.Add("$Label : exit $Got attendu $Want")
+        Write-Host "$Tag FAIL  $Label (exit $Got, attendu $Want)" -ForegroundColor Red
+    }
+    else {
+        Write-Host "$Tag ok    $Label (exit $Got)" -ForegroundColor Green
+    }
+}

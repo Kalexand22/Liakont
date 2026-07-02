@@ -45,42 +45,28 @@ $alt = ($forbiddenSchemas | ForEach-Object { [regex]::Escape($_) }) -join '|'
 $rxCs  = [regex]::new("(?<![\p{L}\p{N}_.])(?i:$alt)\.[a-z_]")
 $rxSql = [regex]::new("(?<![\p{L}\p{N}_.])(?i:$alt)\.[A-Za-z_]")
 
-$files = @(Get-GedLintFiles -Root $Root -Extensions @('.cs', '.sql'))
+# Scan mutualisé (Invoke-GedLintScan, ged-lint-lib.ps1) : lecture UTF-8 explicite, blanchiment des
+# commentaires, découpe en lignes. Ce lint n'apporte que son MATCHER par-langage (rxCs / rxSql).
+$scan = Invoke-GedLintScan -Root $Root -Extensions @('.cs', '.sql') -LineMatcher {
+    param($line, $lang)
+    $rx = if ($lang -eq 'sql') { $rxSql } else { $rxCs }
+    $rx.Matches($line) | ForEach-Object { $_.Value }
+}
 
 # Anti-faux-vert : un scan à ZÉRO fichier désactiverait la garde en silence (module renommé/déplacé, ou
 # code déplacé sous un segment exclu bin/obj/Tests.*). C'est le mode d'échec « pass-by-default » que
 # GED11/RL-27 combat → on ÉCHOUE au lieu de rendre un OK vide. (En marche normale : ~130 fichiers.)
-if ($files.Count -eq 0) {
-    Write-Host "[LINT-GED-XSCHEMA] ECHEC : 0 fichier de code scanné sous « $Root » — module GED introuvable/renommé/déplacé, ou déplacé sous un segment exclu ? La garde se désactiverait en silence (faux-vert)." -ForegroundColor Red
+if ($scan.FileCount -eq 0) {
+    Write-Host "[LINT-GED-XSCHEMA] ECHEC : 0 fichier de code scanné sous « $($scan.Root) » — module GED introuvable/renommé/déplacé, ou déplacé sous un segment exclu ? La garde se désactiverait en silence (faux-vert)." -ForegroundColor Red
     exit 1
 }
 
-$offenders = @()
-foreach ($f in $files) {
-    # Lecture EXPLICITE en UTF-8 (RL-27) : sous Windows PowerShell 5.1 (interpréteur de verify-fast),
-    # Get-Content -Raw décoderait un .cs UTF-8 SANS BOM (norme du repo) en CP1252 → faux-vert local /
-    # divergence CI (pwsh, UTF-8). ReadAllText(UTF8) décode en UTF-8 et gère un BOM éventuel.
-    $raw = [System.IO.File]::ReadAllText($f.FullName, [System.Text.Encoding]::UTF8)
-    if (-not $raw) { continue }
-    $lang = if ($f.Extension -ieq '.sql') { 'sql' } else { 'cs' }
-    $rx = if ($lang -eq 'sql') { $rxSql } else { $rxCs }
-    $code = Convert-CommentsToBlanks -Text $raw -Language $lang
-    $lines = $code -split "`n"
-    for ($ln = 0; $ln -lt $lines.Count; $ln++) {
-        $m = $rx.Matches($lines[$ln])
-        foreach ($hit in $m) {
-            $rel = $f.FullName.Substring($Root.Length).TrimStart('\', '/')
-            $offenders += "  $rel : ligne $($ln + 1) → « $($hit.Value.TrimEnd()) … »"
-        }
-    }
-}
-
-if ($offenders.Count -gt 0) {
+if ($scan.Offenders.Count -gt 0) {
     Write-Host "[LINT-GED-XSCHEMA] ECHEC : reference SQL cross-schema depuis src/Modules/Ged/** (regle 9)." -ForegroundColor Red
-    $offenders | ForEach-Object { Write-Host $_ -ForegroundColor Red }
+    $scan.Offenders | ForEach-Object { Write-Host "  $($_.Rel) : ligne $($_.Line) → « $($_.Value.TrimEnd()) … »" -ForegroundColor Red }
     Write-Host "Le lien GED<->fiscal est un soft-link LOGIQUE (uuid nu, sans FK ni jointure) : retirer la jointure cross-schema (F19 §3.4.1)." -ForegroundColor Red
     exit 1
 }
 
-Write-Host "[LINT-GED-XSCHEMA] OK : aucune référence SQL cross-schéma dans src/Modules/Ged/** ($($files.Count) fichiers, règle 9)." -ForegroundColor Green
+Write-Host "[LINT-GED-XSCHEMA] OK : aucune référence SQL cross-schéma dans src/Modules/Ged/** ($($scan.FileCount) fichiers, règle 9)." -ForegroundColor Green
 exit 0
