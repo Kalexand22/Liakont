@@ -136,25 +136,15 @@ public static class GedMapper
         var entities = new List<MappedEntity>();
         foreach (var rule in profile.EntityRules)
         {
-            var externalIds = GedSelector.Evaluate(rule.ExternalIdSource, ingested);
-            if (externalIds.Count == 0)
+            // Appariement du libellé à l'identifiant À LA SOURCE (sur le MÊME nœud) : identifiant et libellé sont
+            // deux sélecteurs INDÉPENDANTS et le sélecteur saute les valeurs nulles, donc deux listes scalaires
+            // évaluées séparément se compactent séparément — une égalité de décompte ne garantit PAS l'alignement
+            // (un libellé pourrait être collé à une AUTRE entité, INV-GED-05 n°3). La jointure par nœud parent
+            // garantit que chaque identifiant reçoit le libellé de SA propre entité, ou null (best-effort : une
+            // entité sans identifiant externe ne produit aucun lien ; un identifiant sans libellé reste sans libellé).
+            foreach (var (externalId, display) in GedSelector.EvaluatePaired(rule.ExternalIdSource, rule.DisplaySource, ingested))
             {
-                // Une entité n'est pas un axe obligatoire : sans identifiant, aucun lien n'est créé (best-effort).
-                continue;
-            }
-
-            // Appariement POSITIONNEL des libellés aux identifiants : le i-ème libellé décrit la i-ème entité, et
-            // SEULEMENT si les décomptes coïncident (M==N). Tout autre décompte (M≠N, y compris M==1/N>1) ne colle
-            // JAMAIS le libellé d'une AUTRE entité — le libellé est alors absent (best-effort, comme l'entité sans
-            // identifiant ci-dessus). Jamais deviner l'appariement (règle 3).
-            var displays = rule.DisplaySource is null
-                ? System.Array.Empty<string>()
-                : GedSelector.Evaluate(rule.DisplaySource, ingested);
-            var pairwiseDisplays = displays.Count == externalIds.Count;
-
-            for (var i = 0; i < externalIds.Count; i++)
-            {
-                entities.Add(new MappedEntity(rule.EntityType, externalIds[i], pairwiseDisplays ? displays[i] : null));
+                entities.Add(new MappedEntity(rule.EntityType, externalId, display));
             }
         }
 

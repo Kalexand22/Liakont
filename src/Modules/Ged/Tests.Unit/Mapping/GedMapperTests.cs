@@ -287,10 +287,10 @@ public sealed class GedMapperTests
     }
 
     [Fact]
-    public void Pairs_entity_labels_positionally_when_counts_match()
+    public void Pairs_each_entity_with_its_own_label_at_the_source()
     {
-        // GDF04 (2) : deux entités, deux libellés (M==N) → appariement POSITIONNEL (E-1↔Un, E-2↔Deux),
-        // jamais le libellé d'une autre entité.
+        // GDF04 (2) : deux entités portant chacune son libellé → chaque identifiant reçoit le libellé lu sur SON
+        // propre nœud source (E-1↔Un, E-2↔Deux), jamais le libellé d'une autre entité.
         var profile = EntityOnlyProfile();
         var doc = new IngestedDocumentDto(
             sourceReference: "src-9",
@@ -312,10 +312,10 @@ public sealed class GedMapperTests
     }
 
     [Fact]
-    public void Does_not_borrow_another_entitys_label_when_the_label_count_differs()
+    public void Each_entity_keeps_its_own_label_or_null_when_a_label_is_absent()
     {
-        // GDF04 (2) : deux identifiants, un seul libellé source (M==1, N==2) → le libellé n'est JAMAIS collé aux
-        // deux (ce serait le displayName d'une autre entité) ; comportement défini = libellé absent partout.
+        // GDF04 (2) : deux identifiants, un seul libellé source (sur E-1) → E-1 reçoit SON libellé « Un »,
+        // E-2 (sans libellé) reçoit null ; jamais le libellé d'une AUTRE entité (appariement à la source).
         var profile = EntityOnlyProfile();
         var doc = new IngestedDocumentDto(
             sourceReference: "src-10",
@@ -329,10 +329,44 @@ public sealed class GedMapperTests
         var result = GedMapper.Map(profile, doc, Catalog());
 
         result.IsMapped.Should().BeTrue();
-        result.Document!.Entities.Should().HaveCount(2);
-        result.Document!.Entities.Should().OnlyContain(e => e.Display == null);
-        result.Document!.Entities.Should().Contain(e => e.ExternalId == "E-1")
-            .And.Contain(e => e.ExternalId == "E-2");
+        result.Document!.Entities.Should().BeEquivalentTo(new[]
+        {
+            new { EntityType = "ent_partenaire", ExternalId = "E-1", Display = (string?)"Un" },
+            new { EntityType = "ent_partenaire", ExternalId = "E-2", Display = (string?)null },
+        });
+    }
+
+    [Fact]
+    public void Never_borrows_another_entitys_label_even_when_lists_are_compacted_differently()
+    {
+        // GDF04 (2, review round 2 P2) : identifiant et libellé sont deux sélecteurs INDÉPENDANTS ; le saut des
+        // valeurs nulles compacte les listes SÉPARÉMENT, donc une égalité de décompte ne garantit pas l'alignement.
+        // Source malformée : une entité sans libellé ET une entité sans identifiant → décomptes égaux mais
+        // désalignés. L'appariement À LA SOURCE (par nœud) ne colle JAMAIS le libellé d'une autre entité.
+        var profile = EntityOnlyProfile();
+        var doc = new IngestedDocumentDto(
+            sourceReference: "src-12",
+            documentType: "typ_a",
+            sourceEntities: new[]
+            {
+                new RawEntityHint("partenaire", "E-1"),          // identifiant présent, libellé absent
+                new RawEntityHint("partenaire", "E-2", "Nom B"), // les deux présents
+                new RawEntityHint("partenaire", null!, "Nom C"), // identifiant absent (hint malformé), libellé présent
+            });
+
+        var result = GedMapper.Map(profile, doc, Catalog());
+
+        result.IsMapped.Should().BeTrue();
+
+        // E-1 (libellé absent) → null ; E-2 → son PROPRE libellé ; l'entité sans identifiant ne produit aucun lien.
+        result.Document!.Entities.Should().BeEquivalentTo(new[]
+        {
+            new { EntityType = "ent_partenaire", ExternalId = "E-1", Display = (string?)null },
+            new { EntityType = "ent_partenaire", ExternalId = "E-2", Display = (string?)"Nom B" },
+        });
+
+        // « Nom C » (libellé de l'entité sans identifiant) n'est JAMAIS emprunté par une autre entité.
+        result.Document!.Entities.Should().NotContain(e => e.Display == "Nom C");
     }
 
     private static GedMappingProfile ValidatedProfile(
