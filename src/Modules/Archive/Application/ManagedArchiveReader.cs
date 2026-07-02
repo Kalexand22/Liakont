@@ -147,10 +147,19 @@ public sealed class ManagedArchiveReader : IManagedArchiveReader
     // d'assainissement qu'à l'écriture), jamais par découpage de chaîne du chemin de manifest. Défensif : un
     // manifest corrompu ou tronqué dans le coffre est une réalité opérationnelle (INV-ARCH-GED-2), pas une
     // exception à laisser remonter — c'est à l'appelant de la traduire en verdict d'intégrité. Le contrat couvre
-    // l'ENSEMBLE du parcours manifest→layout→pièces : JSON invalide (JsonException), valeur non-chaîne là où on
-    // attend une chaîne (InvalidOperationException sur GetString), segment qui s'assainit en vide dans
-    // SanitizeSegment (ArgumentException), date/nombre illisible (FormatException/OverflowException) → tous
-    // rendent false (⇒ verdict Altered, fail-closed), jamais une exception jusqu'à la fiche.
+    // l'ENSEMBLE du parcours manifest→layout→pièces : les valeurs non-chaîne sont écartées par contrôle de
+    // ValueKind (jamais de GetString sur un token non-chaîne), de sorte que les deux SEULES sources d'exception
+    // restantes — JSON invalide (JsonException) et segment qui s'assainit en vide dans SanitizeSegment
+    // (ArgumentException) — rendent false (⇒ verdict Altered, fail-closed), jamais une exception jusqu'à la fiche.
+
+    // Lit une propriété chaîne OBLIGATOIRE du manifest : renvoie null si absente ou de type non-chaîne
+    // (⇒ manifest corrompu). Le contrôle de ValueKind évite tout GetString() sur un token non-chaîne (qui
+    // lèverait InvalidOperationException) — le catch reste ainsi limité à JsonException et ArgumentException.
+    private static string? RequiredString(JsonElement root, string propertyName) =>
+        root.TryGetProperty(propertyName, out JsonElement element) && element.ValueKind == JsonValueKind.String
+            ? element.GetString()
+            : null;
+
     private static bool TryParseManifest(byte[] manifestBytes, out (string PackageHash, string PackageDirectory, IReadOnlyList<string> FileNames) result)
     {
         result = default;
@@ -172,16 +181,18 @@ public sealed class ManagedArchiveReader : IManagedArchiveReader
                 packageHash = packageHashElement.GetString() ?? string.Empty;
             }
 
-            if (!root.TryGetProperty("archiveKind", out JsonElement archiveKindElement) || archiveKindElement.GetString() is not { } archiveKind
-                || !root.TryGetProperty("archiveKey", out JsonElement archiveKeyElement) || archiveKeyElement.GetString() is not { } archiveKey
-                || !root.TryGetProperty("filedOn", out JsonElement filedOnElement) || filedOnElement.GetString() is not { } filedOnText
+            // Champs OBLIGATOIRES, tous des chaînes : un contrôle de ValueKind (RequiredString) écarte toute valeur
+            // non-chaîne SANS lever, puis DateOnly.TryParseExact ne lève jamais → aucune InvalidOperationException.
+            if (RequiredString(root, "archiveKind") is not { } archiveKind
+                || RequiredString(root, "archiveKey") is not { } archiveKey
+                || RequiredString(root, "filedOn") is not { } filedOnText
                 || !DateOnly.TryParseExact(filedOnText, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateOnly filedOn))
             {
                 return false;
             }
 
             // Reconstruit le répertoire du paquet. SanitizeSegment LÈVE (ArgumentException) si archiveKind/archiveKey
-            // s'assainit en vide (« archiveKey":"" », « archiveKind":"/" ») : rattrapé par le catch large ci-dessous.
+            // s'assainit en vide (« archiveKey":"" », « archiveKind":"/" ») : rattrapé par le catch ci-dessous.
             string packageDirectory = GedArchivePackageLayout.PackageDirectory(
                 archiveKind, filedOn.Year, filedOn.Month, archiveKey);
 
@@ -218,7 +229,7 @@ public sealed class ManagedArchiveReader : IManagedArchiveReader
             result = (packageHash, packageDirectory, fileNames);
             return true;
         }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException or ArgumentException or FormatException or OverflowException)
+        catch (Exception ex) when (ex is JsonException or ArgumentException)
         {
             // Corruption du manifest / du parcours manifest→layout→pièces (réalité opérationnelle, INV-ARCH-GED-2).
             // Fail-closed : ne jamais rendre Verified sur un doute, ne jamais laisser l'exception atteindre la fiche.
