@@ -233,6 +233,43 @@ public sealed class GedObjetTests : BunitContext
         fake.LastToken.IsCancellationRequested.Should().BeTrue("quitter la page annule l'exploration (token propagé au seam)");
     }
 
+    [Fact]
+    public async Task An_In_Flight_Exploration_Cancelled_By_Leaving_The_Page_Is_Swallowed_Without_An_Error_Banner()
+    {
+        // P2 GDF12 (2) — exerce réellement la branche catch (OperationCanceledException) when (...) : une requête
+        // EN VOL est coupée par le départ de la page (Dispose annule le token → le seam lève) et la page l'AVALE
+        // (retour silencieux, pas de bandeau d'erreur, pas d'état corrompu) — pas seulement la propagation du token.
+        var fake = new FakeGedGraphQueries(Page([Guid.NewGuid()])) { WaitForCancellation = true };
+        Services.AddScoped<IGedGraphQueries>(_ => fake);
+
+        var cut = Render<GedObjet>(p => p
+            .Add(c => c.EntityType, "entreprise")
+            .Add(c => c.Id, Guid.NewGuid()));
+
+        // Requête en vol (le fake n'a pas répondu) : état propre, aucun bandeau d'erreur affiché.
+        await fake.InFlight.Task;
+        cut.FindAll("[data-testid='ged-graph-error']").Should().BeEmpty();
+
+        // Instance et champ privé capturés AVANT le Dispose : après destruction du composant, cut.Instance/FindAll
+        // lèvent (ComponentDisposedException) — la réflexion sur la référence déjà capturée reste possible et
+        // permet de vérifier l'état interne de la page malgré la destruction du rendu.
+        var page = cut.Instance;
+        var loadFailedField = page.GetType().GetField("_loadFailed", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+        // Quitter la page annule le token → OperationCanceledException levée en vol → AVALÉE par la page :
+        // le Dispose se termine proprement, sans faire remonter d'exception.
+        await DisposeComponentsAsync();
+
+        // La branche d'annulation a bien été atteinte (le token en vol a observé l'annulation). On laisse la
+        // continuation d'annulation se terminer (elle peut finir juste après le Dispose, sur le pool de threads)
+        // puis on vérifie qu'elle n'a PAS été traitée comme un échec : _loadFailed reste false — l'annulation
+        // reste bien AVALÉE (retour silencieux), jamais traitée comme un échec.
+        fake.LastToken.IsCancellationRequested.Should().BeTrue();
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
+        loadFailedField.GetValue(page).Should().Be(
+            false, "l'annulation par le Dispose est AVALÉE (retour silencieux), jamais traitée comme un échec");
+    }
+
     private static GedGraphResults Page(IReadOnlyList<Guid> docIds, GedGraphCursor? next = null) => new()
     {
         Hits = docIds.Select(d => new GedGraphHit(d, Guid.NewGuid(), "emitter", 1)).ToList(),
@@ -264,12 +301,23 @@ public sealed class GedObjetTests : BunitContext
         /// <summary>Si posée, l'exploration attend cette porte (simule une requête EN VOL pour la garde de ré-entrance).</summary>
         public TaskCompletionSource? Gate { get; set; }
 
+        /// <summary>Si vrai, l'exploration reste EN VOL en observant le token (simule une requête coupée par le Dispose, GDF12).</summary>
+        public bool WaitForCancellation { get; set; }
+
+        public TaskCompletionSource InFlight { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public static FakeGedGraphQueries Throwing() => new(throws: true);
 
         public async Task<GedGraphResults> ExploreAsync(GedGraphRequest request, CancellationToken cancellationToken = default)
         {
             Requests.Add(request);
             LastToken = cancellationToken;
+
+            if (WaitForCancellation)
+            {
+                InFlight.TrySetResult();
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
 
             if (Gate is not null)
             {
