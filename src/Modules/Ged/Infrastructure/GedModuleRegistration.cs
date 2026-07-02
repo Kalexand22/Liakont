@@ -8,6 +8,7 @@ using Liakont.Modules.Ged.Application.Mapping;
 using Liakont.Modules.Ged.Contracts.Backfill;
 using Liakont.Modules.Ged.Contracts.Consultation;
 using Liakont.Modules.Ged.Contracts.Events;
+using Liakont.Modules.Ged.Contracts.Queries;
 using Liakont.Modules.Ged.Infrastructure.Backfill;
 using Liakont.Modules.Ged.Infrastructure.Consultation;
 using Liakont.Modules.Ged.Infrastructure.Graph;
@@ -85,6 +86,11 @@ public static class GedModuleRegistration
         // ── Recherche & index (GED08, F19 §6.1-§6.4, ADR-0035) ──
         // Port de recherche (tsvector, table dérivée document_search) tenant-scopé par IConnectionFactory.
         services.AddScoped<IDocumentSearchIndex, PostgresDocumentSearchIndex>();
+
+        // Port de lecture de la fiche document (GED09b, F19 §6.7) : méta + axes + entités courants, masquage de
+        // confidentialité matérialisé dans le SQL (RL-31). Tenant-scopé par IConnectionFactory. Consommé par la
+        // page /ged/document/{id} du Host.
+        services.AddScoped<IGedDocumentQueries, PostgresGedDocumentQueries>();
 
         // Projection ASYNCHRONE du search_vector : SECOND consommateur de ManagedDocumentReceivedV1, enregistré APRÈS
         // l'indexeur ci-dessus — le dispatcher socle (InMemoryEventDispatcher) invoque les consommateurs dans l'ordre

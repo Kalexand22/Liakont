@@ -1,0 +1,101 @@
+@page "/ged/document/{Id:guid}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = LiakontPermissions.GedRead)]
+@using Liakont.Host.Components
+@using Liakont.Host.Ged
+@using Liakont.Host.Security
+@using Stratum.Common.UI.Models
+@inject IGedDocumentConsoleQueries DocumentQueries
+@inject ILogger<GedDocument> Logger
+
+@* Fiche document GED (/ged/document/{id}, GED09b, F19 §6.7). Page MINCE : elle charge la fiche assemblée via
+ * IGedDocumentConsoleQueries (aucun accès base direct, aucune logique métier — délégué aux Contracts Ged/Archive
+ * et au journal de consultation) et délègue le rendu à la vue pure GedDocumentView. La permission liakont.ged.read
+ * garde l'accès à la page ; le masquage des axes/entités CONFIDENTIELS est appliqué SERVER-SIDE (le modèle ne les
+ * porte pas sans le droit liakont.ged.confidential). Un échec de chargement reste VISIBLE (bandeau) et tracé. *@
+
+<PageTitle>Document GED — Liakont</PageTitle>
+
+<div class="liakont-ged-doc-page">
+    <div class="liakont-ged-doc-page__head">
+        <StratumButton Text="Retour à la recherche"
+                       Variant="ButtonVariant.Secondary"
+                       Outline
+                       Size="ButtonSize.Small"
+                       Href="/ged/recherche"
+                       TestId="ged-document-back" />
+    </div>
+
+    @if (_loadFailed)
+    {
+        <LiakontAlert TestId="ged-document-error">
+            Impossible de charger ce document pour le moment. Réessayez plus tard.
+        </LiakontAlert>
+    }
+    else if (_notFound)
+    {
+        <LiakontAlert Severity="Severity.Warning" TestId="ged-document-notfound">
+            Ce document est introuvable. Il a peut-être été remplacé, ou il n'appartient pas à ce tenant.
+        </LiakontAlert>
+    }
+    else if (_model is null)
+    {
+        <LiakontLoading TestId="ged-document-loading" />
+    }
+    else
+    {
+        <h1 class="liakont-ged-doc-page__title" data-testid="ged-document-page-title">@_model.Title</h1>
+        <GedDocumentView Model="_model" />
+    }
+</div>
+
+@code {
+    /// <summary>Identifiant GED du document (segment de route). Charge la fiche au changement d'identifiant.</summary>
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private Guid _loadedId;
+    private GedDocumentDetailViewModel? _model;
+    private bool _notFound;
+    private bool _loadFailed;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Charge une seule fois par identifiant distinct (un re-rendu sans changement d'Id ne recharge pas).
+        if (Id == _loadedId)
+        {
+            return;
+        }
+
+        _loadedId = Id;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _model = null;
+        _notFound = false;
+        _loadFailed = false;
+
+        try
+        {
+            var model = await DocumentQueries.GetAsync(Id);
+            if (model is null)
+            {
+                _notFound = true;
+            }
+            else
+            {
+                _model = model;
+            }
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence. En régime de
+            // consultation PROBANT (§6.6), une trace de consultation en échec LÈVE ici → l'accès est refusé (le
+            // bandeau générique préserve l'anti-oracle : on ne détaille pas la cause).
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the GED document detail page for document {ManagedDocumentId}.", Id);
+        }
+    }
+}
