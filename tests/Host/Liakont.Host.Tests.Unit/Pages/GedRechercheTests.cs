@@ -9,6 +9,7 @@ using Bunit;
 using FluentAssertions;
 using Liakont.Host.Components.Pages;
 using Liakont.Host.Ged;
+using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -116,6 +117,35 @@ public sealed class GedRechercheTests : BunitContext
         });
     }
 
+    [Fact]
+    public async Task A_Second_Search_While_A_Request_Is_In_Flight_Is_Ignored()
+    {
+        // Garde de ré-entrance (P2 review) exercée jusqu'à la page : la 1re recherche est retenue par une porte
+        // (requête EN VOL, _isBusy=true), puis une 2e intention est émise. Elle passe par la garde de la PAGE
+        // (Entrée dans le champ — NON désactivé, donc c'est bien la garde _isBusy qui no-op, pas l'attribut
+        // disabled du bouton). Aucune 2e requête ni page keyset re-demandée ni trace de consultation dupliquée.
+        var gate = new TaskCompletionSource();
+        var fake = new FakeGedQueries(Page([Guid.NewGuid()])) { Gate = gate };
+        Services.AddScoped<IGedQueries>(_ => fake);
+
+        var cut = Render<GedRecherche>();
+        cut.Find("[data-testid='ged-search-input']").Input("x");
+
+        // 1re recherche : démarre et reste EN VOL (porte non relâchée) — TriggerEventAsync non attendu.
+        var firstSearch = cut.Find("[data-testid='ged-search-submit']").TriggerEventAsync("onclick", new MouseEventArgs());
+        cut.WaitForState(() => fake.Requests.Count == 1);
+
+        // 2e intention pendant l'await, via Entrée dans le champ (non désactivé) → OnQueryKeyUp → SearchAsync →
+        // garde _isBusy → no-op.
+        await cut.Find("[data-testid='ged-search-input']").TriggerEventAsync("onkeyup", new KeyboardEventArgs { Key = "Enter" });
+
+        fake.Requests.Should().HaveCount(1, "une 2e recherche pendant qu'une requête est en vol est ignorée (garde de ré-entrance)");
+
+        gate.SetResult();
+        await firstSearch;
+        fake.Requests.Should().HaveCount(1);
+    }
+
     private static GedSearchResults Page(
         IReadOnlyList<Guid> hitIds,
         IReadOnlyList<GedSearchFacet>? facets = null,
@@ -147,19 +177,27 @@ public sealed class GedRechercheTests : BunitContext
 
         public GedSearchRequest? LastRequest => Requests.Count > 0 ? Requests[^1] : null;
 
+        /// <summary>Si posée, la recherche attend cette porte (simule une requête EN VOL pour la garde de ré-entrance).</summary>
+        public TaskCompletionSource? Gate { get; init; }
+
         public static FakeGedQueries Throwing() => new(throws: true);
 
-        public Task<GedSearchResults> SearchAsync(GedSearchRequest request, CancellationToken cancellationToken = default)
+        public async Task<GedSearchResults> SearchAsync(GedSearchRequest request, CancellationToken cancellationToken = default)
         {
             Requests.Add(request);
 
+            if (Gate is not null)
+            {
+                await Gate.Task;
+            }
+
             if (_throws)
             {
-                // Levée synchrone : le call est dans le try de la page (comme le fake B2C) → catch → bandeau.
+                // Le call est dans le try de la page (comme le fake B2C) → l'exception est catchée → bandeau.
                 throw new InvalidOperationException("Échec simulé de la recherche GED.");
             }
 
-            return Task.FromResult(_pages.Count > 0 ? _pages.Dequeue() : GedSearchResults.Empty);
+            return _pages.Count > 0 ? _pages.Dequeue() : GedSearchResults.Empty;
         }
     }
 }
