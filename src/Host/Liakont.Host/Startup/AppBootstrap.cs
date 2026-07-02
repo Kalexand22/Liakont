@@ -690,6 +690,12 @@ public static class AppBootstrap
         // la page /ged/recherche. SCOPED (résolution de permission dépendante de l'acteur ; index tenant-scopé).
         builder.Services.AddScoped<Liakont.Host.Ged.IGedQueries, Liakont.Host.Ged.GedSearchQueryService>();
 
+        // Composition en lecture de l'exploration de graphe GED (GED09c, F19 §6.7) : isole la traversée bornée
+        // bidirectionnelle (GED08), la résolution du droit de confidentialité (GED06) et l'audit de consultation
+        // (GED13) hors de la page /ged/objet. SCOPED (résolution de permission dépendante de l'acteur ; index
+        // tenant-scopé).
+        builder.Services.AddScoped<Liakont.Host.Ged.IGedGraphQueries, Liakont.Host.Ged.GedGraphQueryService>();
+
         // Composition en lecture de la page Documents (WEB02) : charge tout le périmètre période (boucle
         // sur la liste paginée serveur, aucune troncature) hors de la page.
         builder.Services.AddScoped<Liakont.Host.Documents.IDocumentConsoleQueries, Liakont.Host.Documents.DocumentConsoleQueryService>();
