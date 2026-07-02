@@ -676,6 +676,11 @@ public static class AppBootstrap
         // Composition en lecture du tableau de bord d'accueil (WEB01) : isole l'assemblage hors de la page.
         builder.Services.AddScoped<Liakont.Host.Dashboard.IDashboardQueries, Liakont.Host.Dashboard.DashboardQueryService>();
 
+        // Composition en lecture du portail GED (GED09a, F19 §6.7) : isole l'accès à l'index de recherche
+        // (GED08), la résolution du droit de confidentialité (GED06) et l'audit de consultation (GED13) hors de
+        // la page /ged/recherche. SCOPED (résolution de permission dépendante de l'acteur ; index tenant-scopé).
+        builder.Services.AddScoped<Liakont.Host.Ged.IGedQueries, Liakont.Host.Ged.GedSearchQueryService>();
+
         // Composition en lecture de la page Documents (WEB02) : charge tout le périmètre période (boucle
         // sur la liste paginée serveur, aucune troncature) hors de la page.
         builder.Services.AddScoped<Liakont.Host.Documents.IDocumentConsoleQueries, Liakont.Host.Documents.DocumentConsoleQueryService>();
