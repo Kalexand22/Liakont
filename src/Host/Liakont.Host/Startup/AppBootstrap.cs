@@ -11,6 +11,7 @@ using Liakont.Host.Clients;
 using Liakont.Host.Components;
 using Liakont.Host.Configuration;
 using Liakont.Host.FleetApi;
+using Liakont.Host.InstanceEmail;
 using Liakont.Host.Localization;
 using Liakont.Host.MultiTenancy;
 using Liakont.Host.Navigation;
@@ -197,6 +198,14 @@ public static class AppBootstrap
         // journalisé (pas de retry infini). Consommé par EmailSendJobHandler au moment de la livraison.
         builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
         builder.Services.Replace(ServiceDescriptor.Scoped<IEmailTransport, SmtpEmailTransport>());
+
+        // Config email d'INSTANCE chiffrée, multi-provider (ADR-0039) : le transport ci-dessus devient
+        // provider-aware (SMTP basic / Gmail / O365 XOAUTH2). Le store (base système, ciphertext) vit dans
+        // FleetSupervision (AddFleetSupervisionModule) ; le fournisseur de jeton OAuth vit au Host — Singleton
+        // (honore expires_in ; un Scoped rafraîchirait à chaque envoi) + IHttpClientFactory (jamais un HttpClient
+        // capturé). Aucun SDK Google/Graph/MSAL (XOAUTH2 natif MailKit). Aucun secret journalisé (CLAUDE.md n°10).
+        builder.Services.AddHttpClient(HttpEmailOAuthTokenProvider.HttpClientName);
+        builder.Services.AddSingleton<IEmailOAuthTokenProvider, HttpEmailOAuthTokenProvider>();
 
         // Libellé FR fourni à l'enregistrement (FIX211) : l'admin des planifications affiche ce libellé, jamais
         // le FullName .NET (clé technique stockée). Surfacé par IJobTypeCatalog.
@@ -760,6 +769,11 @@ public static class AppBootstrap
         // déléguées en in-process (garde liakont.settings côté page). Rend l'e-reporting des encaissements
         // activable sans SQL : sans cet écran, le paramètre restait non renseignable (suspension perpétuelle).
         builder.Services.AddScoped<Liakont.Host.Fiscal.IFiscalConsoleService, Liakont.Host.Fiscal.FiscalConsoleService>();
+
+        // Composition de l'écran « Supervision › Configuration email » (ADR-0039) : lecture masquée (Has*),
+        // enregistrement chiffré (lit-puis-conserve) et envoi d'un email de test, orchestrés au Host (monopole
+        // chiffrement/déchiffrement via ISecretProtector — CLAUDE.md n°6/14). Garde liakont.instance.settings côté page.
+        builder.Services.AddScoped<Liakont.Host.InstanceEmail.IInstanceEmailConfigService, Liakont.Host.InstanceEmail.InstanceEmailConfigService>();
 
         // Composition de l'écran « Paramétrage › Mentions de facturation » (BUG-26, F12-A §3.4) : lecture des
         // mentions de facturation du tenant (GetBillingMentionsQuery) et modification (SetBillingMentionsCommand,

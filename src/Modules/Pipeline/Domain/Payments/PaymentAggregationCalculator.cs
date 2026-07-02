@@ -62,7 +62,7 @@ public static class PaymentAggregationCalculator
     /// <summary>Motif : autoliquidation (reverse charge) — exclue de l'e-reporting de paiement (F09 §2).</summary>
     public const string ReverseChargeReason =
         "Autoliquidation (reverse charge, catégorie AE) : la TVA n'est pas collectée par le fournisseur — exclue " +
-        "de l'e-reporting de paiement (F09 §2). Un document mêlant autoliquidation et taux collectés est suspendu " +
+        "de l'e-reporting de paiement. Un document mêlant autoliquidation et taux collectés est suspendu " +
         "(la part à reporter n'est pas isolable par une règle sourcée).";
 
     /// <summary>Motif : taux de TVA non résolu dans la ventilation — impossible de ventiler l'encaissement par taux.</summary>

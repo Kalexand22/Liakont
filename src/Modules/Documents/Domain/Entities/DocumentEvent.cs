@@ -271,7 +271,7 @@ public sealed class DocumentEvent
             TimestampUtc = occurredAtUtc,
             EventType = DocumentEventType.DocumentBuyerConfirmedB2C,
             Detail = "Acheteur confirmé « particulier » (B2C) par l'opérateur malgré l'indice professionnel — " +
-                     "garde-fou B2B/B2C levé pour ce document (F08 §A.4). Re-vérification requise pour débloquer.",
+                     "garde-fou B2B/B2C levé pour ce document. Re-vérification requise pour débloquer.",
             PayloadSnapshot = null,
             PaResponseSnapshot = null,
             MappingTrace = null,

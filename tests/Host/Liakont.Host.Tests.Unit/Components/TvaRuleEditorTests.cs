@@ -193,7 +193,7 @@ public sealed class TvaRuleEditorTests : BunitContext
     [Fact]
     public void Editor_error_is_displayed()
     {
-        const string Error = "règle #1 : catégorie E (exonéré) sans code VATEX — un motif d'exonération est obligatoire (F03 §2.2)";
+        const string Error = "règle #1 : catégorie E (exonéré) sans code VATEX — un motif d'exonération est obligatoire";
         var cut = Render<TvaRuleEditor>(p => p
             .Add(e => e.Options, Options())
             .Add(e => e.Model, new TvaRuleFormModel())

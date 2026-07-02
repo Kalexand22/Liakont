@@ -17,6 +17,7 @@ des champs `public const string`.
 | `liakont.actions` | `LiakontPermissions.Actions` | Actions opérateur : déblocage, relance, ré-émission, actions correctives. |
 | `liakont.settings` | `LiakontPermissions.Settings` | Paramétrage fiscal du tenant : table TVA, mappings, comptes Plateforme Agréée, seuils. |
 | `liakont.supervision` | `LiakontPermissions.Supervision` | Supervision : vues cross-tenant en lecture seule (module Supervision) **et administration d'instance** (OPS03 : écran Clients — création de tenants, suspension/réactivation ; les actions dispatchent in-process dans le scope du tenant cible, la garde de page est l'unique contrôle de ce chemin, parité WEB09). |
+| `liakont.instance.settings` | `LiakontPermissions.InstanceSettings` | Paramétrage **MUTANT** d'instance (ADR-0039), hors tenant : configuration d'envoi d'emails de l'instance (SMTP basic / Gmail / O365 OAuth2, secrets chiffrés). Distincte de `liakont.supervision` (lecture seule) : une écriture ne s'accroche pas à une permission « lecture seule ». |
 | `liakont.fleet` | `LiakontPermissions.Fleet` | Méta-supervision de flotte (OPS04) : dashboard cross-**instance** d'IT Innovations (état des instances, versions, alertes). Niveau au-dessus de `liakont.supervision`. |
 
 ## 2. Rôles standard (realm Keycloak)
@@ -41,9 +42,12 @@ défaut attribué à tout nouvel utilisateur est `lecture`.
 | `liakont.actions` |  | ✔ | ✔ | ✔ |
 | `liakont.settings` |  |  | ✔ | ✔ |
 | `liakont.supervision` |  |  |  | ✔ |
+| `liakont.instance.settings` |  |  |  | ✔ |
 
 Résumé : `lecture` → read ; `operateur` → read + actions ; `parametrage` → read + actions
-+ settings ; `superviseur` → les quatre permissions.
++ settings ; `superviseur` → read + actions + settings + supervision + instance.settings
+(l'opérateur d'instance : la supervision cross-tenant en lecture ET le paramétrage d'instance
+en écriture, ADR-0039).
 
 > La supervision cross-tenant reste en **lecture seule** (CLAUDE.md n.9 : seul le module
 > Supervision a des vues cross-tenant ; toute autre requête métier est tenant-scopée).

@@ -174,7 +174,7 @@ public static class DocumentActionsEndpointMapping
             if (request is null || string.IsNullOrWhiteSpace(request.Reason))
             {
                 return Results.BadRequest(new ActionProblem(
-                    "Le motif du traitement manuel est obligatoire : il est journalisé dans la piste d'audit (F06 §3)."));
+                    "Le motif du traitement manuel est obligatoire : il est journalisé dans la piste d'audit."));
             }
 
             var actor = actorAccessor.Current;
@@ -217,7 +217,7 @@ public static class DocumentActionsEndpointMapping
             if (request is null || request.ReplacementDocumentId == Guid.Empty)
             {
                 return Results.BadRequest(new ActionProblem(
-                    "L'identifiant du document de remplacement est obligatoire (le remplaçant est déjà reçu via l'agent — F06 §4)."));
+                    "L'identifiant du document de remplacement est obligatoire (le remplaçant est déjà reçu via l'agent)."));
             }
 
             if (request.ReplacementDocumentId == id)
@@ -295,7 +295,7 @@ public static class DocumentActionsEndpointMapping
                     DocumentEntityType,
                     id.ToString(),
                     DocumentActionContract.VerdictConfirmB2cActivity,
-                    string.Create(CultureInfo.InvariantCulture, $"Garde-fou B2B/B2C : acheteur confirmé « particulier » (B2C) par l'opérateur pour le document {document.DocumentNumber} (F08 §A.4). Re-vérifier pour débloquer."),
+                    string.Create(CultureInfo.InvariantCulture, $"Garde-fou B2B/B2C : acheteur confirmé « particulier » (B2C) par l'opérateur pour le document {document.DocumentNumber}. Re-vérifier pour débloquer."),
                     operatorId,
                     metadata: new { document.DocumentNumber, Verdict = VerdictConfirmB2c },
                     companyId: actor.CompanyId,
@@ -318,7 +318,7 @@ public static class DocumentActionsEndpointMapping
                 DocumentEntityType,
                 id.ToString(),
                 DocumentActionContract.VerdictHandleManuallyActivity,
-                string.Create(CultureInfo.InvariantCulture, $"Garde-fou B2B/B2C : document {document.DocumentNumber} traité manuellement hors passerelle (B2B) par l'opérateur (F08 §A.4)."),
+                string.Create(CultureInfo.InvariantCulture, $"Garde-fou B2B/B2C : document {document.DocumentNumber} traité manuellement hors passerelle (B2B) par l'opérateur."),
                 operatorId,
                 metadata: new { document.DocumentNumber, Verdict = VerdictHandleManually },
                 companyId: actor.CompanyId,
