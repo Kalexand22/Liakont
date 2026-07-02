@@ -1058,3 +1058,31 @@ revue Claude **clean** au round 3). Détail + commit sous chaque bug.
   `Stratum.Common.UI.Components`, label au-dessus + Required) + `input.form-control` (pleine largeur stylée),
   même pattern qu'`AlertesView`. `data-testid` inchangés (tests bUnit verts, 6/6). Rappel de la règle :
   jamais de classes CSS maison non définies dans une page console (design system Stratum obligatoire).
+
+
+## CHANTIER GED-PDF — rapatriement des PDF BA/BV depuis la GED EncheresV6 — relevé Karl 2026-07-02
+- **Relevé Karl** : « Dans l'état actuel, le plus gros truc qui me manque, c'est l'envoi des PDF des BA/BV »
+  (= ramener les PDF de la GED Enchères SVV sur le serveur — pas de génération, pas d'envoi email).
+- **Constat côté produit (sourcé code)** : le rail « pièces jointes » ADP05 est construit (agent :
+  `IEncheresV6PdfSource` + `FileSystemEncheresV6PdfSource` testé ; serveur : module Ingestion
+  `IIngestedPdfStore`, Reconciliation, UI `DocumentAttachment`) mais **débranché** : les deux extracteurs
+  renvoient `Array.Empty` en dur (`PervasiveExtractor.cs:197`, `EncheresV6FixtureExtractor.cs:237`) et
+  aucune section PDF n'existe dans `agent.json`/factory/wizard.
+- **Design source élucidé (référentiel Magic `DataSources.xml`)** : 6 tables — `GED_Type`,
+  `GED_Parametre_Global`, `GED_Parametre_Document` (racine `Chemin_stockage` + arborescence paramétrée
+  année/mois/dossier/référence/type), `GED_document_joint` (fichier : nom, extension, période, audit),
+  `GED_document_joint_Ext` (lien vente), `GED_Relation` (liaison générique Code_flux + Ref_numerique1/2 +
+  Ref_alpha1/2 → No_document_joint). **PDF = fichiers sur disque, pas de blob.**
+- **Blocage extraction résolu** : ces tables ne sont pas déclarées au dictionnaire SQL Zen (DDF, noms ≤ 20
+  car.) — Magic les lit en Btrieve direct. Outil `ged-extract.ps1` livré dans le workspace source (à côté
+  d'`EncheresExtract.exe`, hors repo) : déclaration `CREATE TABLE … USING … IN DICTIONARY` (métadonnées
+  seules, jamais la data ; `DROP` nu interdit — variante `IN DICTIONARY` imposée) puis extraction JSON.
+- **✅ FAIT (2026-07-02)** : `build-sqlserver-from-samples.ps1` étendu aux 6 tables GED (types UTINYINT +
+  binaire hex sans corruption ; skip explicite tant que les samples ne sont pas revenus du serveur).
+  Review clean (round 2), verify-fast vert.
+- **⏳ RESTE** : (1) Karl exécute `ged-extract.ps1 -DataDir <dossier> -Declare` sur le serveur Zen et renvoie
+  `samples\GED_*.json` → régénération `encheresv6-demo-sqlserver.sql` (tables + data GED dans la base démo) ;
+  (2) Karl récupère les fichiers PDF sur sa machine ; (3) chantier produit : brancher `IEncheresV6PdfSource`
+  dans les extracteurs + section PDF `agent.json` + source « table GED » (lecture `GED_Relation` pour lier
+  PDF ↔ no_ba/no_bv) ; (4) install prod : la déclaration dictionnaire devient une étape d'installation
+  (wizard) puisque l'agent lira via le même ODBC.
