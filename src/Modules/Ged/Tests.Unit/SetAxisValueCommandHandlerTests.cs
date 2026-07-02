@@ -2,6 +2,7 @@ namespace Liakont.Modules.Ged.Tests.Unit;
 
 using System;
 using System.Collections.Generic;
+using System.Data.Common;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,6 +16,7 @@ using Liakont.Modules.Ged.Infrastructure;
 using Liakont.Modules.Ged.Infrastructure.Index;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 /// <summary>
@@ -34,7 +36,7 @@ public sealed class SetAxisValueCommandHandlerTests
     {
         var axis = ActiveAxis(AxisDataType.Text, isMultiValue: false);
         var factory = new RecordingUnitOfWorkFactory();
-        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(axis), factory, new RecordingDocumentSearchIndex());
+        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(axis), factory, new RecordingDocumentSearchIndex(), NullLogger<SetAxisValueCommandHandler>.Instance);
 
         var id = await handler.Handle(Command(rawValue: "Chantier A", source: "manual"), CancellationToken.None);
 
@@ -51,7 +53,7 @@ public sealed class SetAxisValueCommandHandlerTests
     {
         var axis = ActiveAxis(AxisDataType.Text, isMultiValue: true);
         var factory = new RecordingUnitOfWorkFactory();
-        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(axis), factory, new RecordingDocumentSearchIndex());
+        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(axis), factory, new RecordingDocumentSearchIndex(), NullLogger<SetAxisValueCommandHandler>.Instance);
 
         await handler.Handle(Command(rawValue: "tag", source: "agent"), CancellationToken.None);
 
@@ -63,7 +65,7 @@ public sealed class SetAxisValueCommandHandlerTests
     {
         var axis = ActiveAxis(AxisDataType.Number, isMultiValue: false, valueScale: 2);
         var factory = new RecordingUnitOfWorkFactory();
-        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(axis), factory, new RecordingDocumentSearchIndex());
+        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(axis), factory, new RecordingDocumentSearchIndex(), NullLogger<SetAxisValueCommandHandler>.Instance);
 
         await handler.Handle(Command(rawValue: "1234.505", source: "import"), CancellationToken.None);
 
@@ -75,7 +77,7 @@ public sealed class SetAxisValueCommandHandlerTests
     public async Task Handle_throws_when_the_axis_is_unknown()
     {
         var factory = new RecordingUnitOfWorkFactory();
-        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(null), factory, new RecordingDocumentSearchIndex());
+        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(null), factory, new RecordingDocumentSearchIndex(), NullLogger<SetAxisValueCommandHandler>.Instance);
 
         var act = () => handler.Handle(Command(rawValue: "x", source: "manual"), CancellationToken.None);
 
@@ -88,7 +90,7 @@ public sealed class SetAxisValueCommandHandlerTests
     {
         var axis = ActiveAxis(AxisDataType.Text, isMultiValue: false) with { IsActive = false };
         var factory = new RecordingUnitOfWorkFactory();
-        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(axis), factory, new RecordingDocumentSearchIndex());
+        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(axis), factory, new RecordingDocumentSearchIndex(), NullLogger<SetAxisValueCommandHandler>.Instance);
 
         var act = () => handler.Handle(Command(rawValue: "x", source: "manual"), CancellationToken.None);
 
@@ -101,7 +103,7 @@ public sealed class SetAxisValueCommandHandlerTests
     {
         var axis = ActiveAxis(AxisDataType.Number, isMultiValue: false, valueScale: 2);
         var factory = new RecordingUnitOfWorkFactory();
-        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(axis), factory, new RecordingDocumentSearchIndex());
+        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(axis), factory, new RecordingDocumentSearchIndex(), NullLogger<SetAxisValueCommandHandler>.Instance);
 
         var act = () => handler.Handle(Command(rawValue: "pas-un-nombre", source: "manual"), CancellationToken.None);
 
@@ -114,7 +116,7 @@ public sealed class SetAxisValueCommandHandlerTests
     {
         var axis = ActiveAxis(AxisDataType.Enum, isMultiValue: false) with { AllowedEnumValues = ["fr", "de"] };
         var factory = new RecordingUnitOfWorkFactory();
-        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(axis), factory, new RecordingDocumentSearchIndex());
+        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(axis), factory, new RecordingDocumentSearchIndex(), NullLogger<SetAxisValueCommandHandler>.Instance);
 
         var act = () => handler.Handle(Command(rawValue: "es", source: "manual"), CancellationToken.None);
 
@@ -127,7 +129,7 @@ public sealed class SetAxisValueCommandHandlerTests
     {
         var axis = ActiveAxis(AxisDataType.Enum, isMultiValue: false) with { AllowedEnumValues = ["fr", "de"] };
         var factory = new RecordingUnitOfWorkFactory();
-        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(axis), factory, new RecordingDocumentSearchIndex());
+        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(axis), factory, new RecordingDocumentSearchIndex(), NullLogger<SetAxisValueCommandHandler>.Instance);
 
         await handler.Handle(Command(rawValue: "fr", source: "manual"), CancellationToken.None);
 
@@ -140,7 +142,7 @@ public sealed class SetAxisValueCommandHandlerTests
         var axis = ActiveAxis(AxisDataType.Text, isMultiValue: false, isSearchable: true);
         var factory = new RecordingUnitOfWorkFactory();
         var index = new RecordingDocumentSearchIndex();
-        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(axis), factory, index);
+        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(axis), factory, index, NullLogger<SetAxisValueCommandHandler>.Instance);
 
         await handler.Handle(Command(rawValue: "Alpha", source: "manual"), CancellationToken.None);
 
@@ -155,12 +157,27 @@ public sealed class SetAxisValueCommandHandlerTests
         var axis = ActiveAxis(AxisDataType.Text, isMultiValue: false, isSearchable: false);
         var factory = new RecordingUnitOfWorkFactory();
         var index = new RecordingDocumentSearchIndex();
-        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(axis), factory, index);
+        var handler = new SetAxisValueCommandHandler(new FakeAxisCatalog(axis), factory, index, NullLogger<SetAxisValueCommandHandler>.Instance);
 
         await handler.Handle(Command(rawValue: "valeur", source: "manual"), CancellationToken.None);
 
         index.RefreshedDocumentIds.Should().BeEmpty(
             "un axe non searchable ne change pas le search_vector : aucune re-projection inutile");
+    }
+
+    [Fact]
+    public async Task Handle_does_not_fail_the_committed_write_when_reprojection_throws_a_db_error()
+    {
+        var axis = ActiveAxis(AxisDataType.Text, isMultiValue: false, isSearchable: true);
+        var factory = new RecordingUnitOfWorkFactory();
+        var handler = new SetAxisValueCommandHandler(
+            new FakeAxisCatalog(axis), factory, new ThrowingDocumentSearchIndex(), NullLogger<SetAxisValueCommandHandler>.Instance);
+
+        var id = await handler.Handle(Command(rawValue: "Alpha", source: "manual"), CancellationToken.None);
+
+        id.Should().Be(factory.UnitOfWork.ReturnedId,
+            "l'écriture d'axe est committée : un échec de re-projection (dérivé reconstructible) est best-effort et ne fait PAS échouer la commande");
+        factory.UnitOfWork.Committed.Should().BeTrue("le lien d'axe reste durablement écrit malgré l'échec de re-projection");
     }
 
     [Fact]
@@ -230,6 +247,28 @@ public sealed class SetAxisValueCommandHandlerTests
 
         public Task<GraphExplorationResult> ExploreGraphAsync(GraphExplorationQuery query, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("RecordingDocumentSearchIndex ne couvre que RefreshDocumentAsync (GED04).");
+    }
+
+    // Simule un hoquet base pendant la re-projection (connexion coupée, PG indisponible) : la re-projection est
+    // best-effort, l'écriture d'axe committée ne doit pas échouer pour autant.
+    private sealed class ThrowingDocumentSearchIndex : IDocumentSearchIndex
+    {
+        public Task RefreshDocumentAsync(Guid managedDocumentId, CancellationToken cancellationToken = default) =>
+            throw new SimulatedDbException();
+
+        public Task<DocumentSearchResult> SearchAsync(DocumentSearchQuery query, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("ThrowingDocumentSearchIndex ne couvre que RefreshDocumentAsync (GED04).");
+
+        public Task<GraphExplorationResult> ExploreGraphAsync(GraphExplorationQuery query, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("ThrowingDocumentSearchIndex ne couvre que RefreshDocumentAsync (GED04).");
+
+        private sealed class SimulatedDbException : DbException
+        {
+            public SimulatedDbException()
+                : base("échec de re-projection simulé (hoquet base)")
+            {
+            }
+        }
     }
 
     private sealed class RecordingUnitOfWorkFactory : IGedIndexUnitOfWorkFactory

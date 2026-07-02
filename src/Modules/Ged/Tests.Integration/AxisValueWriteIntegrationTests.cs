@@ -13,6 +13,7 @@ using Liakont.Modules.Ged.Domain.Index;
 using Liakont.Modules.Ged.Infrastructure;
 using Liakont.Modules.Ged.Infrastructure.Index;
 using Liakont.Modules.Ged.Tests.Integration.Fixtures;
+using Microsoft.Extensions.Logging.Abstractions;
 using Stratum.Common.Infrastructure.Database;
 using Xunit;
 
@@ -203,7 +204,8 @@ public sealed class AxisValueWriteIntegrationTests
     private static SetAxisValueCommandHandler HandlerFor(IConnectionFactory factory) =>
         new(new PostgresAxisCatalog(factory),
             new PostgresGedIndexUnitOfWorkFactory(factory),
-            new PostgresDocumentSearchIndex(factory, new PostgresAxisCatalog(factory)));
+            new PostgresDocumentSearchIndex(factory, new PostgresAxisCatalog(factory)),
+            NullLogger<SetAxisValueCommandHandler>.Instance);
 
     private static NormalizedAxisValue StringValue(string rawValue) =>
         ValueNormalizer.Normalize(AxisDataType.Text, valueScale: null, rawValue);
