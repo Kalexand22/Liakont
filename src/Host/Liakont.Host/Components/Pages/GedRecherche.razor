@@ -20,6 +20,7 @@
                ActiveFilters="_filters"
                HasSearched="_hasSearched"
                LoadFailed="_loadFailed"
+               Busy="_isBusy"
                OnSearch="SearchAsync"
                OnFacetSelected="AddFacetAsync"
                OnFilterRemoved="RemoveFilterAsync"
@@ -35,6 +36,11 @@
     private string? _query;
     private bool _hasSearched;
     private bool _loadFailed;
+    // Garde de ré-entrance : en Blazor Server les intentions UI sont sérialisées, mais un second geste
+    // (double-clic « Charger plus », facette pendant l'await) s'exécuterait APRÈS le yield du await avec un
+    // curseur non encore mis à jour → page keyset re-demandée + hits/traces dupliqués. On no-op tant qu'une
+    // requête est en vol (et on désactive les boutons côté vue).
+    private bool _isBusy;
 
     private GedSearchResults ViewResults => new()
     {
@@ -45,12 +51,22 @@
 
     private Task SearchAsync(string queryText)
     {
+        if (_isBusy)
+        {
+            return Task.CompletedTask;
+        }
+
         _query = string.IsNullOrWhiteSpace(queryText) ? null : queryText.Trim();
         return RunSearchAsync(resetPaging: true);
     }
 
     private Task AddFacetAsync(GedAxisFilter filter)
     {
+        if (_isBusy)
+        {
+            return Task.CompletedTask;
+        }
+
         if (!_filters.Any(f => f.AxisCode == filter.AxisCode && f.Value == filter.Value))
         {
             _filters.Add(filter);
@@ -61,15 +77,21 @@
 
     private Task RemoveFilterAsync(GedAxisFilter filter)
     {
+        if (_isBusy)
+        {
+            return Task.CompletedTask;
+        }
+
         _filters.RemoveAll(f => f.AxisCode == filter.AxisCode && f.Value == filter.Value);
         return RunSearchAsync(resetPaging: true);
     }
 
     private Task LoadMoreAsync() =>
-        _nextCursor is null ? Task.CompletedTask : RunSearchAsync(resetPaging: false);
+        _isBusy || _nextCursor is null ? Task.CompletedTask : RunSearchAsync(resetPaging: false);
 
     private async Task RunSearchAsync(bool resetPaging)
     {
+        _isBusy = true;
         _loadFailed = false;
         _hasSearched = true;
 
@@ -103,6 +125,10 @@
             _facets = [];
             _nextCursor = null;
             Logger.LogError(ex, "GED document search failed.");
+        }
+        finally
+        {
+            _isBusy = false;
         }
     }
 }

@@ -24,7 +24,7 @@
                    @bind="_query"
                    @bind:event="oninput"
                    @onkeyup="OnQueryKeyUpAsync" />
-            <button type="button" class="ged-search__submit" data-testid="ged-search-submit" @onclick="SubmitSearchAsync">Rechercher</button>
+            <button type="button" class="ged-search__submit" data-testid="ged-search-submit" disabled="@Busy" @onclick="SubmitSearchAsync">Rechercher</button>
         </div>
     </div>
 
@@ -91,6 +91,7 @@
                     <button type="button"
                             class="ged-search__more"
                             data-testid="ged-search-more"
+                            disabled="@Busy"
                             @onclick="LoadMoreAsync">
                         Charger plus de résultats
                     </button>
@@ -146,6 +147,10 @@
     /// <summary>Vrai si la dernière recherche a échoué (bandeau d'erreur FR, jamais avalé).</summary>
     [Parameter]
     public bool LoadFailed { get; set; }
+
+    /// <summary>Vrai pendant qu'une requête est en vol : désactive les boutons (garde de ré-entrance côté page).</summary>
+    [Parameter]
+    public bool Busy { get; set; }
 
     /// <summary>Recherche demandée (soumission du formulaire), avec le texte saisi.</summary>
     [Parameter]

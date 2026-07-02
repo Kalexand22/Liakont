@@ -1,5 +1,6 @@
 namespace Liakont.Host.Ged;
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -81,22 +82,22 @@ internal sealed class GedSearchQueryService : IGedQueries
         int resultCount,
         CancellationToken cancellationToken)
     {
-        // Détail des critères (jsonb) : dernier-gagne par code d'axe pour ne jamais lever sur un axe multi-valeur
-        // (le writer masque la valeur d'un axe confidentiel ciblé sans le droit avant insertion, §6.5).
+        // Détail des critères (jsonb) : un axe peut porter PLUSIEURS valeurs (ex. acheteur=Dupont ET
+        // acheteur=Martin — la page dédup sur la paire (code, valeur), pas sur l'axe seul). On sérialise
+        // TOUTES les valeurs par axe (jamais dernier-gagne, qui perdrait un critère réel de la piste probante
+        // §6.6). Le writer masque ensuite la valeur d'un axe confidentiel ciblé sans le droit (anti-oracle §6.5).
         Dictionary<string, string?>? detail = null;
         string[]? targetedAxisCodes = null;
         if (request.AxisFilters.Count > 0)
         {
-            detail = new Dictionary<string, string?>(System.StringComparer.Ordinal);
-            foreach (var filter in request.AxisFilters)
-            {
-                detail[filter.AxisCode] = filter.Value;
-            }
+            detail = request.AxisFilters
+                .GroupBy(f => f.AxisCode, StringComparer.Ordinal)
+                .ToDictionary(
+                    g => g.Key,
+                    g => (string?)string.Join(", ", g.Select(f => f.Value)),
+                    StringComparer.Ordinal);
 
-            targetedAxisCodes = request.AxisFilters
-                .Select(f => f.AxisCode)
-                .Distinct(System.StringComparer.Ordinal)
-                .ToArray();
+            targetedAxisCodes = [.. detail.Keys];
         }
 
         return _consultationAudit.WriteAsync(

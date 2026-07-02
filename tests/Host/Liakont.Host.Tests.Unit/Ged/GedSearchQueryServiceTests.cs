@@ -132,6 +132,24 @@ public sealed class GedSearchQueryServiceTests
     }
 
     [Fact]
+    public async Task Records_All_Values_Of_A_Multi_Valued_Axis_In_The_Consultation_Detail()
+    {
+        // Piste probante fidèle (§6.6) : deux valeurs du MÊME axe (acheteur=Dupont ET acheteur=Martin — la page
+        // dédup sur la paire) doivent TOUTES être tracées, jamais dernier-gagne qui perdrait un critère réel.
+        var audit = new CapturingAuditWriter();
+        var service = new GedSearchQueryService(new CapturingSearchIndex(), audit, Permissions());
+
+        await service.SearchAsync(new GedSearchRequest
+        {
+            AxisFilters = [new GedAxisFilter("acheteur", "Dupont"), new GedAxisFilter("acheteur", "Martin")],
+        });
+
+        var entry = audit.LastEntry!;
+        entry.Detail!["acheteur"].Should().Contain("Dupont").And.Contain("Martin");
+        entry.TargetedAxisCodes.Should().ContainSingle().Which.Should().Be("acheteur");
+    }
+
+    [Fact]
     public async Task Does_Not_Swallow_A_Fail_Closed_Audit_Exception()
     {
         // Régime probant (Evidential, §6.6/ADR-0036) : une trace non écrite lève ; le seam laisse remonter

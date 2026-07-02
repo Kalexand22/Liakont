@@ -165,6 +165,32 @@ public sealed class GedSearchViewTests : BunitContext
     }
 
     [Fact]
+    public void While_Busy_The_Search_And_Load_More_Buttons_Are_Disabled()
+    {
+        // Garde de ré-entrance (P2 review) : pendant qu'une requête est en vol, les boutons répétables sont
+        // désactivés — pas de 2e recherche ni de « Charger plus » qui redemanderait la même page keyset.
+        var cut = Render<GedSearchView>(p => p
+            .Add(v => v.Results, Results(
+                hits: [new GedSearchHit(Guid.NewGuid(), "Doc", null, "indexed")],
+                nextCursor: Guid.NewGuid()))
+            .Add(v => v.HasSearched, true)
+            .Add(v => v.Busy, true));
+
+        cut.Find("[data-testid='ged-search-submit']").HasAttribute("disabled").Should().BeTrue();
+        cut.Find("[data-testid='ged-search-more']").HasAttribute("disabled").Should().BeTrue();
+    }
+
+    [Fact]
+    public void When_Not_Busy_The_Search_Button_Is_Enabled()
+    {
+        var cut = Render<GedSearchView>(p => p
+            .Add(v => v.Results, GedSearchResults.Empty)
+            .Add(v => v.Busy, false));
+
+        cut.Find("[data-testid='ged-search-submit']").HasAttribute("disabled").Should().BeFalse();
+    }
+
+    [Fact]
     public void A_Failed_Search_Shows_A_French_Error_Banner_And_No_Results()
     {
         var cut = Render<GedSearchView>(p => p
