@@ -382,7 +382,7 @@ public sealed class Document
             DocumentState.Superseded,
             DocumentEventType.DocumentSuperseded,
             occurredAtUtc,
-            $"Remplacé par le document « {remplacant} » (la source est le seul créateur de numéros, F06 §4).",
+            $"Remplacé par le document « {remplacant} » (la source est le seul créateur de numéros).",
             op,
             operatorName);
     }

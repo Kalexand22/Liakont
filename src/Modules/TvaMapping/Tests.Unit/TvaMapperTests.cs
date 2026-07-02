@@ -128,7 +128,7 @@ public sealed class TvaMapperTests
         result.Trace.Should().BeNull();
         result.BlockReason.Should().NotBeNullOrWhiteSpace();
         result.BlockReason.Should().Contain("REGIME-INCONNU");
-        result.BlockReason.Should().Contain("block");
+        result.BlockReason.Should().Contain("bloqué");
         result.BlockReason.Should().Contain("Action opérateur");
     }
 

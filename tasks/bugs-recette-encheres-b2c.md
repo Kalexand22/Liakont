@@ -990,7 +990,19 @@ revue Claude **clean** au round 3). Détail + commit sous chaque bug.
 - Refs de traçabilité (`DetailTechnique`/`FieldRef` / Labels de jobs / logs) INTACTES.
 - **Garde de non-régression** à envisager : test qui échoue si une chaîne AFFICHÉE (HelpText / markup /
   `MessageOperateur` / `Detail` / `ActionProblem`) matche `F\d|§|ADR-|INV-|BT-\d|BG-\d|FIX\d|WEB\d|PIP\d|blueprint`.
-- **Périmètre lourd (5 écrans + 6 fichiers domaine + 1 endpoint) → LOT DÉDIÉ, pas maintenant** (consigné, feu vert Karl).
+- **Périmètre lourd (5 écrans + 6 fichiers domaine + 1 endpoint) → LOT DÉDIÉ** (feu vert Karl).
+
+### ✅ RÉSOLU (2026-07-02) — les 27 nettoyées
+- **27/27 refs retirées** du texte affiché (sens opérateur + fiscal préservés ; commentaires `@* *@` / `///` et
+  `DetailTechnique`/`FieldRef`/logs INTACTS) : écrans `AlertesView` / `FiscalView` / `PaPublicationView` / `ProfilView` /
+  `MentionsFacturationView` ; endpoint `DocumentActionsEndpointMapping` ; domaine `TvaMapper` / `VatCategoryParser` /
+  `MappingTableValidator` / `Document` / `DocumentEvent` / `PaymentAggregationCalculator`. Jargon `defaultBehavior=block`
+  retiré aussi. Tests alignés : `TvaMapperTests` (« block » → « bloqué ») + `TvaRuleEditorTests`. **verify-fast Release vert.**
+- **Faux positif écarté** : `BuyerLooksProfessionalRule` a un `messageOperateur` propre (ref en `detailTechnique`, non affiché).
+- **⏸ EN ATTENTE décision Karl** : « expert-comptable » GARDÉ dans `FiscalView` (l.16/66) + `MentionsFacturationView`
+  (l.17/34) — cas d'usage LÉGITIME (décision fiscale client réellement ouverte), distinct des blocages de BUG-6.
+- **Reste (non traité, DOUTE)** : gardes value-objects `TenantSettings` préfixées `INV-TENANTSETTINGS-…` qui peuvent
+  remonter en erreur de formulaire (ex. « INV-TENANTSETTINGS-001 : le SIREN… ») — à trancher / nettoyer dans un 2ᵉ passage.
 
 ## Pattern à garder en tête (dette transverse)
 - **Overlay read-time posé sur la fiche mais pas la liste** = divergence possible (cas BUG-24). Règle : le « statut affiché »

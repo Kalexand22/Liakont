@@ -29,7 +29,7 @@ public static class VatCategoryParser
         {
             throw new ArgumentException(
                 "Code catégorie de TVA obligatoire. Catégories admises : " +
-                string.Join(", ", AllowedCodes) + " (F03 §2.1).",
+                string.Join(", ", AllowedCodes) + ".",
                 nameof(code));
         }
 
@@ -43,7 +43,7 @@ public static class VatCategoryParser
 
         throw new ArgumentException(
             $"Catégorie de TVA inconnue : « {trimmed} ». Catégories admises : " +
-            string.Join(", ", AllowedCodes) + " (F03 §2.1) — aucune n'est devinée.",
+            string.Join(", ", AllowedCodes) + " — aucune n'est devinée.",
             nameof(code));
     }
 }
