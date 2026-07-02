@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Infrastructure/Liakont.Modules.Reference.Infrastructure.csproj" />
+    <!-- Parité de la liste ISO 3166-1 alpha-2 : le test compare IsoCountryReference (module Reference) à la liste
+         canonique CountryCodeValidator (Validation.Domain). Référence de TEST uniquement — la frontière inter-modules
+         (Reference ne dépend PAS de Validation.Domain) reste respectée en PRODUCTION (ADR-0038 §5, CLAUDE.md n°14). -->
+    <ProjectReference Include="../../Validation/Domain/Liakont.Modules.Validation.Domain.csproj" />
+  </ItemGroup>
+</Project>

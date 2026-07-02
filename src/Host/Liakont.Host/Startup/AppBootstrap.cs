@@ -42,6 +42,7 @@ using Liakont.Modules.Pipeline.Infrastructure.Send;
 using Liakont.Modules.Pipeline.Web;
 using Liakont.Modules.Reconciliation.Infrastructure;
 using Liakont.Modules.Reconciliation.Web;
+using Liakont.Modules.Reference.Infrastructure;
 using Liakont.Modules.Signature.Application;
 using Liakont.Modules.Signature.Contracts;
 using Liakont.Modules.Signature.Infrastructure;
@@ -203,6 +204,12 @@ public static class AppBootstrap
         builder.Services.AddJobHandler<DeliveryRetryJobPayload, DeliveryRetryJobHandler>("Relance d'envoi d'e-mail");
         builder.Services.AddAuditModule();
         builder.Services.AddTenantSettingsModule();
+
+        // Référentiel de correspondance pays (ADR-0038) — home NEUTRE cross-instance (PAS Supervision) : normalise
+        // ENG/JAP/BEL→ISO au read-time du pipeline (CHECK/SEND/affichage), éditable en console + audité append-only.
+        // Enregistré parmi les modules d'infrastructure (avant les métier qui le consomment via Contracts).
+        builder.Services.AddReferenceModule();
+
         builder.Services.AddIngestionModule();
         builder.Services.AddTvaMappingModule();
 
@@ -766,6 +773,13 @@ public static class AppBootstrap
         // côté page). Le SIREN reste IMMUABLE (INV-TENANTSETTINGS-001), repassé inchangé par le service : on
         // peut désormais corriger l'identité légale post-création sans supprimer/recréer tout le tenant.
         builder.Services.AddScoped<Liakont.Host.Profil.IProfilConsoleService, Liakont.Host.Profil.ProfilConsoleService>();
+
+        // Composition de l'écran « Paramétrage › Référentiel pays » (ADR-0038, Lot 4) : LECTURE seule du référentiel
+        // de correspondance pays (ICountryAliasReferential, enregistré par AddReferenceModule) projetée en lignes
+        // d'affichage. Les mutations (ajout/édition/suppression) passent par les commandes MediatR in-process
+        // (UpsertCountryAliasCommand / RemoveCountryAliasCommand, validées + journalisées côté handler) — garde
+        // liakont.settings côté page. Isole l'accès au module hors de la page (frontière par Contracts).
+        builder.Services.AddScoped<Liakont.Host.CountryReference.ICountryAliasConsoleService, Liakont.Host.CountryReference.CountryAliasConsoleService>();
 
         // Témoin de vie du dead-man's-switch (FIX210, F12 §5.1) : lit les exécutions du job SYSTÈME
         // d'évaluation (base système) via un scope SANS tenant ambiant. Horloge partagée (TimeProvider) pour

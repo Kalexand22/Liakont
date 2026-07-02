@@ -27,6 +27,10 @@
     <ProjectReference Include="../../Validation/Contracts/Liakont.Modules.Validation.Contracts.csproj" />
     <ProjectReference Include="../../Documents/Contracts/Liakont.Modules.Documents.Contracts.csproj" />
     <ProjectReference Include="../../TenantSettings/Contracts/Liakont.Modules.TenantSettings.Contracts.csproj" />
+    <!-- ADR-0038 — Référentiel de correspondance pays (ENG/JAP/BEL→ISO) : normalisation read-time du code pays
+         acheteur (CHECK/SEND/affichage) via ICountryAliasReferential, Contracts uniquement (frontière P1,
+         CLAUDE.md n°14 — jamais l'Infrastructure du module Reference). -->
+    <ProjectReference Include="../../Reference/Contracts/Liakont.Modules.Reference.Contracts.csproj" />
     <!-- MND03 — garde d'émission des auto-factures sous mandat : le pipeline interroge l'abstraction
          ISelfBilledGate (Mandats.Contracts) avant l'envoi, jamais le module Mandats concret (frontière
          Contracts-only, module-rules §3 / CLAUDE.md n°14 ; ADR-0024 §3, INV-ACCEPT-2). -->

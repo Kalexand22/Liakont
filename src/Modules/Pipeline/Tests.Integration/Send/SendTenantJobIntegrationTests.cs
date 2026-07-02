@@ -3,6 +3,7 @@ namespace Liakont.Modules.Pipeline.Tests.Integration.Send;
 using System;
 using System.Threading.Tasks;
 using FluentAssertions;
+using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.Pipeline.Tests.Integration.Check;
 using Liakont.Modules.Transmission.Contracts;
 using Liakont.PaClients.Fake;
@@ -40,6 +41,34 @@ public sealed class SendTenantJobIntegrationTests : IClassFixture<PipelineSendHa
 
         var runs = await _harness.GetRunsAsync();
         runs.Should().Contain(r => r.RunType == Liakont.Modules.Pipeline.Contracts.PipelineRunType.Send);
+    }
+
+    [Fact]
+    public async Task Sent_Payload_Carries_The_Iso_Normalized_Buyer_Country_Not_The_Legacy_Source_Code()
+    {
+        // ADR-0038 (câblage SEND) : le payload SORTANT (projeté vers la PA / Factur-X) doit porter le code pays
+        // acheteur NORMALISÉ ISO (« GB »), jamais le code LEGACY source (« ENG »). On seede un acheteur « ENG » puis
+        // on marque ReadyToSend (court-circuite la validation CHECK) : après envoi, le document transmis au plug-in
+        // factice porte « GB ». Si le câblage de normalisation au SEND était retiré, le payload porterait « ENG » et
+        // ce test ROUGIRAIT — anti faux-vert sur la voie SEND (celle qui produit le document réellement transmis).
+        await _harness.UsePublishedFakeAsync();
+        _harness.ForceWormAbsent = false;
+
+        var documentId = Guid.NewGuid();
+        var buyer = new PivotPartyDto(
+            "Acheteur UK Ltd",
+            siren: "945678902",
+            address: new PivotAddressDto(city: "London", countryCode: "ENG"));
+        var pivot = CheckIntegrationFixtures.BuildPivot("send-ctry-" + documentId.ToString("N"), "NORMAL", customer: buyer);
+        await _harness.SeedDetectedAndStageAsync(documentId, pivot);
+        await _harness.MarkReadyToSendAsync(documentId);
+
+        await _harness.RunSendAsync();
+
+        (await _harness.GetDocumentStateAsync(documentId)).Should().Be("Issued");
+        _harness.PaClient.SentDocuments.Should().Contain(
+            d => d.SourceNumber == pivot.Number && d.BuyerCountryCode == "GB",
+            "le payload sortant porte le code pays acheteur normalisé ISO (ENG→GB), jamais le code legacy source.");
     }
 
     [Fact]
