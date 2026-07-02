@@ -7,6 +7,7 @@ using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.Documents.Contracts.Queries;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Infrastructure.Serialization;
+using Liakont.Modules.Reference.Contracts;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
@@ -91,6 +92,12 @@ internal sealed class DocumentContentReplayService : IDocumentContentReplayServi
         {
             return DocumentContentReplay.Unavailable;
         }
+
+        // Code pays acheteur normalisé ISO 3166-1 au READ-TIME pour l'AFFICHAGE (parité CHECK/SEND, ADR-0038) :
+        // l'opérateur voit le code normalisé (ENG→GB). Universel (aucune société requise) → appliqué avant même
+        // la résolution du tenant, pour couvrir aussi la branche « société absente ». Un code non mappé reste brut.
+        sourcePivot = await PivotCountryNormalizer.NormalizeAsync(
+            sourcePivot, _services.GetRequiredService<ICountryAliasReferential>(), cancellationToken).ConfigureAwait(false);
 
         // Compagnie du tenant (clé d'isolation du mapping ET des mentions de facturation). Absente = paramétrage
         // tenant incomplet : on expose tout de même le pivot SOURCE (lignes + régime lu, catégorie/VATEX vides) —

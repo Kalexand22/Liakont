@@ -37,6 +37,7 @@ public sealed class AdminJobExecutionsTests : BunitContext
         Services.AddScoped<IJobTypeCatalog>(_ => new FakeCatalog(
             new JobTypeDescriptor(SupervisionKey, "Évaluation de la supervision", [])));
         Services.AddScoped<IActorContextAccessor>(_ => new StubActorContextAccessor(TenantCompany));
+        Services.AddScoped<ISystemScheduleHost>(_ => new FakeSystemScheduleHost(FakeSystemScheduleHost.HostCompany));
     }
 
     [Fact]
@@ -81,18 +82,37 @@ public sealed class AdminJobExecutionsTests : BunitContext
         queries.LastFilter!.CompanyId.Should().Be(TenantCompany, "la requête est tenant-scopée (CLAUDE.md n°9)");
     }
 
+    // BUG-29 (symétrique de BUG-4b) : un super-admin cross-tenant (sans société courante) consulte les EXÉCUTIONS
+    // des jobs SYSTÈME via la société porteuse — au lieu d'une liste vide. Sans ce repli, une planification système
+    // (fan-out tous tenants, ex. e-reporting B2C) « tourne bien » mais l'écran des exécutions reste vide.
     [Fact]
-    public void Without_A_Company_Nothing_Is_Queried_And_The_Empty_State_Shows()
+    public void Cross_Tenant_Admin_Without_Company_Queries_The_System_Host_Company()
     {
         var queries = new FakeExecutionsQueries(Job(SupervisionKey, "Completed"));
         Services.AddScoped<IJobExecutionsQueries>(_ => queries);
-
-        // Acteur sans société : aucune requête tenant ne doit partir.
         Services.AddScoped<IActorContextAccessor>(_ => new StubActorContextAccessor(null));
+
+        Render<AdminJobExecutions>();
+
+        queries.Calls.Should().BeGreaterThan(0, "l'opérateur plateforme consulte les exécutions système (pas de liste vide)");
+        queries.LastFilter!.CompanyId.Should().Be(
+            FakeSystemScheduleHost.HostCompany,
+            "sans société courante, le repli cible la société porteuse système (BUG-29)");
+    }
+
+    // Socle nu (aucun job système : CrossTenantHostCompanyId null) ET aucune société courante : rien à consulter
+    // → aucune requête, état vide. Garde-fou : le repli BUG-29 ne fabrique jamais une requête fantôme.
+    [Fact]
+    public void Without_A_Company_And_Without_A_System_Host_Nothing_Is_Queried()
+    {
+        var queries = new FakeExecutionsQueries(Job(SupervisionKey, "Completed"));
+        Services.AddScoped<IJobExecutionsQueries>(_ => queries);
+        Services.AddScoped<IActorContextAccessor>(_ => new StubActorContextAccessor(null));
+        Services.AddScoped<ISystemScheduleHost>(_ => new FakeSystemScheduleHost(null));
 
         var cut = Render<AdminJobExecutions>();
 
-        queries.Calls.Should().Be(0, "sans société courante, aucune requête tenant n'est émise");
+        queries.Calls.Should().Be(0, "sans société courante NI porteuse système, aucune requête n'est émise");
         cut.FindAll("[data-testid='job-executions-empty']").Should().ContainSingle();
     }
 
@@ -142,6 +162,19 @@ public sealed class AdminJobExecutionsTests : BunitContext
             LastFilter = filter;
             return Task.FromResult(_rows);
         }
+    }
+
+    private sealed class FakeSystemScheduleHost : ISystemScheduleHost
+    {
+        public static readonly Guid HostCompany = Guid.Parse("5c8ed001-0000-4000-b000-000000000001");
+
+        private readonly Guid? _hostCompany;
+
+        public FakeSystemScheduleHost(Guid? hostCompany) => _hostCompany = hostCompany;
+
+        public Guid? CrossTenantHostCompanyId => _hostCompany;
+
+        public Guid? ResolveHostCompanyId(string jobType) => null;
     }
 
     private sealed class FakeCatalog : IJobTypeCatalog

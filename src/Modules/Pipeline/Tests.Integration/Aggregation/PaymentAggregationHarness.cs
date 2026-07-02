@@ -23,6 +23,7 @@ using Liakont.Modules.Payments.Infrastructure;
 using Liakont.Modules.Pipeline.Infrastructure;
 using Liakont.Modules.Pipeline.Infrastructure.Aggregation;
 using Liakont.Modules.Pipeline.Infrastructure.Check;
+using Liakont.Modules.Reference.Infrastructure;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.Staging.Infrastructure;
 using Liakont.Modules.TenantSettings.Domain.Entities;
@@ -94,6 +95,7 @@ public sealed class PaymentAggregationHarness : IAsyncLifetime
         RunModuleMigrations(typeof(TvaMappingModuleRegistration).Assembly);
         RunModuleMigrations(typeof(TenantSettingsModuleRegistration).Assembly);
         RunModuleMigrations(typeof(StagingModuleRegistration).Assembly);
+        RunModuleMigrations(typeof(ReferenceModuleRegistration).Assembly);
         RunModuleMigrations(typeof(PipelineModuleRegistration).Assembly);
         RunModuleMigrations(typeof(Liakont.Modules.Payments.Infrastructure.PaymentsModuleRegistration).Assembly);
 
@@ -314,7 +316,12 @@ public sealed class PaymentAggregationHarness : IAsyncLifetime
 
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton<IConnectionFactory>(new NpgsqlConnectionFactory(databaseOptions));
+
+        // Une seule instance NpgsqlConnectionFactory exposée en IConnectionFactory ET ISystemConnectionFactory
+        // (le référentiel pays cross-instance ADR-0038 le résout au CHECK), comme en production.
+        var connectionFactory = new NpgsqlConnectionFactory(databaseOptions);
+        services.AddSingleton<IConnectionFactory>(connectionFactory);
+        services.AddSingleton<ISystemConnectionFactory>(connectionFactory);
         services.AddSingleton<ITenantConnectionFactory>(new SingleDatabaseConnectionFactory(ConnectionString));
         services.AddSingleton(TimeProvider.System);
         services.AddDataProtection();
@@ -324,6 +331,7 @@ public sealed class PaymentAggregationHarness : IAsyncLifetime
         services.AddValidationModule();
         services.AddTenantSettingsModule();
         services.AddStagingModule(config);
+        services.AddReferenceModule();
         services.AddPipelineModule();
         services.AddPaymentsModule();
 

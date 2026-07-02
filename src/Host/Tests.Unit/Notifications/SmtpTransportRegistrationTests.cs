@@ -1,7 +1,11 @@
 namespace Liakont.Host.Tests.Unit.Notifications;
 
 using FluentAssertions;
+using Liakont.Host.InstanceEmail;
 using Liakont.Host.Notifications;
+using Liakont.Host.Tests.Unit.InstanceEmail;
+using Liakont.Modules.FleetSupervision.Application;
+using Liakont.Modules.TenantSettings.Application;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Stratum.Modules.Notification.Contracts;
@@ -23,6 +27,12 @@ public sealed class SmtpTransportRegistrationTests
         services.AddLogging();
         services.AddNotificationModule();
         services.Configure<SmtpOptions>(_ => { });
+
+        // Dépendances du transport provider-aware (ADR-0039) : store de config d'instance + déchiffrement +
+        // fournisseur de jeton OAuth. Enregistrées ici (comme AddFleetSupervisionModule / TenantSettings / Host).
+        services.AddSingleton<IInstanceEmailConfigStore>(new FakeInstanceEmailConfigStore());
+        services.AddSingleton<ISecretProtector>(new FakeSecretProtector());
+        services.AddSingleton<IEmailOAuthTokenProvider>(new FakeEmailOAuthTokenProvider());
 
         // Reproduit l'enregistrement du composition root (AppBootstrap) : Replace du stub par le vrai transport.
         services.Replace(ServiceDescriptor.Scoped<IEmailTransport, SmtpEmailTransport>());

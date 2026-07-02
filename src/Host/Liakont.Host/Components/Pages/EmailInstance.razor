@@ -1,0 +1,316 @@
+@page "/email-instance"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = LiakontPermissions.InstanceSettings)]
+@using Liakont.Host.Components
+@using Liakont.Host.InstanceEmail
+@using Liakont.Host.Security
+@using Stratum.Common.Abstractions.Security
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+@inject IInstanceEmailConfigService Service
+@inject IPermissionService Permissions
+@inject ILogger<EmailInstance> Logger
+
+<PageTitle>Configuration email d'instance — Liakont</PageTitle>
+
+<h1 class="visually-hidden">Configuration d'envoi d'emails de l'instance</h1>
+
+@if (!_canManage)
+{
+    @* Paramétrage d'instance : réservé à liakont.instance.settings (écriture d'instance, hors tenant). Sans la
+       permission, aucune donnée n'est chargée et seul le message d'accès refusé est rendu. *@
+    <LiakontAlert Severity="Severity.Warning" TestId="email-denied">
+        Accès refusé : la configuration d'envoi d'emails de l'instance requiert l'autorisation de paramétrage
+        d'instance (liakont.instance.settings). Rapprochez-vous de l'opérateur de l'instance.
+    </LiakontAlert>
+}
+else if (_loadFailed)
+{
+    <LiakontAlert TestId="email-error">
+        Impossible de charger la configuration d'envoi d'emails de l'instance pour le moment. Réessayez plus tard.
+    </LiakontAlert>
+}
+else if (_model is null)
+{
+    <LiakontLoading TestId="email-loading" />
+}
+else
+{
+    <SectionCard Title="Configuration d'envoi d'emails de l'instance" TestId="email">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <FormField Label="Fournisseur">
+                    <select class="form-select" @bind="_model.Form.Kind" data-testid="email-kind">
+                        <option value="SmtpBasic">SMTP (mot de passe)</option>
+                        <option value="GoogleOAuth2">Gmail (OAuth2)</option>
+                        <option value="MicrosoftOAuth2">Office 365 (OAuth2)</option>
+                    </select>
+                </FormField>
+            </div>
+            <div class="col-md-5">
+                <FormField Label="Hôte SMTP" Required>
+                    <input type="text" class="form-control" @bind="_model.Form.Host"
+                           placeholder="smtp.gmail.com" data-testid="email-host" />
+                </FormField>
+            </div>
+            <div class="col-md-3">
+                <FormField Label="Port">
+                    <input type="number" class="form-control" @bind="_model.Form.Port" data-testid="email-port" />
+                </FormField>
+            </div>
+
+            <div class="col-md-4 d-flex align-items-center">
+                <label class="form-check-label me-2">STARTTLS</label>
+                <input type="checkbox" class="form-check-input" @bind="_model.Form.UseStartTls"
+                       data-testid="email-starttls" />
+            </div>
+            <div class="col-md-4">
+                <FormField Label="Adresse d'expéditeur" Required>
+                    <input type="email" class="form-control" @bind="_model.Form.FromAddress"
+                           placeholder="conformite@exemple.fr" data-testid="email-from-address" />
+                </FormField>
+            </div>
+            <div class="col-md-4">
+                <FormField Label="Nom d'expéditeur">
+                    <input type="text" class="form-control" @bind="_model.Form.FromName" data-testid="email-from-name" />
+                </FormField>
+            </div>
+
+            <div class="col-md-6">
+                <FormField Label="Identifiant / boîte">
+                    <input type="text" class="form-control" @bind="_model.Form.Username"
+                           placeholder="conformite@exemple.fr" data-testid="email-username" />
+                </FormField>
+            </div>
+
+            @if (_model.Form.Kind == "SmtpBasic")
+            {
+                <div class="col-md-6">
+                    <FormField Label="Mot de passe SMTP">
+                        <input type="password" class="form-control" @bind="_model.Form.SmtpPassword"
+                               placeholder="@SecretPlaceholder(_model.HasSmtpPassword)" data-testid="email-smtp-password" />
+                    </FormField>
+                </div>
+            }
+            else
+            {
+                <div class="col-md-6" data-testid="email-oauth-fields">
+                    <FormField Label="client_id OAuth2">
+                        <input type="text" class="form-control" @bind="_model.Form.OAuthClientId"
+                               data-testid="email-oauth-client-id" />
+                    </FormField>
+                </div>
+                @if (_model.Form.Kind == "MicrosoftOAuth2")
+                {
+                    <div class="col-md-6">
+                        <FormField Label="tenant_id (annuaire Microsoft)">
+                            <input type="text" class="form-control" @bind="_model.Form.OAuthTenantId"
+                                   placeholder="common" data-testid="email-oauth-tenant-id" />
+                        </FormField>
+                    </div>
+                }
+                <div class="col-md-6">
+                    <FormField Label="client_secret OAuth2">
+                        <input type="password" class="form-control" @bind="_model.Form.OAuthClientSecret"
+                               placeholder="@SecretPlaceholder(_model.HasOAuthClientSecret)" data-testid="email-oauth-client-secret" />
+                    </FormField>
+                </div>
+                <div class="col-md-6">
+                    <FormField Label="refresh_token OAuth2">
+                        <input type="password" class="form-control" @bind="_model.Form.OAuthRefreshToken"
+                               placeholder="@SecretPlaceholder(_model.HasOAuthRefreshToken)" data-testid="email-oauth-refresh-token" />
+                    </FormField>
+                </div>
+            }
+
+            <div class="col-md-4 d-flex align-items-center">
+                <label class="form-check-label me-2">Activée (autoritaire)</label>
+                <input type="checkbox" class="form-check-input" @bind="_model.Form.Enabled"
+                       data-testid="email-enabled" />
+            </div>
+        </div>
+
+        <div class="mt-3 d-flex gap-2">
+            <PermissionGate Permission="@LiakontPermissions.InstanceSettings">
+                <StratumButton Text="@(_busy ? "Enregistrement…" : "Enregistrer")"
+                               Variant="ButtonVariant.Primary" Size="ButtonSize.Small"
+                               OnClick="SaveAsync" Disabled="@_busy"
+                               TestId="email-save-btn" />
+            </PermissionGate>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_message))
+        {
+            <div class="mt-2">
+                <LiakontAlert Severity="@(_isError ? Severity.Error : Severity.Success)" TestId="email-feedback">
+                    @_message
+                </LiakontAlert>
+            </div>
+        }
+    </SectionCard>
+
+    <SectionCard Title="Envoyer un email de test" TestId="email-test">
+        <div class="row g-3">
+            <div class="col-md-8">
+                <FormField Label="Destinataire du test">
+                    <input type="email" class="form-control" @bind="_model.Form.TestRecipient"
+                           placeholder="operateur@exemple.fr" data-testid="email-test-recipient" />
+                </FormField>
+            </div>
+            <div class="col-md-4 d-flex align-items-end">
+                <StratumButton Text="@(_testing ? "Envoi…" : "Envoyer un email de test")"
+                               Variant="ButtonVariant.Secondary" Outline Size="ButtonSize.Small"
+                               OnClick="SendTestAsync" Disabled="@_testing"
+                               TestId="email-test-btn" />
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_testMessage))
+        {
+            <div class="mt-2">
+                <LiakontAlert Severity="@(_testIsError ? Severity.Error : Severity.Success)" TestId="email-test-feedback">
+                    @_testMessage
+                </LiakontAlert>
+            </div>
+        }
+    </SectionCard>
+}
+
+@code {
+    private InstanceEmailConfigViewModel? _model;
+    private bool _loadFailed;
+
+    /// <summary>Permission de paramétrage d'instance : conditionne TOUTE la page (accès + actions).</summary>
+    private bool _canManage;
+
+    private bool _busy;
+    private string? _message;
+    private bool _isError;
+
+    private bool _testing;
+    private string? _testMessage;
+    private bool _testIsError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Contrôle côté serveur (circuit Blazor Server), non falsifiable côté client.
+        _canManage = Permissions.HasPermission(LiakontPermissions.InstanceSettings);
+        if (_canManage)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _model = await Service.GetAsync();
+            _loadFailed = false;
+        }
+        catch (Exception ex)
+        {
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence.
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the Liakont instance email configuration page.");
+        }
+    }
+
+    private async Task ReloadAfterSaveAsync()
+    {
+        try
+        {
+            _model = await Service.GetAsync();
+        }
+        catch (Exception ex)
+        {
+            // Un échec de RECHARGEMENT après un enregistrement réussi ne doit pas masquer la réussite
+            // (l'opérateur croirait l'envoi échoué — leçon WEB09). On garde le _model précédent.
+            Logger.LogError(ex, "Failed to reload the Liakont instance email configuration after a successful save.");
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_model is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _isError = false;
+
+        try
+        {
+            await Service.SaveAsync(new InstanceEmailConfigInput
+            {
+                Kind = _model.Form.Kind,
+                Host = _model.Form.Host,
+                Port = _model.Form.Port,
+                UseStartTls = _model.Form.UseStartTls,
+                FromAddress = _model.Form.FromAddress,
+                FromName = _model.Form.FromName,
+                Username = _model.Form.Username,
+                SmtpPassword = _model.Form.SmtpPassword,
+                OAuthClientId = _model.Form.OAuthClientId,
+                OAuthTenantId = _model.Form.OAuthTenantId,
+                OAuthClientSecret = _model.Form.OAuthClientSecret,
+                OAuthRefreshToken = _model.Form.OAuthRefreshToken,
+                Enabled = _model.Form.Enabled,
+            });
+            await ReloadAfterSaveAsync();
+            _message = "Configuration d'envoi d'emails enregistrée.";
+            _isError = false;
+        }
+        catch (ArgumentException)
+        {
+            // Type de fournisseur inconnu rejeté par le service (défense en profondeur) : message opérateur.
+            _message = "Type de fournisseur email non reconnu. Choisissez une valeur proposée.";
+            _isError = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save the Liakont instance email configuration.");
+            _message = "L'enregistrement de la configuration d'envoi d'emails a échoué. Réessayez plus tard.";
+            _isError = true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SendTestAsync()
+    {
+        if (_model is null)
+        {
+            return;
+        }
+
+        _testing = true;
+        _testMessage = null;
+        _testIsError = false;
+
+        try
+        {
+            var result = await Service.SendTestAsync(_model.Form.TestRecipient);
+            _testMessage = result.Message;
+            _testIsError = !result.Success;
+        }
+        catch (Exception ex)
+        {
+            // Le service ne devrait jamais lever (il rend un résultat) ; défense ultime pour ne pas casser l'UI.
+            Logger.LogError(ex, "Unexpected failure while sending a Liakont instance test email.");
+            _testMessage = "L'envoi de l'email de test a échoué. Réessayez plus tard.";
+            _testIsError = true;
+        }
+        finally
+        {
+            _testing = false;
+        }
+    }
+
+    private static string SecretPlaceholder(bool hasSecret) =>
+        hasSecret ? "•••••••• (laisser vide pour conserver)" : string.Empty;
+}

@@ -1,5 +1,7 @@
 namespace Liakont.Host.Navigation;
 
+using System;
+using System.Linq;
 using Stratum.Common.Abstractions.Security;
 using Stratum.Common.UI.Models;
 using Stratum.Modules.Audit.Contracts;
@@ -27,6 +29,9 @@ using Stratum.Modules.Audit.Web;
 /// </remarks>
 internal sealed class AuditNavVisibilityFilter : INavSectionProvider
 {
+    // Liakont (recette 2026-07-01, décision Karl) : entrée de menu retirée de la section Audit — voir GetSection.
+    private const string AuditPoliciesHref = "/admin/audit/policies";
+
     private readonly IPermissionService _permissions;
 
     public AuditNavVisibilityFilter(IPermissionService permissions) => _permissions = permissions;
@@ -35,10 +40,22 @@ internal sealed class AuditNavVisibilityFilter : INavSectionProvider
     {
         var section = new AuditNavSectionProvider().GetSection();
 
-        // Une section vidée de ses items est omise par BuildNavTree (NavNodeAdapter filtre les sections à
-        // 0 item) : la section disparaît proprement de la sidebar au lieu de mener à des pages vides.
-        return _permissions.HasPermission(AuditPermissions.AuditView)
-            ? section
-            : section with { Items = [] };
+        // Sans la permission socle audit.trail.view, la section entière est vidée → omise par BuildNavTree
+        // (NavNodeAdapter filtre les sections à 0 item) : plus d'entrée morte vers des pages vides.
+        if (!_permissions.HasPermission(AuditPermissions.AuditView))
+        {
+            return section with { Items = [] };
+        }
+
+        // Liakont (recette 2026-07-01, décision Karl) : l'entrée « Politiques » (/admin/audit/policies) est
+        // masquée de la nav. Cet écran socle configure l'audit GÉNÉRIQUE (activer/désactiver le tracking par
+        // entité), sans valeur produit aujourd'hui — et un bouton « Désactiver l'audit » détonne sur un produit
+        // de conformité. Seule l'entrée de MENU disparaît ; la ROUTE reste ouverte au super-admin (« Journal
+        // d'audit » demeure). Socle NON modifié (CLAUDE.md n°11) : seule la VISIBILITÉ est décidée ici.
+        var items = section.Items
+            .Where(item => !string.Equals(item.Href, AuditPoliciesHref, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        return section with { Items = items };
     }
 }

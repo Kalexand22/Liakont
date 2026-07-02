@@ -17,6 +17,7 @@ using Liakont.Modules.Ingestion.Contracts;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Contracts.Queries;
 using Liakont.Modules.Pipeline.Infrastructure;
+using Liakont.Modules.Reference.Infrastructure;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.Staging.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
@@ -81,6 +82,7 @@ public sealed class PipelineCheckHarness : IAsyncLifetime
         RunModuleMigrations(typeof(DocumentsModuleRegistration).Assembly);
         RunModuleMigrations(typeof(TvaMappingModuleRegistration).Assembly);
         RunModuleMigrations(typeof(TenantSettingsModuleRegistration).Assembly);
+        RunModuleMigrations(typeof(ReferenceModuleRegistration).Assembly);
         RunModuleMigrations(typeof(PipelineModuleRegistration).Assembly);
 
         _provider = BuildProvider();
@@ -223,11 +225,15 @@ public sealed class PipelineCheckHarness : IAsyncLifetime
 
         // NpgsqlConnectionFactory enregistre (dans son ctor) le DateOnlyTypeHandler Dapper GLOBAL : sans lui,
         // l'écriture d'un DateOnly (date de validation de la table TVA, date d'émission…) lève. On l'utilise
-        // pour IConnectionFactory ; ITenantConnectionFactory (ingestion par slug) garde la base unique.
+        // pour IConnectionFactory ET ISystemConnectionFactory (le référentiel pays cross-instance ADR-0038 le
+        // résout), comme en production (même instance) ; ITenantConnectionFactory (ingestion par slug) garde la
+        // base unique.
         var databaseOptions = Options.Create(new DatabaseOptions { ConnectionString = ConnectionString });
 
         var services = new ServiceCollection();
-        services.AddSingleton<IConnectionFactory>(new NpgsqlConnectionFactory(databaseOptions));
+        var connectionFactory = new NpgsqlConnectionFactory(databaseOptions);
+        services.AddSingleton<IConnectionFactory>(connectionFactory);
+        services.AddSingleton<ISystemConnectionFactory>(connectionFactory);
         services.AddSingleton<ITenantConnectionFactory>(new SingleDatabaseConnectionFactory(ConnectionString));
         services.AddSingleton(TimeProvider.System);
 
@@ -242,6 +248,7 @@ public sealed class PipelineCheckHarness : IAsyncLifetime
         services.AddValidationModule();
         services.AddTenantSettingsModule();
         services.AddStagingModule(config);
+        services.AddReferenceModule();
         services.AddPipelineModule();
 
         return services.BuildServiceProvider();

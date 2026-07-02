@@ -24,6 +24,7 @@ using Liakont.Modules.Pipeline.Infrastructure.Check;
 using Liakont.Modules.Pipeline.Infrastructure.Send;
 using Liakont.Modules.Pipeline.Infrastructure.Sync;
 using Liakont.Modules.Pipeline.Contracts;
+using Liakont.Modules.Reference.Infrastructure;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.Staging.Infrastructure;
 using Liakont.Modules.TenantSettings.Infrastructure;
@@ -96,6 +97,7 @@ public sealed class PipelineE2ETenant : IAsyncLifetime
         RunModuleMigrations(connectionString, typeof(TvaMappingModuleRegistration).Assembly);
         RunModuleMigrations(connectionString, typeof(TenantSettingsModuleRegistration).Assembly);
         RunModuleMigrations(connectionString, typeof(StagingModuleRegistration).Assembly);
+        RunModuleMigrations(connectionString, typeof(ReferenceModuleRegistration).Assembly);
         RunModuleMigrations(connectionString, typeof(PipelineModuleRegistration).Assembly);
         RunModuleMigrations(connectionString, typeof(ArchiveModuleRegistration).Assembly);
         RunModuleMigrations(connectionString, typeof(IngestionModuleRegistration).Assembly);
@@ -317,6 +319,7 @@ public sealed class PipelineE2ETenant : IAsyncLifetime
         services.AddValidationModule();
         services.AddTenantSettingsModule();
         services.AddStagingModule(config);
+        services.AddReferenceModule();
         services.AddPipelineModule();
         services.AddArchiveModule(config);
 
