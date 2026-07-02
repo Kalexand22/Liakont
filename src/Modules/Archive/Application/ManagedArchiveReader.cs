@@ -168,6 +168,14 @@ public sealed class ManagedArchiveReader : IManagedArchiveReader
             using var document = JsonDocument.Parse(manifestBytes);
             JsonElement root = document.RootElement;
 
+            // Un manifest dont la RACINE n'est pas un objet JSON (scalaire, tableau, null — tous des documents JSON
+            // valides acceptés par JsonDocument.Parse) est corrompu : TryGetProperty LÈVERAIT InvalidOperationException
+            // sur une racine non-objet. On l'écarte ICI pour que le catch reste limité à JsonException/ArgumentException.
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
             // packageHash : chaîne OPTIONNELLE. Présente mais non-chaîne (nombre, objet, …) = manifest corrompu →
             // fail-closed, jamais une InvalidOperationException (GetString sur un token non-chaîne) remontée.
             string packageHash = string.Empty;

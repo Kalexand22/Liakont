@@ -167,6 +167,19 @@ public sealed class ManagedArchiveReaderTests
             "{\"archiveKind\":\"bordereau\",\"archiveKey\":\"K-42\",\"filedOn\":\"2026-05-12\",\"packageHash\":\"seal\",\"files\":[{\"name\":\"/\"}]}");
     }
 
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("123")]
+    [InlineData("\"scalaire\"")]
+    [InlineData("null")]
+    public async Task Verify_WhenManifestRootIsNotAnObject_ReportsAlteredWithoutThrowing(string nonObjectJson)
+    {
+        // JsonDocument.Parse accepte un scalaire/tableau/null au premier niveau (tous des JSON valides) ;
+        // TryGetProperty LÈVERAIT alors InvalidOperationException sur une racine non-objet → doit être rattrapé
+        // en Altered, jamais laissé atteindre la fiche (GDF08, INV-ARCH-GED-2).
+        await AssertTamperedManifestReportsAlteredWithoutThrowing(nonObjectJson);
+    }
+
     // GDF08 : un manifest JSON VALIDE mais ALTÉRÉ (archiveKey/kind assainis en vide, packageHash non-chaîne, nom
     // de pièce vide/assaini en vide) doit rendre un verdict Altered — JAMAIS une exception qui atteindrait la
     // fiche /ged/document (le seul chemin rattrapé à l'origine était JsonException).
