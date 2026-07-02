@@ -40,4 +40,14 @@ public interface IB2cMarginEmissionQueries
     /// lien « Voir la déclaration » de la fiche détail (BUG-24, ADR-0037 §4). Tenant-scopée par construction.
     /// </summary>
     Task<Guid?> GetEmissionBatchIdForDocumentAsync(Guid documentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Pour un ENSEMBLE de documents candidats, la dernière émission <c>Issued</c> de CHACUN (document + lot +
+    /// référence source) — SEULS les documents réellement e-reportés (au moins une entrée <c>Issued</c>) sont
+    /// retournés ; un candidat resté <c>Pending</c>/<c>RejectedByPa</c>/<c>Technical</c> est ABSENT du résultat (jamais
+    /// un faux e-reporté). Sert au RATTRAPAGE de l'état résiduel « émission acceptée mais document resté ReadyToSend »
+    /// (ADR-0037 D3) : rejouer, en UNE requête (pas de N+1), le gel du lien reporting↔pièce (D2, via la
+    /// <c>SourceReference</c>) ET la transition d'état, sans re-transmission. Tenant-scopée par construction.
+    /// </summary>
+    Task<IReadOnlyList<B2cResidualEmissionDto>> GetResidualIssuedEmissionsAsync(IReadOnlyCollection<Guid> documentIds, CancellationToken cancellationToken = default);
 }

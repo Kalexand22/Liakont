@@ -1,11 +1,17 @@
 @page "/ged/objet/{EntityType}/{Id:guid}"
-@rendermode InteractiveServer
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @attribute [Authorize(Policy = LiakontPermissions.GedRead)]
 @using System.Collections.Generic
 @using Liakont.Host.Ged
 @using Liakont.Host.Security
 @inject IGedGraphQueries GedGraphQueries
 @inject ILogger<GedObjet> Logger
+
+@* Le prerender est DÉSACTIVÉ (rendermode explicite ci-dessus, comme GedDocument.razor) : l'ouverture déclenche
+ * RunExploreAsync, qui écrit une trace de consultation probante ("explore_entity", §6.6 / INV-GED-11) devant être
+ * enregistrée EXACTEMENT une fois par consultation ; avec le prerender par défaut, la page serait instanciée deux
+ * fois (passe SSR puis circuit interactif) → trace d'audit dupliquée (journal probant gonflé, comptage faux) et
+ * double CTE de graphe. *@
 
 <PageTitle>Exploration d'objet — Liakont</PageTitle>
 

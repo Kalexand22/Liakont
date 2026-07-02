@@ -4,6 +4,7 @@ using System;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Liakont.Tests.E2E;
+using Microsoft.Playwright;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -47,9 +48,12 @@ public sealed class GedObjetE2ETests : KeycloakBaseE2ETest
         var rootId = Guid.NewGuid();
         await Page.GotoAsync($"{BaseUrl}/ged/objet/entreprise/{rootId}");
 
-        (await Page.GetByTestId("ged-graph").IsVisibleAsync())
-            .Should().BeTrue("la page d'exploration d'objet est autorisée et rend son enveloppe");
-        (await Page.GetByTestId("ged-graph-heading").IsVisibleAsync())
-            .Should().BeTrue("l'en-tête « Exploration de l'objet » est réellement rendu (anti-faux-vert)");
+        // Le prerender est DÉSACTIVÉ sur cette page (GDF05, comme GedDocument) : l'enveloppe d'exploration n'est
+        // rendue qu'APRÈS connexion du circuit interactif — on ATTEND donc sa visibilité (un WaitForAsync réussi
+        // VAUT l'assertion), au lieu d'un IsVisibleAsync ponctuel qui verrait le HTML initial (sans prerender) vide.
+        await Page.GetByTestId("ged-graph")
+            .WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
+        await Page.GetByTestId("ged-graph-heading")
+            .WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
     }
 }
