@@ -117,6 +117,41 @@ public sealed class GedDocumentTests : BunitContext
     }
 
     [Fact]
+    public async Task A_Late_FAILED_Response_From_A_Previous_Document_Does_Not_Replace_The_New_Document()
+    {
+        // Symétrie du chemin d'ERREUR (garde du catch, GedDocument.LoadAsync) : le chargement de A reste EN VOL puis
+        // ÉCHOUE tardivement, APRÈS navigation vers B. La réponse d'échec tardive de A ne doit PAS coller un bandeau
+        // d'erreur sous l'URL de B (association trompeuse évitée — produit de conformité).
+        var idA = Guid.NewGuid();
+        var idB = Guid.NewGuid();
+        var fake = new GatedFakeDocumentQueries();
+        fake.Throwing.Add(idA);              // A échoue…
+        fake.ModelsById[idB] = BuildModel(idB, "Document B");
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fake.Gate = gate;                    // …mais seulement APRÈS la porte (échec en vol)
+        fake.GateId = idA;
+        Services.AddScoped<IGedDocumentConsoleQueries>(_ => fake);
+
+        var cut = Render<GedDocument>(p => p.Add(c => c.Id, idA));
+        cut.WaitForAssertion(() => cut.FindAll("[data-testid='ged-document-loading']").Should().ContainSingle());
+
+        // Navigation vers le document B (même composant, non retenu) : sa fiche s'affiche.
+        cut.Render(p => p.Add(c => c.Id, idB));
+        cut.WaitForAssertion(() =>
+            cut.Find("[data-testid='ged-document-page-title']").TextContent.Should().Contain("Document B"));
+
+        // Libère l'échec tardif de A, puis draine le dispatcher : la garde du catch doit l'ÉCARTER (id changé).
+        gate.SetResult();
+        cut.WaitForState(() => fake.Released.Task.IsCompleted);
+        await cut.InvokeAsync(() => Task.CompletedTask);
+        await cut.InvokeAsync(() => Task.CompletedTask);
+
+        cut.FindAll("[data-testid='ged-document-error']").Should().BeEmpty(
+            "l'échec tardif du document A ne colle pas de bandeau d'erreur sous l'URL B");
+        cut.Find("[data-testid='ged-document-page-title']").TextContent.Should().Contain("Document B");
+    }
+
+    [Fact]
     public void The_Document_Page_Disables_Prerender_So_The_Consultation_Trace_Is_Written_Once()
     {
         // Garde STRUCTURELLE (GED09b, ancrée par GDF05 pour la symétrie avec GedObjet) : le double de la trace
