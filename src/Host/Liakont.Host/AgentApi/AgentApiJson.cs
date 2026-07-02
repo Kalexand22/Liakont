@@ -60,6 +60,14 @@ internal static class AgentApiJson
     ];
 
     /// <summary>
+    /// Vue lecture seule des assemblys de contrat portant la liaison stricte des membres inconnus (RDL04).
+    /// Exposée pour la garde de couverture (GDF13) : un test parcourt les DTO réellement bindés par les
+    /// endpoints agent et exige que tout assembly <c>Liakont.Agent.Contracts*</c> atteint figure ici — un
+    /// futur canal oublié dans ce set droppe silencieusement ses membres inconnus (piège payé à GED05a).
+    /// </summary>
+    internal static IReadOnlySet<Assembly> BoundContractAssemblies => ContractAssemblies;
+
+    /// <summary>
     /// Configure, sur les options fournies, la liaison JSON du contrat agent : convertisseurs
     /// string↔enum des énumérations ET rejet strict des membres inconnus sur les DTOs du contrat.
     /// </summary>
