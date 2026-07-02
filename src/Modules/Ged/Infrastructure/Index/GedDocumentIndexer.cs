@@ -240,7 +240,7 @@ internal sealed partial class GedDocumentIndexer : IGedDocumentIndexer
                 continue;
             }
 
-            targets[code] = new AxisMappingTarget(definition.Code, definition.DataType, definition.ValueScale);
+            targets[code] = new AxisMappingTarget(definition.Code, definition.DataType, definition.ValueScale, definition.IsMultiValue);
             definitions[code] = definition;
         }
 

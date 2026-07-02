@@ -80,6 +80,22 @@ public static class GedMapper
                     $"L'axe mono-valeur « {rule.AxisCode} » du document « {ingested.SourceReference} » est ambigu : le sélecteur « {rule.Source} » a renvoyé {values.Count} valeurs. Document rangé en attente (deferred) — jamais deviner laquelle retenir.");
             }
 
+            // Recoupement cardinalité profil↔catalogue (INV-GED-05, règle 3) : un profil déclaré MULTI sur un axe
+            // que le CATALOGUE déclare MONO ne peut ranger plusieurs valeurs — le chemin d'écriture supersède la
+            // courante (RL-02, dernier gagnant arbitraire, PostgresGedIndexUnitOfWork) et perd les précédentes EN
+            // SILENCE. On DÉFÈRE plutôt que d'écraser (jamais deviner laquelle garder) ; une valeur unique (ou zéro)
+            // passe sans risque. La décision est prise ICI (au mapping, où le catalogue est résolu) plutôt qu'à
+            // l'enregistrement du profil : le mapper est le point où la cardinalité effective du catalogue est connue.
+            if (values.Count > 1 && !target.IsMultiValue)
+            {
+                return GedMappingResult.Deferred(
+                    $"L'axe « {rule.AxisCode} » du document « {ingested.SourceReference} » est déclaré MULTI-valeur par le profil mais MONO-valeur par le catalogue : le sélecteur « {rule.Source} » a renvoyé {values.Count} valeurs qui ne peuvent être rangées sans écrasement silencieux. Document rangé en attente (deferred). Action opérateur : rendre l'axe multi-valeur au catalogue, ou mono-valeur au profil.");
+            }
+
+            // Dédup avant append (V009 n'impose aucune contrainte d'unicité ; le sélecteur conserve les doublons du
+            // document) : deux valeurs produisant le MÊME lien courant (valeur normalisée identique) ne créent qu'UN
+            // lien — sinon facette/fiche en double, jamais corrigeables (index append-only, règle 4).
+            var seenValues = new HashSet<NormalizedAxisValue>();
             foreach (var raw in values)
             {
                 NormalizedAxisValue normalized;
@@ -93,7 +109,10 @@ public static class GedMapper
                         $"La valeur « {raw} » de l'axe « {rule.AxisCode} » du document « {ingested.SourceReference} » est incompatible avec son type déclaré : {ex.Message} Document rangé en attente (deferred) — jamais interpréter au mieux.");
                 }
 
-                axes.Add(new MappedAxisValue(rule.AxisCode, normalized));
+                if (seenValues.Add(normalized))
+                {
+                    axes.Add(new MappedAxisValue(rule.AxisCode, normalized));
+                }
             }
         }
 
@@ -116,19 +135,18 @@ public static class GedMapper
                 continue;
             }
 
-            string? display = null;
-            if (rule.DisplaySource is not null)
-            {
-                var displays = GedSelector.Evaluate(rule.DisplaySource, ingested);
-                if (displays.Count == 1)
-                {
-                    display = displays[0];
-                }
-            }
+            // Appariement POSITIONNEL des libellés aux identifiants : le i-ème libellé décrit la i-ème entité, et
+            // SEULEMENT si les décomptes coïncident (M==N). Tout autre décompte (M≠N, y compris M==1/N>1) ne colle
+            // JAMAIS le libellé d'une AUTRE entité — le libellé est alors absent (best-effort, comme l'entité sans
+            // identifiant ci-dessus). Jamais deviner l'appariement (règle 3).
+            var displays = rule.DisplaySource is null
+                ? System.Array.Empty<string>()
+                : GedSelector.Evaluate(rule.DisplaySource, ingested);
+            var pairwiseDisplays = displays.Count == externalIds.Count;
 
-            foreach (var externalId in externalIds)
+            for (var i = 0; i < externalIds.Count; i++)
             {
-                entities.Add(new MappedEntity(rule.EntityType, externalId, display));
+                entities.Add(new MappedEntity(rule.EntityType, externalIds[i], pairwiseDisplays ? displays[i] : null));
             }
         }
 
