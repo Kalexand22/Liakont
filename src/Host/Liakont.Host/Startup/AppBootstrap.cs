@@ -10,6 +10,7 @@ using Liakont.Host.Behaviors;
 using Liakont.Host.Clients;
 using Liakont.Host.Components;
 using Liakont.Host.Configuration;
+using Liakont.Host.Documents;
 using Liakont.Host.FleetApi;
 using Liakont.Host.InstanceEmail;
 using Liakont.Host.Localization;
@@ -1115,6 +1116,7 @@ public static class AppBootstrap
         v1.MapTenantAdminEndpoints();
         v1.MapClientExportEndpoints();
         v1.MapDocumentsEndpoints();
+        v1.MapDocumentSourcePdfEndpoint();
         v1.MapDocumentActionsEndpoints();
         v1.MapPipelineEndpoints();
         v1.MapArchiveEndpoints();

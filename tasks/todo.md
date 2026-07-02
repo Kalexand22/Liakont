@@ -1,69 +1,57 @@
-# Re-livraison des trous UX de la recette Bucodi (lot RBF) sur main courant
+# Lot 2 : affichage de la pièce jointe sur la fiche document (suite du lot GED-PDF)
 
-## Contexte
-Audit des branches `feat/recette-bucodi` (lot RBF) + `feat/recette-bucodi-RBF02` vs `origin/main` :
-le cœur fiscal/correctness du lot RBF est **déjà dans main** (souvent en mieux). Seuls 3 trous
-UX/confort (non fiscaux) restaient absents. Décision Karl : **re-livrer frais depuis main**
-(la branche est 169 commits derrière → pas de cherry-pick/merge), puis supprimer les 2 branches.
+Livré 02/07 soir : lecture liée sur IIngestedPdfStore (+FileSystem impl, 3 doubles de test à jour),
+sonde HasSourcePdf dans DocumentDetailConsoleQueryService (miroir récap de marge), endpoint Host
+GET /api/v1/documents/{id}/piece-jointe (liakont.read, tenant-scopé, inline+nosniff+nom assaini),
+lien sur DocumentDetailView. Review clean round 3 (2 P2 r1→r2 : couverture handler puis couverture
+HTTP réelle Console.Api.Tests.Integration + nosniff). verify-fast PASS, run-tests PASS (7 385),
+suite Console.Api 185/185. Recette agent : 396 PDF poussés/reçus (tenant volontaire).
 
-Branche de travail : `feat/recette-bucodi-ux-gaps` (depuis origin/main `2825872e`).
+# Lot 1 : rapatriement des PDF BA/BV via les tables GED (recette enchères)
 
-## Items à porter (adaptés à la forme actuelle de main)
+Feu vert Karl 02/07. Branche : feat/recette-encheres-ged-extraction.
+Design validé : source PDF « tables GED » lue en ODBC (lecture seule), chemin reconstruit
+`<racine>\<No_dossier>\<Année>\<Mois 2 ch.>\<Type_modele>\<Référence>\<Nom_fichier><ext>`,
+liaison GED_Relation (Ref_numerique1 = no_ba/no_bv), racine = GED_Param_Document par défaut
+avec override agent.json (démo). Prouvé sur base démo : 570/570 PDF trouvés.
 
-- [ ] **RBF08** — préférences/densité appliquées dès le login
-  - `UserPreferencesHydrator.razor` (neuf) monté dans `ErpShellLayout.razor`
-  - `UserPreferencesSupport.cs` (neuf) + retouches `App.razor`, `UserPreferencesPanel.razor`
-  - Tests bUnit + support + E2E (P1 : page Blazor Liakont sans test = bloquant)
-- [ ] **RBF07-A** — refresh liste + compteurs après envoi, sans rechargement complet
-  - `Documents.razor` (rappel `ReloadPeriodAsync()` après envoi)
-- [ ] **RBF07-B** — différés traités en INFO (fin du faux-rouge « aucun document émis »)
-  - `SendTally.Deferred` exposé + wording
-  - `PipelineRunLogDto.DocumentsDeferred` (absent de main) + persistance/lecture
-  - Migration `documents_deferred` : **renumérotée** (V006 collisionne avec
-    `V006__create_b2c_margin_emissions_table.sql`) → prochain n° libre
-  - `DocumentSendActionsService.DescribeSendRunOutcome` : branche INFO si `failed==0 && pending>0`
-  - Tests (DocumentSendActionsServiceTests, DocumentsTests)
+## Étapes
 
-## Garde-fous
-- Ne JAMAIS affaiblir une validation Blocking (RBF07-B ne touche qu'au RAPPORT d'envoi).
-- Surgical : seulement ce que chaque item exige.
+- [x] 1. Lire le rail existant — fait. Découvertes clés : sourceReference = `encheresv6:ba:<no>` /
+      `encheresv6:bv:<no>` ; transport complet (queue Pdf → POST /documents/{ref}/pdf → IIngestedPdfStore) ;
+      BUG de robustesse dans ExtractionCycle (collecte PDF APRÈS le skip anti re-push → PDF tardif/raté
+      perdu définitivement) ; flux GED 7 (factures client) a Ref_numerique1=0 → hors périmètre (non sourcé)
+- [x] 2. GedTableEncheresV6PdfSource : requête SelectGedLinkedPdfSql (Supprime=0 relation+document,
+      scope dossier), chemin racine\dossier\année\mois(2ch.)\type\réf\fichier, override gedPdfRoot,
+      garde sous-racine (composante absolue/..), fail-closed ODBC (SourceUnavailableException propagée),
+      Warnings données (fichier absent, stockage ≠ D, réf inexploitable)
+- [x] 3. Délégation : PervasiveExtractor (capacités reflétées + GetAttachments/ListPoolDocuments délégués,
+      param optionnel → NullEncheresV6PdfSource). FixtureExtractor NON modifié (pas d'ODBC en mode
+      fixtures — config GED refusée dans ce mode). + Fix ExtractionCycle : collecte PDF AVANT le skip
+      document (rattrapage, idempotence par la clé PDF)
+- [x] 4. Config : adapterConfig.EncheresV6.gedPdf="tables" + gedPdfRoot (override) ; valeur inconnue,
+      root orphelin, ou GED en mode fixtures → AgentConfigException français ; tables GED ajoutées à
+      CheckHealth quand la source est active (échec TÔT, angle mort wizard) ; gabarits demo.ps1
+- [x] 5. Tests : GedTableEncheresV6PdfSourceTests (9), PervasiveExtractorTests (+2 délégation),
+      EncheresV6ExtractorFactoryTests (+5 config), ExtractionCycleTests (+1 rattrapage PDF tardif)
+- [x] 6. verify-fast PASS (3 solutions) — 2 reprises en route : ctor internal (CS0051,
+      EncheresV6Schema interne) et SA1515/SA1116/CS8619 dans les tests
+- [x] 7. Review : round 1 = 2 P2 (couplage demo.ps1 gedPdf↔tables absentes ; trou de test
+      SourceUnavailableException) → corrigés (sonde OBJECT_ID dans agent-config + test de
+      propagation) ; round 2 = **clean** ; verify-fast re-PASS après fixes
+- [x] 8. Backlog CHANTIER GED-PDF mis à jour (fait/reste) ; gabarits demo.ps1 conditionnés à la
+      présence réelle des tables GED
+- [x] 9. Commit + push sur feat/recette-encheres-ged-extraction
 
-## Vérification (obligatoire avant « fini »)
-- [ ] verify-fast (plateforme .NET 10 + agent net48) vert
-- [ ] run-tests (intégration) si endpoints/DI/migration touchés
-- [ ] codex-review boucle propre (P1/P2 corrigés)
-- [ ] Build Release (StyleCop) avant de déclarer vert
+## Review
 
-## Clôture
-- [ ] Commit + push de `feat/recette-bucodi-ux-gaps`
-- [ ] Suppression `origin/feat/recette-bucodi-RBF02` (subsumée) et `origin/feat/recette-bucodi`
-
-## Notes de suivi (hors périmètre de cette branche)
-- 🧹 22 réfs `CLAUDE.md n°X` fuitent dans le source du plug-in SuperPDP (src/PaClients/...SuperPdp) → scrub séparé.
-- 🏁 `GATE_RECETTE_BUCODI` reste `pending` côté orchestration → gate orpheline une fois ce lot absorbé (nettoyage runner, pas édition manuelle).
-
-## Review (bilan)
-
-Livré sur `feat/recette-bucodi-ux-gaps` (depuis origin/main `2825872e`) :
-- **RBF08** porté à l'identique (hydrateur de shell + support + retouches App/Panel) avec bUnit + E2E.
-- **RBF07-A** (refresh sans rechargement) et **RBF07-B** (différés en INFO) portés ; migration **V009**
-  (renommée `add_send_outcome_counters`, n° libre après V006-V008).
-
-Correctifs review (2 rounds, boucle close au round 3 = CLEAN) :
-- **[P2 round 1]** `Deferred` agrégeait du transitoire ET des HOLD opérateur (`EmitterUnresolved`/`TvaUnresolved`)
-  → un run tout-HOLD passait en vert « en cours d'émission » (succès silencieux, n°3). **Fix** : nouvel outcome
-  `Held` distinct (compteur + colonne `documents_held` + DTO/RunLog/store/queries) ; la branche verte n'est prise
-  que sans aucun HOLD ; le HOLD est signalé avec son action corrective (n°12). 4 tests ajoutés.
-- **[P2 round 1]** test E2E préférences auto-empoisonnant (teardown best-effort à exception avalée) → **fix** :
-  reset idempotent GARANTI en setup.
-- **[P2 round 2]** `UserPreferencesSupport` : `JsonNode.Parse(null)` lèverait `ArgumentNullException` non rattrapée
-  → **fix** : coalescence `?? "{}"` + test null.
-- **[P2 round 2]** branche `emitted>0` ne nommait pas l'action corrective HOLD inline → **fix** additif + test.
-
-Vérification : verify-fast ✅ (plateforme .NET 10 + agent net48), build Release ✅ (StyleCop), run-tests
-intégration ✅ (7245 tests, round-trip `documents_deferred`/`documents_held` exercé), codex-review ✅ round 3 CLEAN.
-
-## Clôture (état)
-- [x] verify-fast / Release / run-tests / review CLEAN
-- [x] Commit + push de `feat/recette-bucodi-ux-gaps` (e6040d7d) — PR à ouvrir / merge humain
-- [x] Suppression `origin/feat/recette-bucodi-RBF02` (déjà supprimée par un tiers) + `origin/feat/recette-bucodi`
+- Round 1 : 2 P2 — (1) `demo.ps1 agent-config` émettait `gedPdf='tables'` même sur une base
+  générée sans tables GED (état supporté) → CheckHealth Unhealthy + cycles avortés en boucle ;
+  fixé par sonde `OBJECT_ID('enc.GED_Relation')` avant émission des clés. (2) La propriété de
+  sûreté « échec ODBC → SourceUnavailableException propagée, jamais avalée » n'était pas testée ;
+  test ajouté (FakeDbException à l'Open, aucun Warning de substitution).
+- Round 2 : clean. verify-fast PASS après le dernier changement. 18 tests neufs exécutés verts
+  (10 source GED + 7 délégation/factory + 1 rattrapage ExtractionCycle).
+- Hors périmètre assumé : flux GED 7 (factures client, Ref_numerique1=0 — liaison non sourcée),
+  mode fixtures (pas d'ODBC), wizard d'installation (déclaration dictionnaire = étape d'install
+  à venir, notée au backlog).

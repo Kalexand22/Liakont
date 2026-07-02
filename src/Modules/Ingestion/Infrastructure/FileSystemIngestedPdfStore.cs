@@ -103,6 +103,28 @@ internal sealed class FileSystemIngestedPdfStore : IIngestedPdfStore
         return Task.FromResult(stream);
     }
 
+    public Task<bool> LinkedPdfExistsAsync(string tenantId, string sourceReference, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(File.Exists(ResolveLinkedPdfPath(tenantId, sourceReference)));
+    }
+
+    public Task<Stream?> TryOpenLinkedPdfAsync(string tenantId, string sourceReference, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var fullPath = ResolveLinkedPdfPath(tenantId, sourceReference);
+        if (!File.Exists(fullPath))
+        {
+            // Cas normal (document source sans PDF) : null, jamais une exception — l'appelant décide
+            // de l'affordance (lien absent sur la fiche, 404 explicite sur l'endpoint).
+            return Task.FromResult<Stream?>(null);
+        }
+
+        Stream stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        return Task.FromResult<Stream?>(stream);
+    }
+
     /// <summary>Slug de tenant sécurisé pour un segment de chemin (anti path-traversal).</summary>
     private static string SafeTenant(string tenantId)
     {
@@ -167,6 +189,40 @@ internal sealed class FileSystemIngestedPdfStore : IIngestedPdfStore
         return separator >= 0 && separator + 2 < poolPdfId.Length
             ? poolPdfId[(separator + 2)..]
             : poolPdfId;
+    }
+
+    /// <summary>
+    /// Chemin complet (validé sous la racine) du PDF rattaché d'une référence source — le MÊME chemin
+    /// déterministe que <see cref="SaveLinkedPdfAsync"/> ({tenant}/linked/{sha256(sourceReference)}.pdf) :
+    /// la lecture retrouve exactement ce que l'ingestion a écrit, sans registre annexe. Le nom hashé est
+    /// intrinsèquement sûr ; le contrôle « sous la racine » reste par défense en profondeur.
+    /// </summary>
+    private string ResolveLinkedPdfPath(string tenantId, string sourceReference)
+    {
+        if (string.IsNullOrWhiteSpace(sourceReference))
+        {
+            throw new ArgumentException("La référence source est obligatoire pour un PDF rattaché.", nameof(sourceReference));
+        }
+
+        var root = _options.PdfRootPath;
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            throw new InvalidOperationException(
+                "Le chemin racine de stockage des PDF (Ingestion:Storage:PdfRootPath) n'est pas configuré.");
+        }
+
+        var rootFull = Path.GetFullPath(root);
+        var rootWithSeparator = rootFull.EndsWith(Path.DirectorySeparatorChar)
+            ? rootFull
+            : rootFull + Path.DirectorySeparatorChar;
+        var relativePath = Path.Combine(SafeTenant(tenantId), LinkedFolder, HashToFileName(sourceReference) + ".pdf");
+        var fullPath = Path.GetFullPath(Path.Combine(rootFull, relativePath));
+        if (!fullPath.StartsWith(rootWithSeparator, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Chemin de PDF rattaché résolu hors de la racine de stockage.");
+        }
+
+        return fullPath;
     }
 
     /// <summary>Chemin complet (validé sous la racine) du répertoire de pool d'un tenant.</summary>

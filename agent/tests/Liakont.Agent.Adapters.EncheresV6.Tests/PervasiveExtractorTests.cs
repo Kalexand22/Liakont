@@ -43,6 +43,35 @@ public class PervasiveExtractorTests
     }
 
     [Fact]
+    public void Capabilities_reflect_the_pdf_source_and_attachments_are_delegated()
+    {
+        // Le rail PDF (ADP05) est porté par la source injectée : capacités reflétées (jamais un flag à
+        // part) et GetAttachments/ListPoolDocuments délégués — plus de « Array.Empty » câblé en dur.
+        var pdfSource = new StubPdfSource(
+            providesSourceDocuments: true,
+            providesUnlinkedDocumentPool: false,
+            attachments: new[] { new Liakont.Agent.Core.Extraction.SourceAttachment("encheresv6:ba:100352", "C:\\ged\\BA_100352.pdf") });
+        var connection = new RecordingConnection(readerResolver: RouteBaThenBv(Array.Empty<IReadOnlyDictionary<string, object?>>()));
+        var extractor = new PervasiveExtractor(connection, new EncheresV6Schema("enc"), "2", new RecordingAgentLog(), pdfSource);
+
+        extractor.Capabilities.ProvidesSourceDocuments.Should().BeTrue();
+        extractor.Capabilities.ProvidesUnlinkedDocumentPool.Should().BeFalse();
+        extractor.GetAttachments("encheresv6:ba:100352").Should().ContainSingle()
+            .Which.FilePath.Should().Be("C:\\ged\\BA_100352.pdf");
+        pdfSource.LastRequestedReference.Should().Be("encheresv6:ba:100352", "la référence est transmise telle quelle à la source");
+    }
+
+    [Fact]
+    public void Without_pdf_source_the_extractor_keeps_the_no_pdf_behavior()
+    {
+        var connection = new RecordingConnection(readerResolver: RouteBaThenBv(Array.Empty<IReadOnlyDictionary<string, object?>>()));
+        var extractor = new PervasiveExtractor(connection, new EncheresV6Schema("enc"), "2", new RecordingAgentLog());
+
+        extractor.Capabilities.ProvidesSourceDocuments.Should().BeFalse("aucune source PDF configurée = capacité non déclarée");
+        extractor.GetAttachments("encheresv6:ba:100352").Should().BeEmpty();
+    }
+
+    [Fact]
     public void Extractor_is_strictly_read_only()
     {
         var connection = new RecordingConnection(readerResolver: RouteBaThenBv(new[] { MargeBaRow() }));

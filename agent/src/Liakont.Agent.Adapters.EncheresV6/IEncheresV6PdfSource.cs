@@ -17,11 +17,10 @@ using Liakont.Agent.Core.Extraction;
 /// plateforme ne s'appuie que sur ce qui est honoré (jamais de <c>if (source is …)</c>).
 /// </para>
 /// <para>
-/// RÉSERVE TRACÉE (GATE_ADAPTER_ENCHERESV6 / GATE_DEMO_ISATECH) : la V1 implémente la source
-/// « dossier de fichiers » (<see cref="FileSystemEncheresV6PdfSource"/>). La source « blob en base
-/// Pervasive » dépend d'une colonne non documentée par la spec et d'un accès à la base réelle (absente
-/// de la machine d'orchestration) : elle n'est PAS livrée ici (ne pas inventer de colonne, CLAUDE.md
-/// n°2) — cette abstraction l'admet comme implémentation fast-follow résolue sur le schéma réel.
+/// Deux implémentations : <see cref="FileSystemEncheresV6PdfSource"/> (dossier de fichiers plat, sans
+/// accès base) et <see cref="GedTableEncheresV6PdfSource"/> (la GED réelle d'EncheresV6 : fichiers sur
+/// disque RÉFÉRENCÉS par les tables GED, liaison <c>GED_Relation</c> — schéma élucidé sur la vraie
+/// donnée le 02/07/2026, ce qui lève l'ancienne réserve « stockage GED non documenté »).
 /// </para>
 /// <para>
 /// Le défaut « aucune source PDF configurée » est porté par le null-object

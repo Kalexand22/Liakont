@@ -39,6 +39,12 @@ internal sealed class EncheresV6Schema
     internal const string TableEnteteNotesHono = "entete_notes_hono";
     internal const string TableLignesNotesHono = "lignes_notes_hono";
 
+    // ── Tables GED (PDF des bordereaux — noms ≤ 20 caractères, limite du dictionnaire Zen : la
+    //    déclaration au dictionnaire (ged-extract) et la base de démo utilisent les MÊMES noms) ──
+    internal const string TableGedRelation = "GED_Relation";
+    internal const string TableGedDocumentJoint = "GED_document_joint";
+    internal const string TableGedParamDocument = "GED_Param_Document";
+
     // ── Colonnes communes / BA ──────────────────────────────────────
     internal const string ColNoBa = "no_ba";
     internal const string ColBordereauOuAvoir = "bordereau_ou_avoir";
@@ -140,6 +146,30 @@ internal sealed class EncheresV6Schema
     internal const string ColOriginDateVente = "origin_date_vente";
     internal const string ColOriginNoBv = "origin_no_bv";
 
+    // ── GED (schéma vérifié sur la base de démo reconstruite depuis la vraie data, 02/07/2026) ──
+    internal const string ColGedCodeFlux = "Code_flux";
+    internal const string ColGedRefNumerique1 = "Ref_numerique1";
+    internal const string ColGedNoDocumentJoint = "No_document_joint";
+    internal const string ColGedSupprime = "Supprime";
+    internal const string ColGedNo = "No";
+    internal const string ColGedTypeModele = "Type_modele";
+    internal const string ColGedNomFichier = "Nom_fichier";
+    internal const string ColGedExtensionFichier = "Extension_fichier";
+    internal const string ColGedAnnee = "Annee";
+    internal const string ColGedMois = "Mois";
+    internal const string ColGedNoDossier = "No_dossier";
+    internal const string ColGedReference = "Reference";
+    internal const string ColGedTypeStockage = "Type_stockage";
+    internal const string ColGedCheminStockage = "Chemin_stockage";
+
+    // ── Codes de flux GED (sourcés : table GED_Type de la base réelle — 5 = BA, 6 = BV) ──
+    internal const int GedFluxBa = 5;
+    internal const int GedFluxBv = 6;
+
+    // ── Type de stockage GED géré : « D » = fichier sur Disque (seul mode observé sur la donnée
+    //    réelle ; tout autre code est ignoré avec un Warning — jamais deviné) ──
+    internal const string GedStockageDisque = "D";
+
     // ── Types de pièce ──────────────────────────────────────────────
     internal const string PieceVente = "B";
     internal const string PieceAvoir = "A";
@@ -171,11 +201,20 @@ internal sealed class EncheresV6Schema
     private readonly string _ligneFactureClient;
     private readonly string _enteteNotesHono;
     private readonly string _lignesNotesHono;
+    private readonly string _gedRelation;
+    private readonly string _gedDocumentJoint;
+    private readonly string _gedParamDocument;
+    private readonly bool _includeGedTables;
 
     /// <summary>Crée la connaissance du schéma pour un préfixe donné (vide = tables nues Pervasive ; ex. « enc » pour la démo SQL Server).</summary>
     /// <param name="schema">Préfixe de schéma (paramétrage). <c>null</c>/vide = aucun préfixe. Validé contre l'injection.</param>
+    /// <param name="includeGedTables">
+    /// <c>true</c> quand la source PDF « tables GED » est configurée : les tables GED entrent alors dans
+    /// <see cref="ExpectedTables"/> pour que <c>CheckHealth</c> (et le test de connexion du wizard) échoue
+    /// TÔT, avec le nom de la table manquante, plutôt qu'au premier cycle d'extraction.
+    /// </param>
     /// <exception cref="ArgumentException">Si <paramref name="schema"/> n'est pas un identifiant SQL simple.</exception>
-    public EncheresV6Schema(string? schema)
+    public EncheresV6Schema(string? schema, bool includeGedTables = false)
     {
         string prefix;
         if (string.IsNullOrWhiteSpace(schema))
@@ -204,14 +243,25 @@ internal sealed class EncheresV6Schema
         _ligneFactureClient = prefix + TableLigneFactureClient;
         _enteteNotesHono = prefix + TableEnteteNotesHono;
         _lignesNotesHono = prefix + TableLignesNotesHono;
+        _gedRelation = prefix + TableGedRelation;
+        _gedDocumentJoint = prefix + TableGedDocumentJoint;
+        _gedParamDocument = prefix + TableGedParamDocument;
+        _includeGedTables = includeGedTables;
     }
 
-    /// <summary>Tables dont la présence est contrôlée par <c>CheckHealth</c>.</summary>
-    public string[] ExpectedTables => new[]
-    {
-        _enteteBa, _lignesBa, _enteteBv, _lignesBv, _lignePv, _regimes,
-        _enteteFactureClient, _ligneFactureClient, _enteteNotesHono, _lignesNotesHono,
-    };
+    /// <summary>Tables dont la présence est contrôlée par <c>CheckHealth</c> (les tables GED seulement si la source PDF « tables GED » est configurée).</summary>
+    public string[] ExpectedTables => _includeGedTables
+        ? new[]
+        {
+            _enteteBa, _lignesBa, _enteteBv, _lignesBv, _lignePv, _regimes,
+            _enteteFactureClient, _ligneFactureClient, _enteteNotesHono, _lignesNotesHono,
+            _gedRelation, _gedDocumentJoint, _gedParamDocument,
+        }
+        : new[]
+        {
+            _enteteBa, _lignesBa, _enteteBv, _lignesBv, _lignePv, _regimes,
+            _enteteFactureClient, _ligneFactureClient, _enteteNotesHono, _lignesNotesHono,
+        };
 
     /// <summary>
     /// Requête des DOCUMENTS ACHETEUR (BA : ventes + avoirs) d'une période, lignes de LOT (type 1) jointes
@@ -327,6 +377,28 @@ internal sealed class EncheresV6Schema
         + " LEFT JOIN " + _lignePv + " lp ON lp." + ColCodeRegimeTva + " = r." + ColCodeRegimeTva
         + " GROUP BY r." + ColCodeRegimeTva + ", r." + ColRegimeLibelle
         + " ORDER BY r." + ColCodeRegimeTva;
+
+    /// <summary>
+    /// Requête des PDF GED LIÉS à un bordereau (BA ou BV) : <c>GED_Relation</c> porte la liaison
+    /// (<c>Ref_numerique1</c> = n° de bordereau pour les flux 5/BA et 6/BV — vérifié sur la donnée réelle ;
+    /// les autres flux, ex. factures client, ont <c>Ref_numerique1 = 0</c> et une liaison NON sourcée : hors
+    /// périmètre), <c>GED_document_joint</c> porte les composantes du chemin, <c>GED_Param_Document</c> la
+    /// racine de stockage du flux. Suppressions logiques EXCLUES (relation ET document). Bornes
+    /// positionnelles ODBC : <c>code_flux</c>, <c>ref_numerique1</c>, <c>dossier</c> (tenant — un agent ne
+    /// sert que SON dossier). Ordre déterministe par <c>No</c> de document.
+    /// </summary>
+    public string SelectGedLinkedPdfSql =>
+        "SELECT d." + ColGedNo + ", d." + ColGedTypeModele + ", d." + ColGedNomFichier
+        + ", d." + ColGedExtensionFichier + ", d." + ColGedAnnee + ", d." + ColGedMois
+        + ", d." + ColGedNoDossier + ", d." + ColGedReference + ", d." + ColGedTypeStockage
+        + ", p." + ColGedCheminStockage
+        + " FROM " + _gedRelation + " r"
+        + " INNER JOIN " + _gedDocumentJoint + " d ON d." + ColGedNo + " = r." + ColGedNoDocumentJoint
+        + " LEFT JOIN " + _gedParamDocument + " p ON p." + ColGedCodeFlux + " = d." + ColGedCodeFlux
+        + " WHERE r." + ColGedCodeFlux + " = ? AND r." + ColGedRefNumerique1 + " = ?"
+        + " AND r." + ColGedSupprime + " = 0 AND d." + ColGedSupprime + " = 0"
+        + " AND d." + ColGedNoDossier + " = ?"
+        + " ORDER BY d." + ColGedNo;
 
     /// <summary>Requête de comptage rapide (présence + accessibilité) d'une table — LECTURE SEULE.</summary>
     /// <param name="table">Nom de table QUALIFIÉ (issu de <see cref="ExpectedTables"/>, jamais une entrée utilisateur).</param>

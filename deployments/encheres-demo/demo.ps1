@@ -36,7 +36,11 @@ param(
 
     # Force la re-importation du script SQL de la base source meme si les donnees
     # sont deja presentes (sinon 'source' ne re-importe pas un schema deja peuple).
-    [switch] $Force
+    [switch] $Force,
+
+    # Racine des fichiers GED (PDF des BA/BV) pour 'agent-config' : la copie locale du dossier
+    # GED du serveur (ou le partage reel). Vide = placeholder a remplacer dans agent.json.
+    [string] $GedPdfRoot = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -183,6 +187,13 @@ function Do-AgentConfig {
     $roPwd = (Get-Content $secretsFile -Raw | ConvertFrom-Json).roPassword
     $odbc  = Get-OdbcString -Pwd $roPwd
 
+    # PDF BA/BV : gedPdf n'est emis QUE si les tables GED existent reellement dans la base source
+    # (build-sqlserver-from-samples.ps1 les SKIP tant que les samples GED ne sont pas revenus --
+    # un gabarit gedPdf='tables' sur une base sans GED rendrait CheckHealth Unhealthy et ferait
+    # avorter chaque cycle d'extraction en boucle).
+    $sqlcmd = Resolve-Sqlcmd
+    $gedTablesPresent = (Invoke-SqlScalar -Sqlcmd $sqlcmd -Db $Database -Query "IF OBJECT_ID('enc.GED_Relation','U') IS NULL SELECT 'NO' ELSE SELECT 'YES';") -eq 'YES'
+
     if (-not (Test-Path $agentDir)) { New-Item -ItemType Directory -Path $agentDir | Out-Null }
 
     foreach ($inst in $instances) {
@@ -211,6 +222,14 @@ function Do-AgentConfig {
                 }
             }
         }
+        if ($gedTablesPresent) {
+            # PDF des bordereaux : lus via les tables GED de la base source (lecture seule).
+            # gedPdfRoot remplace GED_Param_Document.Chemin_stockage (le partage du serveur
+            # client) quand les fichiers sont ailleurs (copie de demo, replication).
+            $cfg['adapterConfig']['EncheresV6']['gedPdf'] = 'tables'
+            $cfg['adapterConfig']['EncheresV6']['gedPdfRoot'] = $(if ($GedPdfRoot) { $GedPdfRoot } else { '<<CHEMIN du dossier GED (copie locale ou partage reel) -- ou retirez cette cle pour utiliser le chemin de GED_Param_Document>>' })
+        }
+
         $cfg | ConvertTo-Json -Depth 6 | Set-Content -Path $cfgPath -Encoding UTF8
         Write-Host ("Gabarit ecrit : {0}  (dossier {1})" -f $cfgPath, $inst.Dossier) -ForegroundColor Green
     }
@@ -222,6 +241,16 @@ function Do-AgentConfig {
     Write-Host "Pour chiffrer (sur le poste ou tournera l'agent) :" -ForegroundColor Cyan
     Write-Host '  "<chaine ODBC>" | Liakont.Agent.Cli.exe encrypt    (ou collez la chaine quand l outil la demande)'
     Write-Host "Puis collez le resultat dans extraction.odbcConnectionString des 2 agent.json."
+    Write-Host ""
+    if (-not $gedTablesPresent) {
+        Write-Host "PDF des BA/BV : tables GED ABSENTES de la base source -- gedPdf non emis dans les gabarits." -ForegroundColor Yellow
+        Write-Host "Importez les tables GED (build-sqlserver-from-samples.ps1 avec les samples GED, puis re-import)" -ForegroundColor Yellow
+        Write-Host "et relancez : .\demo.ps1 agent-config" -ForegroundColor Yellow
+    }
+    elseif (-not $GedPdfRoot) {
+        Write-Host "PDF des BA/BV (GED) : remplacez le placeholder gedPdfRoot des agent.json par le chemin du" -ForegroundColor Yellow
+        Write-Host "dossier GED sur CE poste (ou relancez : .\demo.ps1 agent-config -GedPdfRoot '<chemin>')." -ForegroundColor Yellow
+    }
 }
 
 function Do-Status {

@@ -34,13 +34,18 @@ public sealed class PervasiveExtractor : IExtractor
     private readonly EncheresV6Schema _schema;
     private readonly string _dossier;
     private readonly IAgentLog _log;
+    private readonly IEncheresV6PdfSource _pdfSource;
 
     /// <summary>Crée l'extracteur ODBC EncheresV6.</summary>
     /// <param name="connectionFactory">Fabrique de connexions ODBC (lecture seule, paramétrage tenant).</param>
     /// <param name="schema">Connaissance du schéma (préfixe de tables paramétrable).</param>
     /// <param name="dossier">N° de dossier comptable (filtre tenant : « 1 » judiciaire / « 2 » volontaire).</param>
     /// <param name="log">Journal (mise en quarantaine d'un document source malformé).</param>
-    internal PervasiveExtractor(ISourceConnectionFactory connectionFactory, EncheresV6Schema schema, string dossier, IAgentLog log)
+    /// <param name="pdfSource">
+    /// Source des PDF de bordereaux (<c>null</c> = aucune source configurée : null-object, capacités PDF
+    /// non déclarées). Les capacités PDF de l'extracteur REFLÈTENT celles de la source (jamais un flag à part).
+    /// </param>
+    internal PervasiveExtractor(ISourceConnectionFactory connectionFactory, EncheresV6Schema schema, string dossier, IAgentLog log, IEncheresV6PdfSource? pdfSource = null)
     {
         _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
         _schema = schema ?? throw new ArgumentNullException(nameof(schema));
@@ -51,13 +56,14 @@ public sealed class PervasiveExtractor : IExtractor
 
         _dossier = dossier.Trim();
         _log = log ?? throw new ArgumentNullException(nameof(log));
+        _pdfSource = pdfSource ?? NullEncheresV6PdfSource.Instance;
 
         // R9 (gate « document finalisé ») : conformité NON présumée pour la source réelle (aucun prédicat de
         // finalisation au WHERE ; statut « comptabilisé » non sourcé). Fail-closed (false) → la garde plateforme
         // différée bloque plutôt que de risquer un brouillon. À confirmer au test ODBC réel.
         Capabilities = new ExtractorCapabilities(
-            providesSourceDocuments: false,
-            providesUnlinkedDocumentPool: false,
+            providesSourceDocuments: _pdfSource.ProvidesSourceDocuments,
+            providesUnlinkedDocumentPool: _pdfSource.ProvidesUnlinkedDocumentPool,
             hasDetailedLines: true,
             hasCreditNoteLink: true,
             exposesPayments: true,
@@ -194,11 +200,12 @@ public sealed class PervasiveExtractor : IExtractor
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<SourceAttachment> GetAttachments(string sourceReference) => Array.Empty<SourceAttachment>();
+    public IReadOnlyList<SourceAttachment> GetAttachments(string sourceReference) =>
+        _pdfSource.GetAttachments(sourceReference);
 
     /// <inheritdoc />
     public IEnumerable<PoolDocument> ListPoolDocuments(DateTime fromInclusiveUtc, DateTime toExclusiveUtc) =>
-        Array.Empty<PoolDocument>();
+        _pdfSource.ListPoolDocuments(fromInclusiveUtc, toExclusiveUtc);
 
     private static EncheresV6Bordereau ReadBaHeader(IDataReader reader, string noBa) => new EncheresV6Bordereau
     {

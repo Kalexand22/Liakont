@@ -21,7 +21,14 @@ $tables = @('entete_etude','Regime_tva','Frais_acheteur','frais_inv',
             'entete_pv','ligne_pv','entete_ba','lignes_ba','entete_bv','lignes_bv',
             'stock_lots','requisitions','vendeurs_societes',
             'entete_facture_clien','ligne_facture_client',
-            'entete_notes_hono','lignes_notes_hono','dossiers_inv')
+            'entete_notes_hono','lignes_notes_hono','dossiers_inv',
+            # GED (PDF des BA/BV) : tables declarees au dictionnaire Zen puis extraites par
+            # ged-extract.ps1 (workspace source HORS repo, a cote de EncheresExtract.exe --
+            # meme convention que les autres samples ; noms SQL <= 20 car., limite du dictionnaire).
+            # Tant que les samples GED ne sont pas revenus du serveur, ces tables sont SKIP et
+            # encheresv6-demo-sqlserver.sql reste sans GED : regeneration differee, voulue.
+            'GED_Type','GED_Param_Global','GED_Param_Document',
+            'GED_document_joint','GED_doc_joint_Ext','GED_Relation')
 
 function Read-Result($name) {
   $p = Join-Path $SamplesDir ($name + '.json')
@@ -39,14 +46,30 @@ function To-SqlType([string]$odbc) {
   switch ($odbc) {
     'INTEGER'     { 'int' }
     'SMALLINT'    { 'smallint' }
+    'UTINYINT'    { 'tinyint' }   # logiques Magic des tables GED (1 octet, 0/1)
     'BIT'         { 'bit' }
     'DATE'        { 'datetime2' }
     'DECIMAL'     { 'decimal(18,3)' }
     'DOUBLE'      { 'float' }
     'REAL'        { 'real' }
     'LONGVARCHAR' { 'nvarchar(max)' }
+    # EncheresExtract serialise les byte[] en chaine hex "0x..." : le default texte les
+    # corromprait (strip des controles + re-encodage). Aucune colonne binaire attendue
+    # (schema GED = fichiers sur disque, pas de blob), mais si une arrive, elle reste intacte.
+    'BINARY'        { 'varbinary(max)' }
+    'VARBINARY'     { 'varbinary(max)' }
+    'LONGVARBINARY' { 'varbinary(max)' }
     default       { 'nvarchar(max)' }
   }
+}
+
+# Litteral binaire SQL Server depuis la forme EncheresExtract ("0x4A..."). Une valeur
+# inattendue (pas "0x" + hex) est un defaut d'extraction : on echoue, on ne corrompt pas.
+function To-SqlBinary($v) {
+  $s = [string]$v
+  if ($s -notmatch '^0x[0-9A-Fa-f]*$') { throw "Valeur binaire inattendue (attendu '0x...') : $s" }
+  if ($s.Length -eq 2) { return 'NULL' }   # 0x vide
+  return $s
 }
 
 function To-SqlVal($v, [string]$odbc) {
@@ -55,9 +78,13 @@ function To-SqlVal($v, [string]$odbc) {
     'BIT'      { if ([bool]$v) { return '1' } else { return '0' } }
     'INTEGER'  { return ([long]$v).ToString($ci) }
     'SMALLINT' { return ([long]$v).ToString($ci) }
+    'UTINYINT' { return ([long]$v).ToString($ci) }
     'DECIMAL'  { return ([decimal]$v).ToString($ci) }
     'DOUBLE'   { return ([double]$v).ToString('R', $ci) }
     'REAL'     { return ([double]$v).ToString('R', $ci) }
+    'BINARY'        { return To-SqlBinary $v }
+    'VARBINARY'     { return To-SqlBinary $v }
+    'LONGVARBINARY' { return To-SqlBinary $v }
     'DATE'     { return "'" + (([string]$v) -replace "'", "''") + "'" }
     default    {
       $s = ([string]$v) -replace '\p{Cc}', ''   # supprime NUL + controles (padding CHAR Pervasive)

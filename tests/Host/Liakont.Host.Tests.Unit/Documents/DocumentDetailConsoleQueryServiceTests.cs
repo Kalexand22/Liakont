@@ -2,6 +2,7 @@ namespace Liakont.Host.Tests.Unit.Documents;
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
@@ -9,10 +10,12 @@ using Liakont.Agent.Contracts.Pivot;
 using Liakont.Host.Documents;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Documents.Contracts.Queries;
+using Liakont.Modules.Ingestion.Contracts;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Contracts.Queries;
 using MediatR;
 using Microsoft.Extensions.Logging.Abstractions;
+using Stratum.Common.Abstractions.MultiTenancy;
 using Xunit;
 
 public sealed class DocumentDetailConsoleQueryServiceTests
@@ -46,12 +49,16 @@ public sealed class DocumentDetailConsoleQueryServiceTests
         FakeContentReplay? replay = null,
         DocumentMarginRecapDto? marginRecap = null,
         bool marginRecapThrows = false,
-        FakeB2cMarginEmissionQueries? emissions = null) =>
+        FakeB2cMarginEmissionQueries? emissions = null,
+        FakeLinkedPdfStore? pdfStore = null,
+        string? tenantId = "tenant-demo") =>
         new(
             documents,
             replay ?? new FakeContentReplay(),
             emissions ?? new FakeB2cMarginEmissionQueries(),
             new FakeSender { Recap = marginRecap, Throws = marginRecapThrows },
+            pdfStore ?? new FakeLinkedPdfStore(),
+            new FakeTenantContext(tenantId),
             NullLogger<DocumentDetailConsoleQueryService>.Instance);
 
     [Fact]
@@ -430,6 +437,60 @@ public sealed class DocumentDetailConsoleQueryServiceTests
         result!.EReportedBatchId.Should().BeNull("le lien est omis sur panne, jamais inventé");
     }
 
+    [Fact]
+    public async Task GetDetailAsync_Should_Expose_The_Source_Pdf_When_The_Ingested_File_Exists()
+    {
+        // Le lien « pièce jointe » (PDF d'origine poussé par l'agent) n'est proposé que si le fichier est
+        // réellement présent pour CE tenant et CE document (sonde par référence source) — jamais de lien mort.
+        var fake = new FakeDocumentQueries { Document = Doc("100352", "Issued"), Events = [] };
+        var pdfStore = new FakeLinkedPdfStore { Exists = true };
+
+        var result = await Build(fake, pdfStore: pdfStore).GetDetailAsync(DocId);
+
+        result!.HasSourcePdf.Should().BeTrue();
+        pdfStore.Probes.Should().ContainSingle().Which.Should().Be(
+            ("tenant-demo", "src/100352"),
+            "la sonde est bornée au tenant courant et adressée par la référence source du document");
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_Should_Hide_The_Source_Pdf_Link_When_No_File_Was_Ingested()
+    {
+        // Cas normal (document source sans PDF, ou pas encore transmis) : pas de lien, pas d'erreur.
+        var fake = new FakeDocumentQueries { Document = Doc("100353", "Issued"), Events = [] };
+
+        var result = await Build(fake, pdfStore: new FakeLinkedPdfStore { Exists = false }).GetDetailAsync(DocId);
+
+        result!.HasSourcePdf.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_Should_Stay_Available_When_The_Source_Pdf_Probe_Fails()
+    {
+        // Robustesse (miroir du récap de marge) : la sonde est une aide AUXILIAIRE — sa panne omet le lien
+        // mais ne casse JAMAIS la lecture du détail.
+        var fake = new FakeDocumentQueries { Document = Doc("100354", "Issued"), Events = [] };
+
+        var result = await Build(fake, pdfStore: new FakeLinkedPdfStore { Throws = true }).GetDetailAsync(DocId);
+
+        result.Should().NotBeNull("une panne de la sonde n'empêche pas de consulter le document");
+        result!.HasSourcePdf.Should().BeFalse("le lien est omis sur panne, jamais inventé");
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_Should_Not_Probe_The_Source_Pdf_Without_A_Resolved_Tenant()
+    {
+        // Session sans tenant résolu (super-admin cross-tenant, prérendu) : le stockage Ingestion est
+        // adressé par tenant — aucune sonde, pas de lien (deny-by-default, CLAUDE.md n°9).
+        var fake = new FakeDocumentQueries { Document = Doc("100355", "Issued"), Events = [] };
+        var pdfStore = new FakeLinkedPdfStore { Exists = true };
+
+        var result = await Build(fake, pdfStore: pdfStore, tenantId: null).GetDetailAsync(DocId);
+
+        result!.HasSourcePdf.Should().BeFalse();
+        pdfStore.Probes.Should().BeEmpty("sans tenant, le stockage n'est même pas sondé");
+    }
+
     /// <summary>Pivot SOURCE minimal (catégorie/VATEX nuls — non mappés) pour exercer le rejeu read-time d'un document bloqué.</summary>
     private static PivotDocumentDto SourcePivot(string description, string sourceRegime, decimal netAmount) => new(
         sourceDocumentKind: "invoice",
@@ -629,5 +690,47 @@ public sealed class DocumentDetailConsoleQueryServiceTests
 
         public IAsyncEnumerable<object?> CreateStream(object request, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+    }
+
+    // Fake du stockage des PDF ingérés : seule la sonde d'existence du PDF rattaché est utilisée par le
+    // service (le flux est servi par l'endpoint, pas par l'assemblage). Enregistre (tenant, référence)
+    // pour prouver le scope de la sonde.
+    private sealed class FakeLinkedPdfStore : IIngestedPdfStore
+    {
+        public bool Exists { get; init; }
+
+        public bool Throws { get; init; }
+
+        public List<(string TenantId, string SourceReference)> Probes { get; } = [];
+
+        public Task<bool> LinkedPdfExistsAsync(string tenantId, string sourceReference, CancellationToken cancellationToken = default)
+        {
+            Probes.Add((tenantId, sourceReference));
+            if (Throws)
+            {
+                throw new InvalidOperationException("Échec simulé de la sonde du PDF rattaché.");
+            }
+
+            return Task.FromResult(Exists);
+        }
+
+        public Task<Stream?> TryOpenLinkedPdfAsync(string tenantId, string sourceReference, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<string> SaveLinkedPdfAsync(string tenantId, string sourceReference, Stream content, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<string> SavePooledPdfAsync(string tenantId, string fileName, Stream content, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<PooledPdfReference>> ListPooledPdfsAsync(string tenantId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<Stream> OpenPooledPdfAsync(string tenantId, string poolPdfId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class FakeTenantContext : ITenantContext
+    {
+        public FakeTenantContext(string? tenantId) => TenantId = tenantId;
+
+        public string? TenantId { get; }
+
+        public bool IsResolved => TenantId is not null;
     }
 }

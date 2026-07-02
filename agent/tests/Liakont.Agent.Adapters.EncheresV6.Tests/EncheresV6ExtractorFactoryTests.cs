@@ -101,6 +101,84 @@ public class EncheresV6ExtractorFactoryTests
     }
 
     [Fact]
+    public void GedPdf_tables_declares_the_linked_documents_capability()
+    {
+        var protector = new FakeSecretProtector();
+        AgentConfig config = Config(
+            odbc: protector.Protect("DSN=encheresv6;ReadOnly=1"),
+            fixtures: null,
+            section: Section(dossier: "2", schema: "enc", gedPdf: "tables", gedPdfRoot: "C:\\ged-replique"));
+
+        IExtractor extractor = EncheresV6ExtractorFactory.Create(config, protector, new RecordingAgentLog());
+
+        extractor.Capabilities.ProvidesSourceDocuments.Should().BeTrue("gedPdf = tables active la source PDF GED");
+        extractor.Capabilities.ProvidesUnlinkedDocumentPool.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Without_gedPdf_the_capability_stays_undeclared()
+    {
+        var protector = new FakeSecretProtector();
+        AgentConfig config = Config(
+            odbc: protector.Protect("DSN=encheresv6;ReadOnly=1"),
+            fixtures: null,
+            section: Section(dossier: "2", schema: "enc"));
+
+        IExtractor extractor = EncheresV6ExtractorFactory.Create(config, protector, new RecordingAgentLog());
+
+        extractor.Capabilities.ProvidesSourceDocuments.Should().BeFalse("la plateforme ne s'appuie que sur ce qui est honoré");
+    }
+
+    [Fact]
+    public void An_unknown_gedPdf_value_is_rejected_in_french()
+    {
+        var protector = new FakeSecretProtector();
+        AgentConfig config = Config(
+            odbc: protector.Protect("DSN=encheresv6;ReadOnly=1"),
+            fixtures: null,
+            section: Section(dossier: "2", schema: "enc", gedPdf: "dossier"));
+
+        Action act = () => EncheresV6ExtractorFactory.Create(config, protector, new RecordingAgentLog());
+
+        act.Should().Throw<AgentConfigException>().Which.Message.Should().Contain("gedPdf").And.Contain("tables");
+    }
+
+    [Fact]
+    public void A_gedPdfRoot_without_gedPdf_is_rejected_as_dead_config()
+    {
+        var protector = new FakeSecretProtector();
+        AgentConfig config = Config(
+            odbc: protector.Protect("DSN=encheresv6;ReadOnly=1"),
+            fixtures: null,
+            section: Section(dossier: "2", schema: "enc", gedPdfRoot: "C:\\ged-replique"));
+
+        Action act = () => EncheresV6ExtractorFactory.Create(config, protector, new RecordingAgentLog());
+
+        act.Should().Throw<AgentConfigException>().Which.Message
+            .Should().Contain("gedPdfRoot", "une racine seule n'active rien : l'opérateur croirait ses PDF transmis");
+    }
+
+    [Fact]
+    public void GedPdf_config_in_fixture_mode_is_rejected()
+    {
+        string file = Path.Combine(Path.GetTempPath(), "encheresv6-fixture-" + Guid.NewGuid().ToString("N") + ".json");
+        File.WriteAllText(file, FixtureJson);
+        try
+        {
+            AgentConfig config = Config(odbc: null, fixtures: file, section: Section(dossier: null, schema: null, gedPdf: "tables"));
+
+            Action act = () => EncheresV6ExtractorFactory.Create(config, new FakeSecretProtector(), new RecordingAgentLog());
+
+            act.Should().Throw<AgentConfigException>().Which.Message
+                .Should().Contain("fixtures", "les tables GED exigent le mode ODBC");
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [Fact]
     public void Null_arguments_are_rejected()
     {
         var protector = new FakeSecretProtector();
@@ -112,7 +190,7 @@ public class EncheresV6ExtractorFactoryTests
         ((Action)(() => EncheresV6ExtractorFactory.Create(config, protector, null!))).Should().Throw<ArgumentNullException>();
     }
 
-    private static AdapterConfigSection Section(string? dossier, string? schema)
+    private static AdapterConfigSection Section(string? dossier, string? schema, string? gedPdf = null, string? gedPdfRoot = null)
     {
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (dossier != null)
@@ -123,6 +201,16 @@ public class EncheresV6ExtractorFactoryTests
         if (schema != null)
         {
             values["schema"] = schema;
+        }
+
+        if (gedPdf != null)
+        {
+            values["gedPdf"] = gedPdf;
+        }
+
+        if (gedPdfRoot != null)
+        {
+            values["gedPdfRoot"] = gedPdfRoot;
         }
 
         return new AdapterConfigSection(EncheresV6ExtractorFactory.AdapterName, values);

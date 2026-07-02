@@ -1058,3 +1058,64 @@ revue Claude **clean** au round 3). Détail + commit sous chaque bug.
   `Stratum.Common.UI.Components`, label au-dessus + Required) + `input.form-control` (pleine largeur stylée),
   même pattern qu'`AlertesView`. `data-testid` inchangés (tests bUnit verts, 6/6). Rappel de la règle :
   jamais de classes CSS maison non définies dans une page console (design system Stratum obligatoire).
+
+
+## CHANTIER GED-PDF — rapatriement des PDF BA/BV depuis la GED EncheresV6 — relevé Karl 2026-07-02
+- **Relevé Karl** : « Dans l'état actuel, le plus gros truc qui me manque, c'est l'envoi des PDF des BA/BV »
+  (= ramener les PDF de la GED Enchères SVV sur le serveur — pas de génération, pas d'envoi email).
+- **Constat côté produit (sourcé code)** : le rail « pièces jointes » ADP05 est construit (agent :
+  `IEncheresV6PdfSource` + `FileSystemEncheresV6PdfSource` testé ; serveur : module Ingestion
+  `IIngestedPdfStore`, Reconciliation, UI `DocumentAttachment`) mais **débranché** : les deux extracteurs
+  renvoient `Array.Empty` en dur (`PervasiveExtractor.cs:197`, `EncheresV6FixtureExtractor.cs:237`) et
+  aucune section PDF n'existe dans `agent.json`/factory/wizard.
+- **Design source élucidé (référentiel Magic `DataSources.xml`)** : 6 tables — `GED_Type`,
+  `GED_Parametre_Global`, `GED_Parametre_Document` (racine `Chemin_stockage` + arborescence paramétrée
+  année/mois/dossier/référence/type), `GED_document_joint` (fichier : nom, extension, période, audit),
+  `GED_document_joint_Ext` (lien vente), `GED_Relation` (liaison générique Code_flux + Ref_numerique1/2 +
+  Ref_alpha1/2 → No_document_joint). **PDF = fichiers sur disque, pas de blob.**
+- **Blocage extraction résolu** : ces tables ne sont pas déclarées au dictionnaire SQL Zen (DDF, noms ≤ 20
+  car.) — Magic les lit en Btrieve direct. Outil `ged-extract.ps1` livré dans le workspace source (à côté
+  d'`EncheresExtract.exe`, hors repo) : déclaration `CREATE TABLE … USING … IN DICTIONARY` (métadonnées
+  seules, jamais la data ; `DROP` nu interdit — variante `IN DICTIONARY` imposée) puis extraction JSON.
+- **✅ FAIT (2026-07-02)** : `build-sqlserver-from-samples.ps1` étendu aux 6 tables GED (types UTINYINT +
+  binaire hex sans corruption ; skip explicite tant que les samples ne sont pas revenus du serveur).
+  Review clean (round 2), verify-fast vert.
+- **✅ FAIT (2026-07-02, après-midi)** :
+  - (1) samples GED extraits (702 documents / 702 relations / 702 ext, 10 param, 13 types, 1 global) →
+    `encheresv6-demo-sqlserver.sql` régénéré (gitignoré) et **tables GED appliquées chirurgicalement** sur
+    la base live `EncheresV6_Demo` (sans `demo.ps1 source -Force`, qui régénérerait le mot de passe RO et
+    casserait la chaîne ODBC chiffrée des agents).
+  - (2) dossier GED copié sur le poste (`C:\Source\Enchères SVV\Tools\EncheresExtract\GED`) et **croisé** :
+    570/570 BA+BV non supprimés retrouvés, arborescence prouvée
+    `<racine>\<No_dossier>\<Année>\<Mois 2 ch.>\<Type_modele>\<Référence>\<Nom_fichier><ext>` ;
+    liaison = `GED_Relation.Ref_numerique1` = no_ba (flux 5) / no_bv (flux 6, table `GED_Type`).
+    NB : flux 7 (factures client) a `Ref_numerique1 = 0` → liaison NON sourcée, hors périmètre.
+  - (3) chantier produit livré : `GedTableEncheresV6PdfSource` (ODBC lecture seule, `SelectGedLinkedPdfSql`
+    avec Supprime=0 + scope dossier, chemin reconstruit + garde sous-racine, racine =
+    `GED_Param_Document.Chemin_stockage` avec override `gedPdfRoot`) ; délégation `PervasiveExtractor`
+    (capacités reflétées) ; config `adapterConfig.EncheresV6.gedPdf="tables"` (+ `gedPdfRoot`), valeurs
+    inconnues/orphelines/fixture-mode refusées en français ; tables GED dans `CheckHealth` quand la source
+    est active ; gabarits `demo.ps1 agent-config -GedPdfRoot <chemin>`. **+ fix robustesse
+    `ExtractionCycle`** : collecte des PDF AVANT le skip anti re-push du document (un PDF tardif/raté après
+    acquittement était perdu définitivement) — idempotence par la clé PDF (chemin). Échec ODBC de la
+    collecte = `SourceUnavailableException` propagée (cycle réessayable, jamais de PDF perdu en silence) ;
+    anomalie de donnée = Warning français + bordereau transmis sans pièce (70 BA réels sans PDF : légitime).
+- **✅ FAIT (2026-07-02, fin de journée) — recette agent + affichage console** :
+  - agent volontaire2 reconfiguré (gedPdf/gedPdfRoot), binaires du paquet rafraîchis, queue purgée →
+    **415 documents ré-extraits, 396 PDF collectés et poussés, 0 erreur ; 396 fichiers reçus côté serveur**
+    (`App_Data/ingestion-pdf/volontaire/linked/`). NB relevé : le service pointe le PAQUET
+    `artifacts/agent-installers/...` (pas le bin du repo) — rafraîchir le paquet à chaque livraison agent.
+  - **le dernier mètre manquait** : la fiche document n'affichait pas la pièce (composant socle
+    `DocumentAttachment` orphelin — gestionnaire upload/delete, mauvais outil pour une pièce ingérée en
+    lecture seule ; aucune lecture du store). Lot livré : lecture `LinkedPdfExistsAsync`/`TryOpenLinkedPdfAsync`
+    sur `IIngestedPdfStore`, sonde `HasSourcePdf` dans l'assemblage de la fiche (panne = lien omis, jamais
+    de détail cassé), endpoint Host `GET /api/v1/documents/{id}/piece-jointe` (garde liakont.read,
+    tenant-scopé, inline + nosniff + nom assaini), lien « Voir le document d'origine (PDF) » sur la fiche.
+    Review clean (round 3 ; P2 traités : couverture HTTP réelle via `Liakont.Console.Api.Tests.Integration`
+    — 403/404 isolation/404 sans PDF/200 inline+nosniff — et en-tête nosniff), verify-fast + run-tests PASS.
+- **⏳ RESTE** : (a) vérif visuelle Karl (fiche d'un BA/BV avec PDF) ; (b) install prod : la déclaration
+  des tables GED au dictionnaire Zen devient une étape d'installation (wizard) puisque l'agent lit via le
+  même ODBC ; (c) fast-follow éventuels : liaison GED des factures client (flux 7, `Ref_numerique1=0` —
+  clé réelle non élucidée) ; filtre du TYPE de document GED poussé (la GED lie aussi des pièces « libres »
+  — ex. scan de carte d'identité type `LIBRE926` sur le BA 100225 : minimisation des données à trancher,
+  filtrer Type_modele BA/BV ?) ; instance judiciaire (dossier 1) sans agent actif.

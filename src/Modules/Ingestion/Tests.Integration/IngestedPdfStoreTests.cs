@@ -40,6 +40,39 @@ public sealed class IngestedPdfStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Linked_Pdf_Round_Trips_Through_Exists_And_TryOpen()
+    {
+        // Lecture de la fiche document : la sonde et l'ouverture retrouvent EXACTEMENT ce que
+        // l'ingestion a écrit (même adressage déterministe), sans registre annexe.
+        await _store.SaveLinkedPdfAsync("tenant-a", "encheresv6:ba:100352", Bytes("pdf-bytes"));
+
+        (await _store.LinkedPdfExistsAsync("tenant-a", "encheresv6:ba:100352")).Should().BeTrue();
+
+        await using var stream = await _store.TryOpenLinkedPdfAsync("tenant-a", "encheresv6:ba:100352");
+        stream.Should().NotBeNull();
+        using var reader = new StreamReader(stream!);
+        (await reader.ReadToEndAsync()).Should().Be("pdf-bytes");
+    }
+
+    [Fact]
+    public async Task Linked_Pdf_Read_Is_Null_And_False_When_Absent()
+    {
+        // Document sans PDF en source : cas NORMAL — false/null, jamais une exception.
+        (await _store.LinkedPdfExistsAsync("tenant-a", "encheresv6:ba:100999")).Should().BeFalse();
+        (await _store.TryOpenLinkedPdfAsync("tenant-a", "encheresv6:ba:100999")).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Linked_Pdf_Read_Is_Tenant_Scoped()
+    {
+        // Le PDF du tenant A n'est JAMAIS visible du tenant B (adressage par tenant, CLAUDE.md n°9).
+        await _store.SaveLinkedPdfAsync("tenant-a", "ref-1", Bytes("a"));
+
+        (await _store.LinkedPdfExistsAsync("tenant-b", "ref-1")).Should().BeFalse();
+        (await _store.TryOpenLinkedPdfAsync("tenant-b", "ref-1")).Should().BeNull();
+    }
+
+    [Fact]
     public async Task Pooled_Pdf_Keeps_Each_Deposit_Distinct()
     {
         var a = await _store.SavePooledPdfAsync("tenant-a", "scan.pdf", Bytes("a"));

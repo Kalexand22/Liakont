@@ -8,10 +8,12 @@ using System.Threading.Tasks;
 using Liakont.Agent.Contracts.Pivot;
 using Liakont.Modules.Documents.Contracts.DTOs;
 using Liakont.Modules.Documents.Contracts.Queries;
+using Liakont.Modules.Ingestion.Contracts;
 using Liakont.Modules.Pipeline.Contracts;
 using Liakont.Modules.Pipeline.Contracts.Queries;
 using MediatR;
 using Microsoft.Extensions.Logging;
+using Stratum.Common.Abstractions.MultiTenancy;
 
 /// <summary>
 /// Implémentation de <see cref="IDocumentDetailConsoleQueries"/> : assemble la vue détail à partir des
@@ -34,6 +36,8 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
     private readonly IDocumentContentReplayService _contentReplay;
     private readonly IB2cMarginEmissionQueries _emissions;
     private readonly ISender _sender;
+    private readonly IIngestedPdfStore _pdfStore;
+    private readonly ITenantContext _tenantContext;
     private readonly ILogger<DocumentDetailConsoleQueryService> _logger;
 
     public DocumentDetailConsoleQueryService(
@@ -41,12 +45,16 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
         IDocumentContentReplayService contentReplay,
         IB2cMarginEmissionQueries emissions,
         ISender sender,
+        IIngestedPdfStore pdfStore,
+        ITenantContext tenantContext,
         ILogger<DocumentDetailConsoleQueryService> logger)
     {
         _documents = documents;
         _contentReplay = contentReplay;
         _emissions = emissions;
         _sender = sender;
+        _pdfStore = pdfStore;
+        _tenantContext = tenantContext;
         _logger = logger;
     }
 
@@ -89,6 +97,8 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
 
         var eReportedBatchId = await ResolveEReportedBatchIdAsync(id, document.State, cancellationToken).ConfigureAwait(false);
 
+        var hasSourcePdf = await ResolveHasSourcePdfAsync(document.SourceReference, cancellationToken).ConfigureAwait(false);
+
         return new DocumentDetailViewModel
         {
             Document = document,
@@ -97,6 +107,7 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
             Content = content,
             MarginRecap = marginRecap,
             EReportedBatchId = eReportedBatchId,
+            HasSourcePdf = hasSourcePdf,
             Archive = archive,
             IsArchived = archive is not null,
         };
@@ -110,6 +121,35 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to resolve the margin recap for document {DocumentId}; the recap is omitted (the detail remains available).")]
     private static partial void LogMarginRecapFailed(ILogger logger, Guid documentId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to probe the ingested source PDF; the attachment link is omitted (the detail remains available).")]
+    private static partial void LogSourcePdfProbeFailed(ILogger logger, Exception exception);
+
+    /// <summary>
+    /// Sonde la présence du PDF d'origine (poussé par l'agent, module Ingestion) pour proposer le lien
+    /// « pièce jointe » — jamais de lien mort. AIDE AUXILIAIRE (miroir du récap de marge) : une panne de
+    /// la sonde n'expose pas le lien mais ne casse JAMAIS le détail ; seule l'annulation se propage.
+    /// Tenant-scopée : le stockage est borné au tenant résolu du circuit (CLAUDE.md n°9).
+    /// </summary>
+    private async Task<bool> ResolveHasSourcePdfAsync(string sourceReference, CancellationToken cancellationToken)
+    {
+        var tenantId = _tenantContext.TenantId;
+        if (string.IsNullOrEmpty(tenantId))
+        {
+            // Pas de tenant résolu (super-admin cross-tenant, prérendu) : pas de stockage à sonder.
+            return false;
+        }
+
+        try
+        {
+            return await _pdfStore.LinkedPdfExistsAsync(tenantId, sourceReference, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogSourcePdfProbeFailed(_logger, ex);
+            return false;
+        }
+    }
 
     // Lien « Voir la déclaration » (fiche → /emissions-marge-b2c/{lot}) : le LOT d'émission auquel appartient le
     // document e-reporté est lu depuis la SOURCE DE VÉRITÉ de la liaison — le journal d'émission B2C

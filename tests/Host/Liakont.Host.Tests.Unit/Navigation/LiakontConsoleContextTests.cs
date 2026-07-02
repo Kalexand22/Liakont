@@ -198,6 +198,10 @@ public sealed class LiakontConsoleContextTests
         public Task<string> SavePooledPdfAsync(string tenantId, string fileName, Stream content, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task<Stream> OpenPooledPdfAsync(string tenantId, string poolPdfId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<bool> LinkedPdfExistsAsync(string tenantId, string sourceReference, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<Stream?> TryOpenLinkedPdfAsync(string tenantId, string sourceReference, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class FakeTenantContext : ITenantContext
