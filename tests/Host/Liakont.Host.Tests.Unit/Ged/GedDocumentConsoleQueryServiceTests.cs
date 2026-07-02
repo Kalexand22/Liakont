@@ -2,14 +2,18 @@ namespace Liakont.Host.Tests.Unit.Ged;
 
 using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Liakont.Host.Ged;
 using Liakont.Host.Security;
+using Liakont.Modules.Archive.Application;
 using Liakont.Modules.Archive.Contracts;
+using Liakont.Modules.Archive.Domain;
 using Liakont.Modules.Ged.Contracts.Consultation;
 using Liakont.Modules.Ged.Contracts.Queries;
+using Stratum.Common.Abstractions.MultiTenancy;
 using Stratum.Common.Abstractions.Security;
 using Xunit;
 
@@ -131,6 +135,33 @@ public sealed class GedDocumentConsoleQueryServiceTests
         await act.Should().ThrowAsync<ConsultationAuditException>();
     }
 
+    [Fact]
+    public async Task Renders_An_Altered_Verdict_Instead_Of_Throwing_When_The_Real_Reader_Meets_A_Corrupt_Manifest()
+    {
+        // GDF08 — bout-en-bout de la fiche avec le VRAI ManagedArchiveReader : un manifest JSON valide mais
+        // altéré (archiveKey vide → SanitizeSegment lève) NE DOIT PLUS faire planter /ged/document ; la fiche
+        // affiche le verdict Altered (contrat l.147-149). C'est le mode de défaillance corrigé par GDF08.
+        var document = GedOnlyDocument();
+        var queries = new FakeGedDocumentQueries(document);
+
+        byte[] corruptManifest = Encoding.UTF8.GetBytes(
+            "{\"archiveKind\":\"documents\",\"archiveKey\":\"\",\"filedOn\":\"2026-06-01\"," +
+            "\"packageHash\":\"seal\",\"files\":[{\"name\":\"payload.json\"}]}");
+        var store = new FakeArchiveStore();
+        store.Put("t1", document.ArchivePath!, corruptManifest);
+        var realReader = new ManagedArchiveReader(store, new FakeTenantContext("t1"));
+
+        var consultation = new FakeConsultationAuditWriter();
+        var service = Build(queries, realReader, consultation, permissions: GrantAll());
+
+        GedDocumentDetailViewModel? result = null;
+        Func<Task> act = async () => result = await service.GetAsync(DocId);
+
+        await act.Should().NotThrowAsync("un manifest corrompu produit un verdict d'intégrité, jamais une exception sur la fiche");
+        result!.Integrity.State.Should().Be(GedDocumentIntegrityState.Altered);
+        result.Integrity.Detail.Should().Contain("corrompu");
+    }
+
     private static GedDocumentConsoleQueryService Build(
         IGedDocumentQueries queries,
         IManagedArchiveReader reader,
@@ -218,5 +249,33 @@ public sealed class GedDocumentConsoleQueryServiceTests
         }
 
         public bool HasPermission(string permission) => _granted.Contains(permission);
+    }
+
+    private sealed class FakeArchiveStore : IArchiveStore
+    {
+        private readonly Dictionary<string, byte[]> _objects = new(StringComparer.Ordinal);
+
+        public ArchiveStoreCapabilities Capabilities => ArchiveStoreCapabilities.None;
+
+        public void Put(string tenant, string relativePath, byte[] content) => _objects[tenant + "|" + relativePath] = content;
+
+        public Task WriteAsync(string tenant, string relativePath, byte[] content, CancellationToken cancellationToken = default)
+        {
+            _objects[tenant + "|" + relativePath] = content;
+            return Task.CompletedTask;
+        }
+
+        public Task<bool> ExistsAsync(string tenant, string relativePath, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_objects.ContainsKey(tenant + "|" + relativePath));
+
+        public Task<byte[]> ReadAsync(string tenant, string relativePath, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_objects[tenant + "|" + relativePath]);
+    }
+
+    private sealed class FakeTenantContext(string tenantId) : ITenantContext
+    {
+        public string? TenantId { get; } = tenantId;
+
+        public bool IsResolved => true;
     }
 }

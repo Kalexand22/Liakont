@@ -125,6 +125,79 @@ public sealed class ManagedArchiveReaderTests
     }
 
     [Fact]
+    public async Task Verify_WhenManifestArchiveKeyEmpty_ReportsAlteredWithoutThrowing()
+    {
+        // archiveKey="" est une chaîne JSON VALIDE, mais SanitizeSegment("") LÈVE ArgumentException dans
+        // GedArchivePackageLayout.PackageDirectory : le reader doit la traduire en Altered, jamais la laisser
+        // remonter jusqu'à la fiche (GDF08, INV-ARCH-GED-2 ; fail-closed n°3).
+        await AssertTamperedManifestReportsAlteredWithoutThrowing(
+            "{\"archiveKind\":\"bordereau\",\"archiveKey\":\"\",\"filedOn\":\"2026-05-12\",\"packageHash\":\"seal\",\"files\":[{\"name\":\"piece.pdf\"}]}");
+    }
+
+    [Fact]
+    public async Task Verify_WhenManifestArchiveKindSanitizesEmpty_ReportsAlteredWithoutThrowing()
+    {
+        // archiveKind="/" s'assainit en segment VIDE (nom de base après le « / » = "") → ArgumentException.
+        await AssertTamperedManifestReportsAlteredWithoutThrowing(
+            "{\"archiveKind\":\"/\",\"archiveKey\":\"K-42\",\"filedOn\":\"2026-05-12\",\"packageHash\":\"seal\",\"files\":[{\"name\":\"piece.pdf\"}]}");
+    }
+
+    [Fact]
+    public async Task Verify_WhenManifestPackageHashNotString_ReportsAlteredWithoutThrowing()
+    {
+        // packageHash numérique → GetString() lèverait InvalidOperationException (non rattrapée à l'origine).
+        await AssertTamperedManifestReportsAlteredWithoutThrowing(
+            "{\"archiveKind\":\"bordereau\",\"archiveKey\":\"K-42\",\"filedOn\":\"2026-05-12\",\"packageHash\":1234,\"files\":[{\"name\":\"piece.pdf\"}]}");
+    }
+
+    [Fact]
+    public async Task Verify_WhenManifestFileNameEmpty_ReportsAlteredWithoutThrowing()
+    {
+        // files[].name="" passait le parse puis explosait HORS try dans ArchivePackageLayout.Combine.
+        await AssertTamperedManifestReportsAlteredWithoutThrowing(
+            "{\"archiveKind\":\"bordereau\",\"archiveKey\":\"K-42\",\"filedOn\":\"2026-05-12\",\"packageHash\":\"seal\",\"files\":[{\"name\":\"\"}]}");
+    }
+
+    [Fact]
+    public async Task Verify_WhenManifestFileNameSanitizesEmpty_ReportsAlteredWithoutThrowing()
+    {
+        // Un nom non vide mais qui s'assainit en vide (« / ») exploserait AUSSI dans Combine (hors try) :
+        // le pré-vol SanitizeSegment dans le parse le rattrape.
+        await AssertTamperedManifestReportsAlteredWithoutThrowing(
+            "{\"archiveKind\":\"bordereau\",\"archiveKey\":\"K-42\",\"filedOn\":\"2026-05-12\",\"packageHash\":\"seal\",\"files\":[{\"name\":\"/\"}]}");
+    }
+
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("123")]
+    [InlineData("\"scalaire\"")]
+    [InlineData("null")]
+    public async Task Verify_WhenManifestRootIsNotAnObject_ReportsAlteredWithoutThrowing(string nonObjectJson)
+    {
+        // JsonDocument.Parse accepte un scalaire/tableau/null au premier niveau (tous des JSON valides) ;
+        // TryGetProperty LÈVERAIT alors InvalidOperationException sur une racine non-objet → doit être rattrapé
+        // en Altered, jamais laissé atteindre la fiche (GDF08, INV-ARCH-GED-2).
+        await AssertTamperedManifestReportsAlteredWithoutThrowing(nonObjectJson);
+    }
+
+    // GDF08 : un manifest JSON VALIDE mais ALTÉRÉ (archiveKey/kind assainis en vide, packageHash non-chaîne, nom
+    // de pièce vide/assaini en vide) doit rendre un verdict Altered — JAMAIS une exception qui atteindrait la
+    // fiche /ged/document (le seul chemin rattrapé à l'origine était JsonException).
+    private async Task AssertTamperedManifestReportsAlteredWithoutThrowing(string manifestJson)
+    {
+        GedArchivePackageResult archived = await CreateWriter().ArchiveManagedDocumentAsync(Request());
+        _store.Tamper(Tenant, archived.ArchivePath, Encoding.UTF8.GetBytes(manifestJson));
+
+        ManagedArchiveReader reader = CreateReader();
+        GedArchiveIntegrityResult result = default!;
+        Func<Task> act = async () => result = await reader.VerifyManagedPackageAsync(archived.ArchivePath, archived.ContentHash);
+
+        await act.Should().NotThrowAsync("un manifest corrompu se traduit en verdict, jamais en exception (GDF08, INV-ARCH-GED-2)");
+        result.Status.Should().Be(GedArchiveIntegrityStatus.Altered);
+        result.Detail.Should().Contain("corrompu");
+    }
+
+    [Fact]
     public async Task Verify_WhenPathOrHashMissing_ReportsNotArchived()
     {
         ManagedArchiveReader reader = CreateReader();
