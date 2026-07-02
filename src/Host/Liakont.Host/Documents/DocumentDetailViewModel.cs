@@ -44,10 +44,13 @@ public sealed record DocumentDetailViewModel
 
     /// <summary>
     /// Identifiant du lot d'émission e-reporting B2C par lequel ce document a été déclaré (BUG-24/ADR-0037),
-    /// alimentant le lien « Voir la déclaration » (fiche → <c>/emissions-marge-b2c/{batchId}</c>). Source :
-    /// l'événement d'audit <c>DocumentEReported</c> DÉJÀ chargé (jamais une requête read-time sur le journal —
-    /// l'état, lui, reste piloté par <c>documents.state</c>). <c>null</c> hors état <c>EReported</c> ou si le
-    /// batch n'est pas extractible (lien alors simplement absent, jamais une erreur).
+    /// alimentant le lien « Voir la déclaration » (fiche → <c>/emissions-marge-b2c/{batchId}</c>) et le signal
+    /// « déjà déclaré » de la barre d'actions (masque « Envoyer »). Source : le journal d'émission B2C
+    /// (<c>pipeline.b2c_margin_emissions</c>, filtré <c>status='Issued'</c>), résolu au read-time pour les états
+    /// <c>EReported</c> (aboutissement nominal) ET <c>ReadyToSend</c> — la fenêtre RÉSIDUELLE transitoire
+    /// « émission acceptée mais état non encore transitionné » (GDF03, filet read-time léger). Non-<c>null</c>
+    /// UNIQUEMENT pour un document réellement déclaré (un <c>ReadyToSend</c> jamais e-reporté reste <c>null</c>) ;
+    /// <c>null</c> aussi si le batch n'est pas extractible (lien/signal alors simplement absents, jamais une erreur).
     /// </summary>
     public Guid? EReportedBatchId { get; init; }
 
