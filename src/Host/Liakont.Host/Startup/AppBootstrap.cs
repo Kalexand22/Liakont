@@ -197,7 +197,14 @@ public static class AppBootstrap
         // passe injecté au déploiement, jamais en clair — CLAUDE.md n°10). Désactivé/non configuré = no-op
         // journalisé (pas de retry infini). Consommé par EmailSendJobHandler au moment de la livraison.
         builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
-        builder.Services.Replace(ServiceDescriptor.Scoped<IEmailTransport, SmtpEmailTransport>());
+        builder.Services.AddScoped<SmtpEmailTransport>();
+        builder.Services.Replace(ServiceDescriptor.Scoped<IEmailTransport>(sp => sp.GetRequiredService<SmtpEmailTransport>()));
+
+        // Disponibilité EFFECTIVE d'envoi (BUG-31) : les gardes du provisioning d'utilisateur (invitation à la
+        // création, reset de mot de passe) demandent au TRANSPORT s'il peut envoyer — même résolution que l'envoi
+        // (config d'instance en base autoritaire, repli appsettings). Jamais SmtpOptions seul, qui ignore la
+        // config en base (le mot de passe temporaire s'affichait à l'écran alors que Gmail était configuré).
+        builder.Services.AddScoped<IEmailSendAvailability>(sp => sp.GetRequiredService<SmtpEmailTransport>());
 
         // Config email d'INSTANCE chiffrée, multi-provider (ADR-0039) : le transport ci-dessus devient
         // provider-aware (SMTP basic / Gmail / O365 XOAUTH2). Le store (base système, ciphertext) vit dans
