@@ -52,7 +52,11 @@ if ($files.Count -eq 0) {
 
 $offenders = @()
 foreach ($f in $files) {
-    $raw = Get-Content -LiteralPath $f.FullName -Raw
+    # Lecture EXPLICITE en UTF-8 (RL-27) : la norme du repo est .cs UTF-8 SANS BOM ; Get-Content -Raw de
+    # Windows PowerShell 5.1 (l'interpréteur invoqué par verify-fast) décoderait un tel fichier en CP1252
+    # → « enchères » deviendrait « enchÃ¨res » et échapperait au scan (faux-vert LOCAL, la CI pwsh UTF-8
+    # divergerait). ReadAllText(UTF8) décode en UTF-8 et gère aussi un BOM éventuel (détection préambule).
+    $raw = [System.IO.File]::ReadAllText($f.FullName, [System.Text.Encoding]::UTF8)
     if (-not $raw) { continue }
     $lang = if ($f.Extension -ieq '.sql') { 'sql' } else { 'cs' }
     $code = Convert-CommentsToBlanks -Text $raw -Language $lang
