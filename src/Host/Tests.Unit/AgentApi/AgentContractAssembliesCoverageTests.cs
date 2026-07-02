@@ -12,14 +12,19 @@ using Xunit;
 
 /// <summary>
 /// Garde de couverture du HashSet <see cref="AgentApiJson.BoundContractAssemblies"/> (RDL04 / GDF13).
-/// La liaison stricte des membres inconnus (<c>JsonUnmappedMemberHandling.Disallow</c>) n'est posée que sur
-/// les assemblys listés dans ce set. Le set est maintenu À LA MAIN : un futur canal agent (nouvel assembly
-/// <c>Liakont.Agent.Contracts.*</c>) dont un DTO serait bindé aux endpoints puis re-sérialisé-hashé, mais
-/// oublié dans le set, dropperait silencieusement ses membres inconnus → empreinte plateforme ≠ empreinte
-/// agent → anti-doublon (PIV04 / INV-GED-06) cassé. Le piège a déjà été payé à GED05a.
-/// <para>Ce test PARCOURT le graphe de types des DTO réellement bindés par <c>AgentApiEndpoints</c> et exige
-/// que TOUT assembly de contrat atteint figure dans le set (sinon la garde ne le couvre pas). Il échoue donc
-/// aussi bien si on retire un assembly du set que si on binde un DTO d'un assembly de contrat non listé.</para>
+/// La liaison stricte des membres inconnus (<c>JsonUnmappedMemberHandling.Disallow</c>) n'est posée que sur les
+/// assemblys listés dans ce set. Le set est maintenu À LA MAIN : un canal agent dont un DTO serait bindé aux
+/// endpoints puis re-sérialisé-hashé, mais oublié dans le set, dropperait silencieusement ses membres inconnus →
+/// empreinte plateforme ≠ empreinte agent → anti-doublon (PIV04 / INV-GED-06) cassé (piège payé à GED05a).
+/// <para>Le test parcourt le graphe de types des DTO listés dans <see cref="BoundRequestDtos"/> — un MIROIR
+/// maintenu à la main des endpoints <c>AgentApiEndpoints</c> à corps JSON, PAS une découverte automatique des
+/// registrations — et exige que tout assembly <c>Liakont.Agent.Contracts*</c> atteint figure dans le set.
+/// Portée du filet : il attrape le retrait d'un assembly du set, et l'ajout à un DTO listé d'une référence vers
+/// un assembly de contrat non couvert. Il NE couvre PAS le « double oubli » (un nouvel endpoint bindant un DTO
+/// d'un assembly non listé, omis à la fois du set ET de <see cref="BoundRequestDtos"/>) : tenir ce miroir à jour
+/// quand un endpoint agent binde un nouveau DTO fait partie du geste. Le parcours ne descend dans les membres que
+/// des types de contrat (borne hors BCL), donc un type de contrat atteint uniquement via un intermédiaire
+/// non-contrat non-générique ne serait pas visité — sans objet pour les DTO netstandard2.0 auto-contenus actuels.</para>
 /// </summary>
 public sealed class AgentContractAssembliesCoverageTests
 {
@@ -27,9 +32,10 @@ public sealed class AgentContractAssembliesCoverageTests
     // Pivot/Transport, + le contrat d'ingestion GÉNÉRIQUE Liakont.Agent.Contracts.Ged).
     private const string ContractAssemblyPrefix = "Liakont.Agent.Contracts";
 
-    // DTO de requête réellement désérialisés par les endpoints agent (AgentApiEndpoints) via la liaison
-    // stricte : POST heartbeat, POST documents/batch (canal fiscal), POST managed-documents/batch (canal GED).
-    // Les deux canaux batch re-sérialisent le DTO STJ-désérialisé puis le hashent (empreinte anti-doublon).
+    // Miroir maintenu à la main des DTO de requête à corps JSON bindés par AgentApiEndpoints (POST heartbeat,
+    // POST documents/batch = canal fiscal, POST managed-documents/batch = canal GED). À METTRE À JOUR si un
+    // endpoint agent binde un nouveau DTO à corps JSON (les endpoints /pdf et /pdf-pool lisent Request.Body en
+    // flux brut, sans DTO JSON). Les deux canaux batch re-sérialisent le DTO STJ-désérialisé puis le hashent.
     private static readonly Type[] BoundRequestDtos =
     [
         typeof(HeartbeatRequestDto),
