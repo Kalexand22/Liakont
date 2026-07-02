@@ -75,6 +75,39 @@ public sealed class GedRechercheTests : BunitContext
     }
 
     [Fact]
+    public void Removing_A_Filter_Reruns_The_Search_Without_It_And_Resets_Paging()
+    {
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var third = Guid.NewGuid();
+        var fake = new FakeGedQueries(
+            Page([first], facets: [new GedSearchFacet("annee", "2026", 1), new GedSearchFacet("type", "facture", 1)]),
+            Page([second], facets: [new GedSearchFacet("annee", "2026", 1), new GedSearchFacet("type", "facture", 1)]),
+            Page([third]));
+        Services.AddScoped<IGedQueries>(_ => fake);
+
+        var cut = Render<GedRecherche>();
+        cut.Find("[data-testid='ged-search-input']").Input("x");
+        cut.Find("[data-testid='ged-search-submit']").Click();
+        cut.WaitForAssertion(() => cut.FindAll($"[data-testid='ged-hit-{first}']").Should().ContainSingle());
+
+        // Deux filtres actifs (deux facettes cliquées successivement — même mécanisme qu'AddFacetAsync).
+        cut.Find("[data-testid='ged-facet-annee-2026']").Click();
+        cut.WaitForAssertion(() => cut.FindAll($"[data-testid='ged-hit-{second}']").Should().ContainSingle());
+        cut.Find("[data-testid='ged-facet-type-facture']").Click();
+        cut.WaitForAssertion(() => cut.FindAll($"[data-testid='ged-hit-{third}']").Should().ContainSingle());
+        fake.LastRequest!.AxisFilters.Should().HaveCount(2);
+
+        // Retrait d'UN filtre via le chip actif (même déclencheur que la vue-pure : OnFilterRemoved).
+        cut.Find("[data-testid='ged-filter-annee-2026']").Click();
+
+        cut.WaitForAssertion(() => fake.Requests.Should().HaveCount(4));
+        fake.LastRequest!.AxisFilters.Should().ContainSingle()
+            .Which.Should().Be(new GedAxisFilter("type", "facture"));
+        fake.LastRequest!.AfterDocumentId.Should().BeNull("le retrait d'un filtre réinitialise la pagination à la 1re page");
+    }
+
+    [Fact]
     public void Load_More_Appends_The_Next_Keyset_Page_Without_Losing_The_First()
     {
         var firstId = Guid.NewGuid();
