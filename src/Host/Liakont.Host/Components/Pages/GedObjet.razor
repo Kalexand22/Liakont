@@ -1,0 +1,132 @@
+@page "/ged/objet/{EntityType}/{Id:guid}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = LiakontPermissions.GedRead)]
+@using System.Collections.Generic
+@using Liakont.Host.Ged
+@using Liakont.Host.Security
+@inject IGedGraphQueries GedGraphQueries
+@inject ILogger<GedObjet> Logger
+
+<PageTitle>Exploration d'objet — Liakont</PageTitle>
+
+<h1 class="visually-hidden">Exploration de l'objet GED</h1>
+
+@* Page MINCE (F19 §6.7) : tout l'état d'exploration (racine courante, curseur keyset, accumulation des pages)
+   et l'appel à IGedGraphQueries vivent ici ; le rendu est délégué à la vue-pure GedGraphView. Aucune logique
+   métier : la traversée BORNÉE bidirectionnelle et le masquage de confidentialité (racine + extrémités) sont
+   faits côté serveur/index (§6.4, RL-31). *@
+<GedGraphView Results="ViewResults"
+              EntityType="EntityType"
+              RootId="Id"
+              LoadFailed="_loadFailed"
+              Busy="_isBusy"
+              OnLoadMore="LoadMoreAsync" />
+
+@code {
+    /// <summary>Type d'entité racine (segment de route) : libellé/audit ; la confidentialité réelle vient du type en base.</summary>
+    [Parameter]
+    public string EntityType { get; set; } = string.Empty;
+
+    /// <summary>Identité de l'entité racine de la traversée (segment de route).</summary>
+    [Parameter]
+    public Guid Id { get; set; }
+
+    // Documents ACCUMULÉS sur les pages keyset déjà chargées : chaque appel à l'index ne rapporte qu'UNE page
+    // bornée côté SQL (RL-20, INV-GED-09) — aucun chemin ne matérialise tout le voisinage.
+    private readonly List<GedGraphHit> _hits = new();
+    private GedGraphCursor? _nextCursor;
+    private bool _loadFailed;
+    // Garde de ré-entrance : un second geste (double-clic « Charger plus », navigation pendant l'await) s'exécuterait
+    // APRÈS le yield du await avec un curseur non encore mis à jour → page keyset re-demandée + hits/traces dupliqués.
+    // On no-op tant qu'une requête est en vol (et on désactive le bouton côté vue).
+    private bool _isBusy;
+    // Racine courante : ne ré-explore que si le couple (type, id) de la route change (pas à chaque re-rendu).
+    private (string Type, Guid Id) _root;
+
+    private GedGraphResults ViewResults => new()
+    {
+        Hits = _hits,
+        NextCursor = _nextCursor,
+    };
+
+    // L'exploration démarre dès l'ouverture de l'objet (la racine est déjà connue par la route), et re-démarre
+    // si la route change vers un autre objet — jamais à chaque simple re-rendu (garde _root).
+    protected override async Task OnParametersSetAsync()
+    {
+        var root = (EntityType, Id);
+        if (_root == root)
+        {
+            return;
+        }
+
+        _root = root;
+        await RunExploreAsync(resetPaging: true);
+    }
+
+    private Task LoadMoreAsync() =>
+        _isBusy || _nextCursor is null ? Task.CompletedTask : RunExploreAsync(resetPaging: false);
+
+    private async Task RunExploreAsync(bool resetPaging)
+    {
+        // Racine à laquelle CETTE exploration appartient, capturée AVANT tout await. L'exploration est pilotée par
+        // la route : un changement de racine (navigation /ged/objet/A → /ged/objet/B, même composant) relance
+        // RunExploreAsync avant qu'une requête en vol ne réponde. Sans cette garde, une réponse tardive de l'ancien
+        // objet serait accumulée sous le nouveau (association objet↔document trompeuse — produit de conformité) et
+        // corromprait le curseur keyset. On rattache donc chaque réponse à SA racine.
+        var forRoot = (EntityType, Id);
+        _isBusy = true;
+        _loadFailed = false;
+
+        // resetPaging (nouvel objet) : on repart de la 1re page et on vide l'accumulation. Sinon (« charger plus »)
+        // : on poursuit au curseur keyset et on APPEND.
+        var afterCursor = resetPaging ? null : _nextCursor;
+        if (resetPaging)
+        {
+            _hits.Clear();
+        }
+
+        try
+        {
+            var page = await GedGraphQueries.ExploreAsync(new GedGraphRequest
+            {
+                RootEntityId = Id,
+                EntityTypeCode = EntityType,
+                After = afterCursor,
+            });
+
+            // La route a changé de racine pendant l'await : cette réponse appartient à l'ancien objet — ne pas
+            // l'accumuler (une exploration plus récente pilote désormais l'état).
+            if (_root != forRoot)
+            {
+                return;
+            }
+
+            _hits.AddRange(page.Hits);
+            _nextCursor = page.NextCursor;
+        }
+        catch (Exception ex)
+        {
+            // Échec d'une exploration SUPERSÉDÉE (racine changée) : ne pas écraser l'état du nouvel objet.
+            if (_root != forRoot)
+            {
+                return;
+            }
+
+            // L'échec (index/graphe indisponible OU trace de consultation fail-closed en régime probant, §6.6) reste
+            // VISIBLE (bandeau) et tracé — jamais avalé, et aucun résultat n'est affiché (fail-closed).
+            _loadFailed = true;
+            _hits.Clear();
+            _nextCursor = null;
+            Logger.LogError(ex, "GED graph exploration failed.");
+        }
+        finally
+        {
+            // Ne relâcher la garde de ré-entrance que si CETTE exploration est toujours la courante : une exploration
+            // supersédée a déjà été remplacée par une plus récente qui gère _isBusy.
+            if (_root == forRoot)
+            {
+                _isBusy = false;
+            }
+        }
+    }
+}
