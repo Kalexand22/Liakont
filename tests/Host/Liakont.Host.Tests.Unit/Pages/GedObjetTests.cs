@@ -3,12 +3,14 @@ namespace Liakont.Host.Tests.Unit.Pages;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Bunit;
 using FluentAssertions;
 using Liakont.Host.Components.Pages;
 using Liakont.Host.Ged;
+using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -177,6 +179,37 @@ public sealed class GedObjetTests : BunitContext
 
         cut.FindAll($"[data-testid='ged-graph-hit-{docA}']").Should().BeEmpty("la page tardive de l'objet A ne contamine pas l'objet B");
         cut.FindAll($"[data-testid='ged-graph-hit-{docB}']").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Opening_An_Object_Writes_Exactly_One_Exploration()
+    {
+        // « EXACTEMENT une trace explore_entity par consultation » (GDF05) : chaque exploration écrit une trace côté
+        // seam (GedGraphQueryService) — l'ouverture ne doit déclencher qu'UN appel. Complète la garde structurelle
+        // du prerender (<see cref="The_Object_Page_Disables_Prerender_So_The_Consultation_Trace_Is_Written_Once"/>) :
+        // le prerender par défaut instancierait la page deux fois (SSR + circuit) → deux explorations = deux traces.
+        var fake = new FakeGedGraphQueries(Page([Guid.NewGuid()]));
+        Services.AddScoped<IGedGraphQueries>(_ => fake);
+
+        var cut = Render<GedObjet>(p => p
+            .Add(c => c.EntityType, "entreprise")
+            .Add(c => c.Id, Guid.NewGuid()));
+
+        cut.WaitForState(() => fake.Requests.Count > 0);
+        fake.Requests.Should().ContainSingle("l'ouverture d'un objet ne déclenche qu'une seule exploration (une seule trace)");
+    }
+
+    [Fact]
+    public void The_Object_Page_Disables_Prerender_So_The_Consultation_Trace_Is_Written_Once()
+    {
+        // Garde STRUCTURELLE (GDF05) : le double d'audit ('explore_entity', INV-GED-11) provient du prerender qui
+        // instancie la page deux fois (passe SSR puis circuit interactif) — un rendu bUnit ne le reproduit pas, donc
+        // on vérifie la CAUSE : le rendermode déclaré désactive le prerender (symétrie avec GedDocument, GED09b).
+        var mode = typeof(GedObjet).GetCustomAttribute<RenderModeAttribute>()?.Mode;
+
+        mode.Should().BeOfType<InteractiveServerRenderMode>("la page rend en circuit interactif serveur");
+        ((InteractiveServerRenderMode)mode!).Prerender.Should().BeFalse(
+            "le prerender est désactivé pour n'écrire qu'UNE trace de consultation par ouverture d'objet");
     }
 
     private static GedGraphResults Page(IReadOnlyList<Guid> docIds, GedGraphCursor? next = null) => new()

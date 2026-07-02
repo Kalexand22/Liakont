@@ -138,11 +138,21 @@
     private bool IsRejectedByPa => string.Equals(Model.Document.State, RejectedByPaDocumentState, StringComparison.Ordinal);
 
     /// <summary>
-    /// Envoi par la voie document pertinent : document prêt à l'envoi. Un document e-reporté (voie AGRÉGÉE,
-    /// BUG-24/ADR-0037) porte désormais l'état persisté <c>EReported</c> — il n'est donc PLUS <c>ReadyToSend</c>,
-    /// ce qui masque « Envoyer » naturellement (fin de l'overlay read-time : plus de croisement avec le journal).
+    /// Un document déjà e-reporté par la voie AGRÉGÉE (journal d'émission <c>Issued</c>, BUG-24/ADR-0037) porte un
+    /// lot d'émission résolu (<see cref="DocumentDetailViewModel.EReportedBatchId"/>) — y compris dans la fenêtre
+    /// RÉSIDUELLE transitoire où il est resté <c>ReadyToSend</c> (rattrapée par la réconciliation GDF02). Signal
+    /// STRUCTURÉ « déjà déclaré » (aucun croisement de texte).
     /// </summary>
-    private bool CanSend => IsReadyToSend;
+    private bool AlreadyEReported => Model.EReportedBatchId is not null;
+
+    /// <summary>
+    /// Envoi par la voie document pertinent : document prêt à l'envoi ET pas déjà e-reporté. Un document e-reporté
+    /// porte normalement l'état persisté <c>EReported</c> (≠ <c>ReadyToSend</c>), ce qui masque « Envoyer »
+    /// naturellement ; le garde-fou <see cref="AlreadyEReported"/> couvre EN PLUS la fenêtre résiduelle transitoire
+    /// (journal <c>Issued</c> mais document resté <c>ReadyToSend</c>) pour ne pas ré-offrir « Envoyer » de façon
+    /// trompeuse (filet read-time léger GDF03 ; la garde réelle reste serveur — SendTenantJob défère toute 10.3).
+    /// </summary>
+    private bool CanSend => IsReadyToSend && !AlreadyEReported;
 
     /// <summary>
     /// Le verdict B2B/B2C n'est proposé que lorsque l'acheteur présente l'indice « société » de la source

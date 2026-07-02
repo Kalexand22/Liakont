@@ -6,11 +6,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using Dapper;
 using FluentAssertions;
+using Liakont.Modules.Ged.Application.Index;
 using Liakont.Modules.Ged.Contracts.Commands;
 using Liakont.Modules.Ged.Domain.Catalog;
 using Liakont.Modules.Ged.Domain.Index;
 using Liakont.Modules.Ged.Infrastructure;
+using Liakont.Modules.Ged.Infrastructure.Index;
 using Liakont.Modules.Ged.Tests.Integration.Fixtures;
+using Microsoft.Extensions.Logging.Abstractions;
 using Stratum.Common.Infrastructure.Database;
 using Xunit;
 
@@ -157,8 +160,52 @@ public sealed class AxisValueWriteIntegrationTests
             .Should().Be(0, "aucune donnée n'a fui vers la base du tenant B (tenant-scopé par la connexion, n°9)");
     }
 
+    [Fact]
+    public async Task Setting_a_searchable_axis_reprojects_full_text_so_the_correction_is_found_and_the_old_value_is_gone()
+    {
+        var factory = _fixture.CreateTenantDatabase();
+        await SeedAxisAsync(factory, "statut", "string", isMultiValue: false, isSearchable: true);
+        var documentId = await SeedManagedDocumentAsync(factory);
+        var handler = HandlerFor(factory);
+        var index = new PostgresDocumentSearchIndex(factory, new PostgresAxisCatalog(factory));
+
+        await handler.Handle(SetCommand(documentId, "statut", "valeurobsolete"), CancellationToken.None);
+        (await index.SearchAsync(new DocumentSearchQuery { FullText = "valeurobsolete" })).Hits
+            .Should().ContainSingle(h => h.ManagedDocumentId == documentId,
+                "la 1re écriture searchable est projetée dans le search_vector");
+
+        // Correction opérateur (« valeurobsolete » → « valeurcorrigee ») : l'axe mono supersède l'ancienne valeur.
+        await handler.Handle(SetCommand(documentId, "statut", "valeurcorrigee"), CancellationToken.None);
+
+        (await index.SearchAsync(new DocumentSearchQuery { FullText = "valeurcorrigee" })).Hits
+            .Should().ContainSingle(h => h.ManagedDocumentId == documentId,
+                "la correction est retrouvée en plein-texte : l'écriture manuelle a re-projeté le dérivé (GED07)");
+        (await index.SearchAsync(new DocumentSearchQuery { FullText = "valeurobsolete" })).Hits
+            .Should().BeEmpty("l'ancienne valeur supersédée ne remonte plus le document (le search_vector n'est plus figé sur l'ingestion)");
+    }
+
+    [Fact]
+    public async Task Setting_a_non_searchable_axis_does_not_reproject_the_derived_search_index()
+    {
+        var factory = _fixture.CreateTenantDatabase();
+        await SeedAxisAsync(factory, "note_interne", "string", isMultiValue: false, isSearchable: false);
+        var documentId = await SeedManagedDocumentAsync(factory);
+        var handler = HandlerFor(factory);
+
+        await handler.Handle(SetCommand(documentId, "note_interne", "valeur"), CancellationToken.None);
+
+        using var connection = await factory.OpenAsync();
+        (await connection.ExecuteScalarAsync<long>(
+            "SELECT count(*) FROM ged_index.document_search WHERE managed_document_id = @Doc",
+            new { Doc = documentId }))
+            .Should().Be(0, "un axe non searchable n'alimente pas le search_vector : aucune re-projection inutile (GED07)");
+    }
+
     private static SetAxisValueCommandHandler HandlerFor(IConnectionFactory factory) =>
-        new(new PostgresAxisCatalog(factory), new PostgresGedIndexUnitOfWorkFactory(factory));
+        new(new PostgresAxisCatalog(factory),
+            new PostgresGedIndexUnitOfWorkFactory(factory),
+            new PostgresDocumentSearchIndex(factory, new PostgresAxisCatalog(factory)),
+            NullLogger<SetAxisValueCommandHandler>.Instance);
 
     private static NormalizedAxisValue StringValue(string rawValue) =>
         ValueNormalizer.Normalize(AxisDataType.Text, valueScale: null, rawValue);
@@ -177,16 +224,17 @@ public sealed class AxisValueWriteIntegrationTests
         string code,
         string dataType,
         bool isMultiValue,
-        int? valueScale = null)
+        int? valueScale = null,
+        bool isSearchable = true)
     {
         using var connection = await factory.OpenAsync();
         return await connection.ExecuteScalarAsync<Guid>(
             """
-            INSERT INTO ged_catalog.axis_definitions (code, label, data_type, value_scale, is_multi_value, is_active)
-            VALUES (@Code, @Label, @DataType, @ValueScale, @IsMultiValue, true)
+            INSERT INTO ged_catalog.axis_definitions (code, label, data_type, value_scale, is_multi_value, is_searchable, is_active)
+            VALUES (@Code, @Label, @DataType, @ValueScale, @IsMultiValue, @IsSearchable, true)
             RETURNING id
             """,
-            new { Code = code, Label = code, DataType = dataType, ValueScale = valueScale, IsMultiValue = isMultiValue });
+            new { Code = code, Label = code, DataType = dataType, ValueScale = valueScale, IsMultiValue = isMultiValue, IsSearchable = isSearchable });
     }
 
     private static async Task SeedEnumValueAsync(IConnectionFactory factory, Guid axisId, string code)

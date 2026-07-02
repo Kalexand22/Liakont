@@ -152,5 +152,7 @@ public sealed class B2cMarginEmissionsConsoleQueryServiceTests
         }
 
         public Task<Guid?> GetEmissionBatchIdForDocumentAsync(Guid documentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<B2cResidualEmissionDto>> GetResidualIssuedEmissionsAsync(IReadOnlyCollection<Guid> documentIds, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }

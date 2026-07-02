@@ -430,6 +430,38 @@ public sealed class DocumentDetailConsoleQueryServiceTests
         result!.EReportedBatchId.Should().BeNull("le lien est omis sur panne, jamais inventé");
     }
 
+    [Fact]
+    public async Task GetDetailAsync_Should_Resolve_The_Batch_Id_For_A_Residual_ReadyToSend_Document()
+    {
+        // GDF03 (filet read-time léger) : un document DÉJÀ DÉCLARÉ par la voie agrégée (journal Issued → lot résolu)
+        // mais resté ReadyToSend dans la fenêtre RÉSIDUELLE transitoire (avant rattrapage GDF02) expose tout de même
+        // son lot d'émission — le lien « Voir la déclaration » et le masquage d'« Envoyer » reposent dessus. Le filtre
+        // status='Issued' de la query garantit que seul un document RÉELLEMENT déclaré rend un lot.
+        var batchId = Guid.Parse("cccccccc-dddd-4eee-8fff-111111111111");
+        var fake = new FakeDocumentQueries { Document = Doc("9000005", "ReadyToSend"), Events = [] };
+        var emissions = new FakeB2cMarginEmissionQueries(batchId);
+
+        var result = await Build(fake, emissions: emissions).GetDetailAsync(DocId);
+
+        result!.EReportedBatchId.Should().Be(batchId, "un résidu ReadyToSend déjà journal-Issued expose son lot d'émission");
+        emissions.Calls.Should().ContainSingle().Which.Should().Be(DocId, "la fenêtre résiduelle est couverte par le filet read-time léger");
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_Should_Query_But_Leave_Batch_Id_Null_For_A_ReadyToSend_Document_Never_E_Reported()
+    {
+        // Contre-épreuve du filet GDF03 : un ReadyToSend ORDINAIRE (jamais e-reporté) interroge bien le journal — la
+        // fenêtre résiduelle est indiscernable a priori — mais le filtre status='Issued' ne rend AUCUN lot → pas de
+        // lien, pas de masquage d'« Envoyer » (aucun faux positif ; le document reste légitimement envoyable).
+        var fake = new FakeDocumentQueries { Document = Doc("9000006", "ReadyToSend"), Events = [] };
+        var emissions = new FakeB2cMarginEmissionQueries(batchId: null);
+
+        var result = await Build(fake, emissions: emissions).GetDetailAsync(DocId);
+
+        result!.EReportedBatchId.Should().BeNull("un ReadyToSend jamais déclaré ne résout aucun lot (aucun faux positif)");
+        emissions.Calls.Should().ContainSingle("l'état ReadyToSend est un candidat résiduel : on interroge le journal");
+    }
+
     /// <summary>Pivot SOURCE minimal (catégorie/VATEX nuls — non mappés) pour exercer le rejeu read-time d'un document bloqué.</summary>
     private static PivotDocumentDto SourcePivot(string description, string sourceRegime, decimal netAmount) => new(
         sourceDocumentKind: "invoice",
@@ -560,6 +592,8 @@ public sealed class DocumentDetailConsoleQueryServiceTests
         public Task<IReadOnlyList<B2cMarginEmissionAggregateDto>> GetEmissionsAsync(string? period, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task<B2cMarginEmissionDetailDto?> GetEmissionDetailAsync(Guid emissionBatchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<B2cResidualEmissionDto>> GetResidualIssuedEmissionsAsync(IReadOnlyCollection<Guid> documentIds, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     // Fake du rejeu read-time (BUG-5) : renvoie un pivot relu, « indisponible » (repli snapshot) ou lève (robustesse).
