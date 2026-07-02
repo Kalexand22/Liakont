@@ -15,7 +15,8 @@ using Xunit;
 /// Les pages socle /admin/audit et /admin/audit/policies exigent <see cref="AuditPermissions.AuditView"/>,
 /// jamais accordée par un rôle Liakont (matrice §3) : la section ne doit donc apparaître qu'au porteur effectif
 /// de cette permission (super-admin). Anti-faux-vert : la section est réellement présente AVEC la permission
-/// (ses deux entrées) et réellement absente sans elle (sinon elle mènerait à des pages vides — le bug corrigé).
+/// (« Journal d'audit » seul — « Politiques » est retiré de la nav, décision recette 2026-07-01) et réellement
+/// absente sans elle (sinon elle mènerait à des pages vides — le bug corrigé).
 /// </summary>
 public sealed class AuditNavVisibilityFilterTests
 {
@@ -47,15 +48,22 @@ public sealed class AuditNavVisibilityFilterTests
     }
 
     [Fact]
-    public void GetSection_Shows_The_Audit_Section_With_Audit_View_Permission()
+    public void GetSection_Shows_Only_The_Journal_Entry_With_Audit_View_Permission()
     {
         var section = new AuditNavVisibilityFilter(new FakePermissionService([AuditPermissions.AuditView])).GetSection();
 
         section.Title.Should().Be("Audit");
+
+        // « Journal d'audit » reste accessible au super-admin.
         section.Items.Select(i => i.Label).Should().Contain("Journal d'audit");
         section.Items.Select(i => i.Href).Should().Contain("/admin/audit");
-        section.Items.Select(i => i.Label).Should().Contain("Politiques");
-        section.Items.Select(i => i.Href).Should().Contain("/admin/audit/policies");
+
+        // « Politiques » (/admin/audit/policies) est RETIRÉE de la nav (décision Karl, recette 2026-07-01) :
+        // écran socle de configuration de l'audit GÉNÉRIQUE, sans valeur produit — masqué de la sidebar même
+        // pour un super-admin (la ROUTE reste ouverte). Anti-faux-vert : on prouve l'absence, section non vide.
+        section.Items.Should().NotBeEmpty();
+        section.Items.Select(i => i.Label).Should().NotContain("Politiques");
+        section.Items.Select(i => i.Href).Should().NotContain("/admin/audit/policies");
     }
 
     private sealed class FakePermissionService : IPermissionService

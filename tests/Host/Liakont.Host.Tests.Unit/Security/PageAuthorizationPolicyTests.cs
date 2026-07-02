@@ -32,6 +32,7 @@ public sealed class PageAuthorizationPolicyTests
     [InlineData(typeof(ComptesPa), LiakontPermissions.Settings)]
     [InlineData(typeof(Alertes), LiakontPermissions.Settings)]
     [InlineData(typeof(Agents), LiakontPermissions.Settings)]
+    [InlineData(typeof(EmailInstance), LiakontPermissions.InstanceSettings)]
     public void Operator_Page_Should_Be_Guarded_By_Its_Section3_Permission_Policy(Type pageType, string expectedPolicy)
     {
         var authorize = pageType

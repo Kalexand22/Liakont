@@ -25,6 +25,10 @@
     <ProjectReference Include="../../Validation/Infrastructure/Liakont.Modules.Validation.Infrastructure.csproj" />
     <ProjectReference Include="../../TenantSettings/Infrastructure/Liakont.Modules.TenantSettings.Infrastructure.csproj" />
     <ProjectReference Include="../../Staging/Infrastructure/Liakont.Modules.Staging.Infrastructure.csproj" />
+    <!-- ADR-0038 — référentiel de correspondance pays : le read-time CHECK/SEND résout ICountryAliasReferential
+         et la table `reference.country_alias` doit être migrée. Référence propre au harnais ; le module Pipeline
+         ne référence que Reference.Contracts (frontière P1). -->
+    <ProjectReference Include="../../Reference/Infrastructure/Liakont.Modules.Reference.Infrastructure.csproj" />
     <!-- PIP03a — agrégation de paiement : migrations + persistance réelle du module Payments (encaissements
          bruts seedés, lus par l'agrégateur via IPaymentQueries). Référence propre au harnais de test. -->
     <ProjectReference Include="../../Payments/Infrastructure/Liakont.Modules.Payments.Infrastructure.csproj" />

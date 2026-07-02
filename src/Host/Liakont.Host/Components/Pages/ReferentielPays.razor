@@ -1,0 +1,377 @@
+@page "/parametrage/referentiel-pays"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = LiakontPermissions.Settings)]
+@using System
+@using Microsoft.Extensions.Logging
+@using Stratum.Common.Abstractions.Grid
+@using Stratum.Common.Abstractions.Security
+@using Stratum.Common.UI.Models
+@using Stratum.Common.UI.Services
+@using Liakont.Host.CountryReference
+@using Liakont.Host.Security
+@using Liakont.Modules.Reference.Contracts.Commands
+@inject ICountryAliasConsoleService Service
+@inject ISender Sender
+@inject IPermissionService Permissions
+@inject IToastService ToastService
+@inject ILogger<ReferentielPays> Logger
+
+<PageTitle>Référentiel pays — Liakont</PageTitle>
+
+<h1 class="visually-hidden">Référentiel de correspondance pays</h1>
+
+@if (!_canManage)
+{
+    @* Édition du référentiel (correspondances cross-instance) = geste de paramétrage : page réservée à
+       liakont.settings (le lien de navigation est lui aussi masqué sans cette permission). La console dispatche
+       les commandes MediatR EN IN-PROCESS — cette garde de page est donc l'unique contrôle du chemin console. *@
+    <LiakontAlert Severity="Severity.Warning" TestId="referentiel-pays-denied">
+        Accès refusé : la gestion du référentiel de correspondance pays requiert l'autorisation de paramétrage
+        (liakont.settings). Rapprochez-vous de l'administrateur de votre organisation.
+    </LiakontAlert>
+}
+else if (_loadFailed)
+{
+    <LiakontAlert TestId="referentiel-pays-error">
+        Impossible de charger le référentiel de correspondance pays pour le moment. Réessayez plus tard.
+    </LiakontAlert>
+}
+else
+{
+    @* Liste : gabarit DeclaredListPage (aucune grille « maison »). Re-key au rechargement (après une mutation)
+       pour relire LoadItems. L'ajout / la modification (upsert par code source) et la suppression ouvrent des
+       dialogues dédiés ; aucune logique métier ici (mutations déléguées aux commandes MediatR ADR-0038). *@
+    <DeclaredListPage @key="_epoch"
+                      TItem="CountryAliasRow"
+                      Title="Référentiel pays"
+                      TestId="referentiel-pays"
+                      LoadItems="LoadItemsAsync"
+                      DetailUrl="@(_ => "/parametrage/referentiel-pays")"
+                      ColumnRegistry="_registry"
+                      ColumnTemplates="_columnTemplates"
+                      GridKey="Liakont.ReferentielPays"
+                      RowActions="_rowActions"
+                      AriaLabel="Référentiel de correspondance pays"
+                      DefaultSortColumn="SourceCode"
+                      DefaultSortDirection="SortDirection.Ascending"
+                      SearchPlaceholder="Rechercher une correspondance… (raccourci : /)"
+                      AllowExport="true"
+                      ExportFileName="referentiel-pays">
+        <ToolbarActions>
+            <StratumButton Text="Ajouter ou modifier une correspondance…"
+                           Variant="ButtonVariant.Primary"
+                           Size="ButtonSize.Small"
+                           OnClick="OpenAdd"
+                           TestId="referentiel-pays-add-btn" />
+        </ToolbarActions>
+        <EmptyContent>
+            <p data-testid="referentiel-pays-empty">Aucune correspondance de code pays enregistrée.</p>
+        </EmptyContent>
+    </DeclaredListPage>
+
+    @* Ajouter OU modifier une correspondance (upsert par code source) : la cible ISO est validée à l'écriture
+       par le handler, qui lève un message opérateur français si le code n'est pas un ISO 3166-1 alpha-2. *@
+    <StratumDialog Title="Ajouter ou modifier une correspondance"
+                   Visible="_editOpen"
+                   VisibleChanged="HandleEditVisibleChanged"
+                   OnClose="CloseEdit"
+                   Width="480px"
+                   TestId="referentiel-pays-edit-dialog">
+        <ChildContent>
+            <p class="referentiel-pays-dialog__text">
+                Saisissez le code pays tel qu'il arrive de la source (par exemple « BEL ») et le code ISO 3166-1
+                alpha-2 officiel correspondant (par exemple « BE »). Un code source déjà présent est mis à jour.
+            </p>
+            <div class="referentiel-pays-dialog__field">
+                <label class="referentiel-pays-dialog__label" for="referentiel-pays-source">Code source</label>
+                <input id="referentiel-pays-source"
+                       class="referentiel-pays-dialog__input"
+                       type="text"
+                       value="@_sourceCode"
+                       @oninput="OnSourceChanged"
+                       disabled="@_editBusy"
+                       data-testid="referentiel-pays-source" />
+            </div>
+            <div class="referentiel-pays-dialog__field">
+                <label class="referentiel-pays-dialog__label" for="referentiel-pays-iso">Code ISO cible</label>
+                <input id="referentiel-pays-iso"
+                       class="referentiel-pays-dialog__input"
+                       type="text"
+                       value="@_isoCode"
+                       @oninput="OnIsoChanged"
+                       disabled="@_editBusy"
+                       data-testid="referentiel-pays-iso" />
+            </div>
+        </ChildContent>
+        <Actions>
+            <StratumButton Text="@(_editBusy ? "Enregistrement…" : "Enregistrer")"
+                           Variant="ButtonVariant.Primary"
+                           Size="ButtonSize.Small"
+                           Disabled="@(_editBusy || string.IsNullOrWhiteSpace(_sourceCode) || string.IsNullOrWhiteSpace(_isoCode))"
+                           OnClick="SubmitEditAsync"
+                           TestId="referentiel-pays-save" />
+            <StratumButton Text="Annuler"
+                           Variant="ButtonVariant.Secondary"
+                           Outline
+                           Size="ButtonSize.Small"
+                           Disabled="@_editBusy"
+                           OnClick="CloseEdit"
+                           TestId="referentiel-pays-cancel" />
+        </Actions>
+    </StratumDialog>
+
+    @* Confirmation de suppression d'une correspondance. *@
+    <StratumDialog Title="Supprimer la correspondance"
+                   Visible="@(_removeTarget is not null)"
+                   VisibleChanged="HandleRemoveVisibleChanged"
+                   OnClose="CancelRemove"
+                   Width="420px"
+                   TestId="referentiel-pays-remove-dialog">
+        <ChildContent>
+            <p>
+                Supprimer la correspondance « @(_removeTarget?.SourceCode) » → « @(_removeTarget?.IsoCode) » ?
+                Le code source ne sera plus normalisé au moment de la lecture (contrôle / envoi).
+            </p>
+        </ChildContent>
+        <Actions>
+            <StratumButton Text="@(_removeBusy ? "Suppression…" : "Supprimer")"
+                           Variant="ButtonVariant.Danger"
+                           Size="ButtonSize.Small"
+                           Disabled="@_removeBusy"
+                           OnClick="ConfirmRemoveAsync"
+                           TestId="referentiel-pays-remove-confirm" />
+            <StratumButton Text="Annuler"
+                           Variant="ButtonVariant.Secondary"
+                           Outline
+                           Size="ButtonSize.Small"
+                           Disabled="@_removeBusy"
+                           OnClick="CancelRemove"
+                           TestId="referentiel-pays-remove-cancel" />
+        </Actions>
+    </StratumDialog>
+}
+
+@code {
+    private readonly CountryAliasColumnRegistry _registry = new();
+    private readonly IReadOnlyList<GridRowAction<CountryAliasRow>> _rowActions;
+    private readonly Dictionary<string, RenderFragment<CountryAliasRow>> _columnTemplates;
+
+    /// <summary>Permission de paramétrage : conditionne TOUTE la page (accès + mutations).</summary>
+    private bool _canManage;
+    private bool _loadFailed;
+    private IReadOnlyList<CountryAliasRow> _rows = [];
+
+    // @key de la liste : incrémenté à chaque rechargement pour forcer DeclaredListPage à relire LoadItems.
+    private int _epoch;
+
+    // ── Ajouter / modifier ───────────────────────────────────────
+    private bool _editOpen;
+    private bool _editBusy;
+    private string? _sourceCode;
+    private string? _isoCode;
+
+    // ── Suppression ──────────────────────────────────────────────
+    private CountryAliasRow? _removeTarget;
+    private bool _removeBusy;
+
+    public ReferentielPays()
+    {
+        _rowActions =
+        [
+            new GridRowAction<CountryAliasRow>(
+                Id: "edit",
+                Label: "Modifier…",
+                Icon: "edit",
+                IsQuickAction: true,
+                Callback: r => { OpenEdit(r); return Task.CompletedTask; }),
+            new GridRowAction<CountryAliasRow>(
+                Id: "delete",
+                Label: "Supprimer…",
+                Icon: "delete",
+                IsQuickAction: true,
+                IsSeparatorBefore: true,
+                Callback: r => { OpenRemove(r); return Task.CompletedTask; }),
+        ];
+
+        _columnTemplates = new Dictionary<string, RenderFragment<CountryAliasRow>>
+        {
+            ["UpdatedAtUtc"] = item => __builder =>
+            {
+                // Heure au fuseau du NAVIGATEUR (le serveur tourne en UTC).
+                __builder.OpenComponent<LiakontDate>(0);
+                __builder.AddAttribute(1, "Value", (DateTimeOffset?)item.UpdatedAtUtc);
+                __builder.CloseComponent();
+            },
+        };
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Page réservée au paramétrage : sans la permission, aucune donnée n'est chargée et seul le message
+        // d'accès refusé est rendu. Le contrôle s'exécute côté serveur (circuit Blazor Server), non falsifiable.
+        _canManage = Permissions.HasPermission(LiakontPermissions.Settings);
+        if (_canManage && !await LoadRowsAsync())
+        {
+            // Échec du chargement INITIAL : aucune donnée à afficher → bandeau d'erreur (VISIBLE, jamais silencieux).
+            _loadFailed = true;
+        }
+    }
+
+    private Task<IReadOnlyList<CountryAliasRow>> LoadItemsAsync() => Task.FromResult(_rows);
+
+    private async Task<bool> LoadRowsAsync()
+    {
+        try
+        {
+            _rows = await Service.ListAsync();
+            _epoch++;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // Tracé, jamais avalé en silence. Le traitement de l'échec (bandeau initial vs toast de
+            // rafraîchissement) est décidé par l'appelant.
+            Logger.LogError(ex, "Failed to load the country alias referential for the console.");
+            return false;
+        }
+    }
+
+    private async Task RefreshAfterActionAsync()
+    {
+        // Rafraîchissement APRÈS une mutation réussie : un échec ici ne doit PAS masquer la page ; on le signale
+        // par un toast NON bloquant, sans repasser toute la page en bandeau d'erreur.
+        if (!await LoadRowsAsync())
+        {
+            ToastService.Show(
+                "Action effectuée, mais la liste n'a pas pu être actualisée. Rechargez la page pour la mettre à jour.",
+                Severity.Warning);
+        }
+    }
+
+    // ── Ajouter / modifier ───────────────────────────────────────
+
+    private void OpenAdd()
+    {
+        _editOpen = true;
+        _editBusy = false;
+        _sourceCode = null;
+        _isoCode = null;
+    }
+
+    private void OpenEdit(CountryAliasRow row)
+    {
+        // Modifier = pré-remplir le même formulaire d'upsert (la clé source identifie la correspondance).
+        _editOpen = true;
+        _editBusy = false;
+        _sourceCode = row.SourceCode;
+        _isoCode = row.IsoCode;
+        StateHasChanged();
+    }
+
+    private void OnSourceChanged(ChangeEventArgs e) => _sourceCode = e.Value?.ToString();
+
+    private void OnIsoChanged(ChangeEventArgs e) => _isoCode = e.Value?.ToString();
+
+    private async Task SubmitEditAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_sourceCode) || string.IsNullOrWhiteSpace(_isoCode))
+        {
+            return;
+        }
+
+        _editBusy = true;
+        try
+        {
+            await Sender.Send(new UpsertCountryAliasCommand { SourceCode = _sourceCode, IsoCode = _isoCode });
+            ToastService.Show(
+                $"La correspondance « {_sourceCode.Trim().ToUpperInvariant()} » a été enregistrée.",
+                Severity.Success);
+            CloseEdit();
+            await RefreshAfterActionAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Validation d'écriture (cible ISO invalide, code source vide) : message opérateur FRANÇAIS levé par
+            // le handler d'upsert, affiché tel quel. Le dialogue reste ouvert pour permettre la correction.
+            ToastService.Show(ex.Message, Severity.Error);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Upsert of a country alias failed from the console.");
+            ToastService.Show(
+                "La correspondance n'a pas pu être enregistrée pour le moment. Réessayez plus tard.",
+                Severity.Error);
+        }
+        finally
+        {
+            _editBusy = false;
+        }
+    }
+
+    private void HandleEditVisibleChanged(bool visible)
+    {
+        if (!visible)
+        {
+            CloseEdit();
+        }
+    }
+
+    private void CloseEdit()
+    {
+        _editOpen = false;
+        _editBusy = false;
+        _sourceCode = null;
+        _isoCode = null;
+    }
+
+    // ── Suppression ──────────────────────────────────────────────
+
+    private void OpenRemove(CountryAliasRow row)
+    {
+        _removeTarget = row;
+        _removeBusy = false;
+        StateHasChanged();
+    }
+
+    private async Task ConfirmRemoveAsync()
+    {
+        if (_removeTarget is not { } target)
+        {
+            return;
+        }
+
+        _removeBusy = true;
+        try
+        {
+            await Sender.Send(new RemoveCountryAliasCommand { SourceCode = target.SourceCode });
+            ToastService.Show($"La correspondance « {target.SourceCode} » a été supprimée.", Severity.Success);
+            _removeTarget = null;
+            await RefreshAfterActionAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Removal of a country alias failed from the console.");
+            ToastService.Show(
+                "La correspondance n'a pas pu être supprimée pour le moment. Réessayez plus tard.",
+                Severity.Error);
+        }
+        finally
+        {
+            _removeBusy = false;
+        }
+    }
+
+    private void HandleRemoveVisibleChanged(bool visible)
+    {
+        if (!visible)
+        {
+            CancelRemove();
+        }
+    }
+
+    private void CancelRemove()
+    {
+        _removeTarget = null;
+        _removeBusy = false;
+    }
+}

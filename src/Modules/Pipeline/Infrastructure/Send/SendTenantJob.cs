@@ -20,6 +20,7 @@ using Liakont.Modules.Pipeline.Domain;
 using Liakont.Modules.Pipeline.Domain.B2cReporting;
 using Liakont.Modules.Pipeline.Infrastructure.Check;
 using Liakont.Modules.Pipeline.Infrastructure.Serialization;
+using Liakont.Modules.Reference.Contracts;
 using Liakont.Modules.Staging.Contracts;
 using Liakont.Modules.SupportTrace.Contracts;
 using Liakont.Modules.TenantSettings.Contracts.DTOs;
@@ -1004,6 +1005,13 @@ public sealed partial class SendTenantJob : ITenantJob
             // et propagées (comme profil/fiscal) : la valeur portée par le document PRIME, le défaut tenant ne
             // comble que l'absence (enricher).
             var enriched = PivotEmitterEnricher.Enrich(pivot, tenantProfile, fiscalSettings, billingMentions);
+
+            // Code pays acheteur normalisé ISO 3166-1 au READ-TIME depuis le référentiel cross-instance (ADR-0038)
+            // pour que le PAYLOAD SORTANT (PA / Factur-X, re-sérialisé plus bas) porte le code ISO, jamais le brut.
+            // La re-normalisation au SEND rejoue le fail-closed (TOCTOU) : un code non mappé reste brut, déjà bloqué
+            // au CHECK. JAMAIS à l'ingestion (l'empreinte anti-doublon F06 hashe le pivot SOURCE) — INV-REF-CTRY-02.
+            enriched = await PivotCountryNormalizer.NormalizeAsync(
+                enriched, services.GetRequiredService<ICountryAliasReferential>(), cancellationToken);
 
             // Garde anti-« envoi faux » (RB9) : si le profil tenant a perdu son SIREN entre le CHECK (passé,
             // émetteur rempli) et le SEND, l'émetteur redevient nul. On NE transmet PAS un document sans

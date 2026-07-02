@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.Reference.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Modules.Reference.Tests.Integration" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Handlers MediatR (IRequestHandler) + AddMediatR : package central existant (aucun package nouveau,
+         pas de projet Application dans ce module minimal — ADR-0038 Contracts + Infrastructure). -->
+    <PackageReference Include="MediatR" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Contracts/Liakont.Modules.Reference.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>
