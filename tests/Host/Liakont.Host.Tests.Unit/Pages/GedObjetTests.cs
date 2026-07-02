@@ -134,6 +134,51 @@ public sealed class GedObjetTests : BunitContext
         fake.Requests.Should().HaveCount(2);
     }
 
+    [Fact]
+    public async Task A_Late_Response_From_A_Previous_Object_Does_Not_Contaminate_The_New_Object()
+    {
+        // Course pilotée par la route (P2 review round 1) : « Charger plus » sur l'objet A reste EN VOL, puis
+        // l'utilisateur navigue vers l'objet B (même composant). La réponse tardive de A ne doit PAS s'accumuler
+        // sous B (association objet↔document trompeuse évitée) ni corrompre le curseur keyset.
+        var rootA = Guid.NewGuid();
+        var rootB = Guid.NewGuid();
+        var docA = Guid.NewGuid();
+        var docB = Guid.NewGuid();
+        var fake = new RootAwareFakeGraphQueries();
+        fake.PagesByRoot[rootA] = new Queue<GedGraphResults>(new[]
+        {
+            Page([Guid.NewGuid()], next: new GedGraphCursor(Guid.NewGuid(), Guid.NewGuid(), "emitter")),
+            Page([docA]),
+        });
+        fake.PagesByRoot[rootB] = new Queue<GedGraphResults>(new[] { Page([docB]) });
+        Services.AddScoped<IGedGraphQueries>(_ => fake);
+
+        var cut = Render<GedObjet>(p => p
+            .Add(c => c.EntityType, "entreprise")
+            .Add(c => c.Id, rootA));
+        cut.WaitForAssertion(() => cut.Find("[data-testid='ged-graph-more']").Should().NotBeNull());
+
+        // Le « Charger plus » de A reste EN VOL (porte posée sur la racine A).
+        var gate = new TaskCompletionSource();
+        fake.GateForRoot = gate;
+        fake.GateRoot = rootA;
+        var moreA = cut.Find("[data-testid='ged-graph-more']").TriggerEventAsync("onclick", new MouseEventArgs());
+        cut.WaitForState(() => fake.Requests.Count == 2);
+
+        // Navigation vers l'objet B (même composant) : l'exploration de B (non retenue) rend ses documents.
+        cut.Render(p => p
+            .Add(c => c.EntityType, "entreprise")
+            .Add(c => c.Id, rootB));
+        cut.WaitForAssertion(() => cut.FindAll($"[data-testid='ged-graph-hit-{docB}']").Should().ContainSingle());
+
+        // Libère la réponse tardive de A : elle doit être IGNORÉE (racine changée).
+        gate.SetResult();
+        await moreA;
+
+        cut.FindAll($"[data-testid='ged-graph-hit-{docA}']").Should().BeEmpty("la page tardive de l'objet A ne contamine pas l'objet B");
+        cut.FindAll($"[data-testid='ged-graph-hit-{docB}']").Should().ContainSingle();
+    }
+
     private static GedGraphResults Page(IReadOnlyList<Guid> docIds, GedGraphCursor? next = null) => new()
     {
         Hits = docIds.Select(d => new GedGraphHit(d, Guid.NewGuid(), "emitter", 1)).ToList(),
@@ -179,6 +224,31 @@ public sealed class GedObjetTests : BunitContext
             }
 
             return _pages.Count > 0 ? _pages.Dequeue() : GedGraphResults.Empty;
+        }
+    }
+
+    private sealed class RootAwareFakeGraphQueries : IGedGraphQueries
+    {
+        public Dictionary<Guid, Queue<GedGraphResults>> PagesByRoot { get; } = new();
+
+        public List<GedGraphRequest> Requests { get; } = [];
+
+        public TaskCompletionSource? GateForRoot { get; set; }
+
+        public Guid GateRoot { get; set; }
+
+        public async Task<GedGraphResults> ExploreAsync(GedGraphRequest request, CancellationToken cancellationToken = default)
+        {
+            Requests.Add(request);
+
+            if (GateForRoot is not null && request.RootEntityId == GateRoot)
+            {
+                await GateForRoot.Task;
+            }
+
+            return PagesByRoot.TryGetValue(request.RootEntityId, out var pages) && pages.Count > 0
+                ? pages.Dequeue()
+                : GedGraphResults.Empty;
         }
     }
 }

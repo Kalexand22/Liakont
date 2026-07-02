@@ -68,6 +68,12 @@
 
     private async Task RunExploreAsync(bool resetPaging)
     {
+        // Racine à laquelle CETTE exploration appartient, capturée AVANT tout await. L'exploration est pilotée par
+        // la route : un changement de racine (navigation /ged/objet/A → /ged/objet/B, même composant) relance
+        // RunExploreAsync avant qu'une requête en vol ne réponde. Sans cette garde, une réponse tardive de l'ancien
+        // objet serait accumulée sous le nouveau (association objet↔document trompeuse — produit de conformité) et
+        // corromprait le curseur keyset. On rattache donc chaque réponse à SA racine.
+        var forRoot = (EntityType, Id);
         _isBusy = true;
         _loadFailed = false;
 
@@ -88,11 +94,24 @@
                 After = afterCursor,
             });
 
+            // La route a changé de racine pendant l'await : cette réponse appartient à l'ancien objet — ne pas
+            // l'accumuler (une exploration plus récente pilote désormais l'état).
+            if (_root != forRoot)
+            {
+                return;
+            }
+
             _hits.AddRange(page.Hits);
             _nextCursor = page.NextCursor;
         }
         catch (Exception ex)
         {
+            // Échec d'une exploration SUPERSÉDÉE (racine changée) : ne pas écraser l'état du nouvel objet.
+            if (_root != forRoot)
+            {
+                return;
+            }
+
             // L'échec (index/graphe indisponible OU trace de consultation fail-closed en régime probant, §6.6) reste
             // VISIBLE (bandeau) et tracé — jamais avalé, et aucun résultat n'est affiché (fail-closed).
             _loadFailed = true;
@@ -102,7 +121,12 @@
         }
         finally
         {
-            _isBusy = false;
+            // Ne relâcher la garde de ré-entrance que si CETTE exploration est toujours la courante : une exploration
+            // supersédée a déjà été remplacée par une plus récente qui gère _isBusy.
+            if (_root == forRoot)
+            {
+                _isBusy = false;
+            }
         }
     }
 }
