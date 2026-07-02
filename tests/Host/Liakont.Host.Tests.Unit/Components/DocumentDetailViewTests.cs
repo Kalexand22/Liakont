@@ -471,6 +471,45 @@ public sealed class DocumentDetailViewTests : BunitContext
     }
 
     [Fact]
+    public void Should_Expose_The_Declaration_For_A_Residual_ReadyToSend_Document()
+    {
+        // GDF03 (filet read-time léger) : un document DÉCLARÉ par la voie agrégée (lot d'émission résolu) mais resté
+        // ReadyToSend dans la fenêtre RÉSIDUELLE transitoire (avant rattrapage GDF02) expose sa déclaration : lien
+        // « Voir la déclaration » (en-tête + Contrôles) et message « e-reporté » à la place du « Aucun contrôle en
+        // échec » trompeur. Le BADGE d'état, lui, reste l'état RÉEL (« Prêt à envoyer », documents.state = source de
+        // vérité) — on ne ré-overlaye PAS le badge (décision GDF03).
+        var batchId = Guid.Parse("22222222-3333-4444-8555-666666666666");
+        var model = BuildModel(doc: Doc("9000005", "ReadyToSend"), eReportedBatchId: batchId);
+
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, model));
+
+        // En-tête : badge = état réel (pas « E-reporté »), mais le lien de déclaration est présent.
+        cut.Find("[data-testid='document-detail-state']").TextContent.Should().NotContain("E-reporté");
+        cut.Find("[data-testid='document-detail-ereported-link']").GetAttribute("href")
+            .Should().Be($"/emissions-marge-b2c/{batchId}");
+
+        // Contrôles : message « e-reporté » + lien, jamais « Aucun contrôle en échec ».
+        SelectTab(cut, "Contrôles");
+        cut.FindAll("[data-testid='document-detail-controls-ereported']").Should().ContainSingle();
+        cut.FindAll("[data-testid='document-detail-controls-ok']").Should().BeEmpty("un résidu déjà déclaré n'est pas « aucun contrôle en échec »");
+        cut.Find("[data-testid='document-detail-controls-ereported-link']").GetAttribute("href")
+            .Should().Be($"/emissions-marge-b2c/{batchId}");
+    }
+
+    [Fact]
+    public void Should_Show_Controls_Ok_For_A_ReadyToSend_Document_Never_E_Reported()
+    {
+        // Contre-épreuve GDF03 : un ReadyToSend ORDINAIRE (aucun lot résolu) reste « Aucun contrôle en échec » et
+        // n'expose aucun lien de déclaration — le filet ne se déclenche QUE sur la présence d'un lot d'émission.
+        var cut = Render<DocumentDetailView>(p => p.Add(v => v.Model, BuildModel(doc: Doc("9000006", "ReadyToSend"), eReportedBatchId: null)));
+
+        cut.FindAll("[data-testid='document-detail-ereported-link']").Should().BeEmpty();
+        SelectTab(cut, "Contrôles");
+        cut.FindAll("[data-testid='document-detail-controls-ok']").Should().ContainSingle();
+        cut.FindAll("[data-testid='document-detail-controls-ereported']").Should().BeEmpty();
+    }
+
+    [Fact]
     public void Should_Flag_Blocked_Document_Even_When_The_Reason_Is_Empty()
     {
         // Un document Blocked SANS motif (MarkBlocked autorise reason=null) reste signalé comme bloqué —

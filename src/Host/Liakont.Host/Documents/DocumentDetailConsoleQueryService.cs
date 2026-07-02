@@ -29,6 +29,7 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
     private const string RecheckedStillBlockedEventType = "DocumentRecheckedStillBlocked";
     private const string BlockedDocumentState = "Blocked";
     private const string EReportedDocumentState = "EReported";
+    private const string ReadyToSendDocumentState = "ReadyToSend";
 
     private readonly IDocumentQueries _documents;
     private readonly IDocumentContentReplayService _contentReplay;
@@ -115,12 +116,19 @@ internal sealed partial class DocumentDetailConsoleQueryService : IDocumentDetai
     // document e-reporté est lu depuis la SOURCE DE VÉRITÉ de la liaison — le journal d'émission B2C
     // (pipeline.b2c_margin_emissions.emission_batch_id, via la query Contracts). Cette liaison existe pour TOUT
     // document e-reporté, qu'il l'ait été par le job (frais) OU par le backfill V012 (RÉTROACTIF, sans événement
-    // d'audit) — contrairement à l'événement DocumentEReported, absent des documents rétro-corrigés. On ne résout QUE
-    // si l'état persisté est EReported (une seule vérité : documents.state). PRÉSENTATION pure : une panne de lecture
-    // n'expose pas le lien mais ne casse JAMAIS le détail (miroir du récap de marge) ; seule l'annulation se propage.
+    // d'audit) — contrairement à l'événement DocumentEReported, absent des documents rétro-corrigés.
+    // FILET READ-TIME LÉGER (GDF03) : on résout pour l'état d'aboutissement EReported (cas nominal) ET pour
+    // ReadyToSend — la fenêtre RÉSIDUELLE transitoire « émission acceptée (journal Issued) mais document resté
+    // ReadyToSend » d'un run e-reporting interrompu (GDF02/ADR-0037, rattrapée par ReconcileResidualEReportsAsync).
+    // GetEmissionBatchIdForDocumentAsync filtre status='Issued' → renvoie non-null UNIQUEMENT pour un document
+    // RÉELLEMENT déclaré : un ReadyToSend jamais e-reporté rend null (aucun lien, aucun faux positif). Les autres
+    // états (Detected/Blocked/Sending/Issued/RejectedByPa/…) ne peuvent porter de résidu B2C agrégé → on n'interroge
+    // même PAS le journal (économie). PRÉSENTATION pure : une panne de lecture n'expose pas le lien mais ne casse
+    // JAMAIS le détail (miroir du récap de marge) ; seule l'annulation se propage.
     private async Task<Guid?> ResolveEReportedBatchIdAsync(Guid id, string state, CancellationToken cancellationToken)
     {
-        if (!string.Equals(state, EReportedDocumentState, StringComparison.Ordinal))
+        if (!string.Equals(state, EReportedDocumentState, StringComparison.Ordinal)
+            && !string.Equals(state, ReadyToSendDocumentState, StringComparison.Ordinal))
         {
             return null;
         }
