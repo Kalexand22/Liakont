@@ -128,6 +128,11 @@
 @code {
     private string _query = string.Empty;
 
+    // Dernière valeur du paramètre Query prise en compte : sert à distinguer un VRAI changement de requête
+    // (recherche soumise / facette / retrait de chip / pagination, poussé par la page) d'un simple re-rendu du
+    // parent avec le même Query — voir OnParametersSet.
+    private string? _lastQuery;
+
     /// <summary>Résultat de la page courante (jamais <c>null</c> : la page fournit toujours un modèle).</summary>
     [Parameter, EditorRequired]
     public GedSearchResults Results { get; set; } = GedSearchResults.Empty;
@@ -168,9 +173,18 @@
     [Parameter]
     public EventCallback OnLoadMore { get; set; }
 
-    // La saisie est ré-alimentée depuis la page à chaque re-rendu parent (après recherche / facette / page
-    // suivante). Entre deux, la frappe (oninput) ne re-rend que ce composant et préserve _query.
-    protected override void OnParametersSet() => _query = Query ?? string.Empty;
+    // Ne resynchroniser la saisie depuis la page que si le PARAMÈTRE Query a CHANGÉ depuis le dernier rendu
+    // (recherche soumise, facette, retrait de chip, pagination — la page repousse alors la requête effective).
+    // Un simple re-rendu du parent avec le MÊME Query (clic facette / retrait de chip / fin de « Charger plus »)
+    // ne doit PAS écraser une saisie en cours liée par oninput mais non encore soumise (P2 GDF12).
+    protected override void OnParametersSet()
+    {
+        if (Query != _lastQuery)
+        {
+            _query = Query ?? string.Empty;
+            _lastQuery = Query;
+        }
+    }
 
     private Task SubmitSearchAsync() =>
         OnSearch.HasDelegate ? OnSearch.InvokeAsync(_query) : Task.CompletedTask;

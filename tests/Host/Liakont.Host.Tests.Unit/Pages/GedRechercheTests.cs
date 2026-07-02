@@ -179,6 +179,27 @@ public sealed class GedRechercheTests : BunitContext
         fake.Requests.Should().HaveCount(1);
     }
 
+    [Fact]
+    public async Task Leaving_The_Page_Cancels_The_Search_Token()
+    {
+        // P2 GDF12 (2) : la page propage un token lié à SA durée de vie jusqu'au seam (puis Dapper) et l'annule au
+        // départ (Dispose) — la requête de recherche Postgres encore en vol est coupée. CancellationToken.None ne
+        // pourrait JAMAIS passer à IsCancellationRequested=true : le voir basculer prouve la propagation d'un VRAI
+        // token ET son annulation au départ de la page.
+        var fake = new FakeGedQueries(Page([Guid.NewGuid()]));
+        Services.AddScoped<IGedQueries>(_ => fake);
+
+        var cut = Render<GedRecherche>();
+        cut.Find("[data-testid='ged-search-input']").Input("bordereau");
+        cut.Find("[data-testid='ged-search-submit']").Click();
+        cut.WaitForState(() => fake.Requests.Count == 1);
+        fake.LastToken.IsCancellationRequested.Should().BeFalse("tant que la page vit, la recherche n'est pas annulée");
+
+        await DisposeComponentsAsync();
+
+        fake.LastToken.IsCancellationRequested.Should().BeTrue("quitter la page annule la recherche (token propagé au seam)");
+    }
+
     private static GedSearchResults Page(
         IReadOnlyList<Guid> hitIds,
         IReadOnlyList<GedSearchFacet>? facets = null,
@@ -210,6 +231,9 @@ public sealed class GedRechercheTests : BunitContext
 
         public GedSearchRequest? LastRequest => Requests.Count > 0 ? Requests[^1] : null;
 
+        /// <summary>Dernier token passé au seam : sert à vérifier que la page propage son token de durée de vie et l'annule au Dispose (GDF12).</summary>
+        public CancellationToken LastToken { get; private set; }
+
         /// <summary>Si posée, la recherche attend cette porte (simule une requête EN VOL pour la garde de ré-entrance).</summary>
         public TaskCompletionSource? Gate { get; init; }
 
@@ -218,6 +242,7 @@ public sealed class GedRechercheTests : BunitContext
         public async Task<GedSearchResults> SearchAsync(GedSearchRequest request, CancellationToken cancellationToken = default)
         {
             Requests.Add(request);
+            LastToken = cancellationToken;
 
             if (Gate is not null)
             {

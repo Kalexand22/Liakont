@@ -212,6 +212,27 @@ public sealed class GedObjetTests : BunitContext
             "le prerender est désactivé pour n'écrire qu'UNE trace de consultation par ouverture d'objet");
     }
 
+    [Fact]
+    public async Task Leaving_The_Page_Cancels_The_Exploration_Token()
+    {
+        // P2 GDF12 (2) : la page propage un token lié à SA durée de vie jusqu'au seam (puis Dapper) et l'annule au
+        // départ (Dispose) — la requête de graphe Postgres (CTE) encore en vol est coupée. CancellationToken.None
+        // ne pourrait JAMAIS passer à IsCancellationRequested=true : le voir basculer prouve à la fois la propagation
+        // d'un VRAI token et son annulation au départ de la page.
+        var fake = new FakeGedGraphQueries(Page([Guid.NewGuid()]));
+        Services.AddScoped<IGedGraphQueries>(_ => fake);
+
+        var cut = Render<GedObjet>(p => p
+            .Add(c => c.EntityType, "entreprise")
+            .Add(c => c.Id, Guid.NewGuid()));
+        cut.WaitForState(() => fake.Requests.Count == 1);
+        fake.LastToken.IsCancellationRequested.Should().BeFalse("tant que la page vit, l'exploration n'est pas annulée");
+
+        await DisposeComponentsAsync();
+
+        fake.LastToken.IsCancellationRequested.Should().BeTrue("quitter la page annule l'exploration (token propagé au seam)");
+    }
+
     private static GedGraphResults Page(IReadOnlyList<Guid> docIds, GedGraphCursor? next = null) => new()
     {
         Hits = docIds.Select(d => new GedGraphHit(d, Guid.NewGuid(), "emitter", 1)).ToList(),
@@ -237,6 +258,9 @@ public sealed class GedObjetTests : BunitContext
 
         public List<GedGraphRequest> Requests { get; } = [];
 
+        /// <summary>Dernier token passé au seam : sert à vérifier que la page propage son token de durée de vie et l'annule au Dispose (GDF12).</summary>
+        public CancellationToken LastToken { get; private set; }
+
         /// <summary>Si posée, l'exploration attend cette porte (simule une requête EN VOL pour la garde de ré-entrance).</summary>
         public TaskCompletionSource? Gate { get; set; }
 
@@ -245,6 +269,7 @@ public sealed class GedObjetTests : BunitContext
         public async Task<GedGraphResults> ExploreAsync(GedGraphRequest request, CancellationToken cancellationToken = default)
         {
             Requests.Add(request);
+            LastToken = cancellationToken;
 
             if (Gate is not null)
             {

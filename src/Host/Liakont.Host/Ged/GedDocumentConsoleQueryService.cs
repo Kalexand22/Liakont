@@ -106,12 +106,20 @@ internal sealed class GedDocumentConsoleQueryService : IGedDocumentConsoleQuerie
         };
     }
 
+    // Mapping EXHAUSTIF du statut d'intégrité de coffre (contrat Archive) vers l'état affiché sur la fiche. Un défaut
+    // silencieux `_ => NotArchived` AVALERAIT toute valeur future de GedArchiveIntegrityStatus : un nouveau verdict
+    // d'intégrité s'afficherait « pas encore rangé dans le coffre » — verdict d'intégrité TROMPEUR sur un produit de
+    // conformité. On échoue donc BRUYAMMENT sur une valeur inconnue (le mapping console doit être étendu), plutôt que
+    // de masquer une divergence d'intégrité (P2 GDF12).
     private static GedDocumentIntegrityState MapIntegrity(GedArchiveIntegrityStatus status) => status switch
     {
         GedArchiveIntegrityStatus.Verified => GedDocumentIntegrityState.Verified,
         GedArchiveIntegrityStatus.Altered => GedDocumentIntegrityState.Altered,
         GedArchiveIntegrityStatus.Missing => GedDocumentIntegrityState.Missing,
         GedArchiveIntegrityStatus.NotArchived => GedDocumentIntegrityState.NotArchived,
-        _ => GedDocumentIntegrityState.NotArchived,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(status),
+            status,
+            "Statut d'intégrité de coffre GED inconnu : le mapping de la fiche console doit être étendu (aucun défaut silencieux ne doit masquer un nouveau verdict d'intégrité)."),
     };
 }

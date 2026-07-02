@@ -164,6 +164,27 @@ public sealed class GedDocumentTests : BunitContext
             "le prerender est désactivé pour n'écrire qu'UNE trace de consultation par ouverture de document");
     }
 
+    [Fact]
+    public async Task Leaving_The_Page_Cancels_The_Load_Token()
+    {
+        // P2 GDF12 (2) : la page propage un token lié à SA durée de vie jusqu'au seam (puis Dapper) et l'annule au
+        // départ (Dispose) — le chargement de fiche Postgres encore en vol est coupé. CancellationToken.None ne
+        // pourrait JAMAIS passer à IsCancellationRequested=true : le voir basculer prouve la propagation d'un VRAI
+        // token ET son annulation au départ de la page.
+        var id = Guid.NewGuid();
+        var fake = new GatedFakeDocumentQueries();
+        fake.ModelsById[id] = BuildModel(id, "Bordereau acheteur 42");
+        Services.AddScoped<IGedDocumentConsoleQueries>(_ => fake);
+
+        var cut = Render<GedDocument>(p => p.Add(c => c.Id, id));
+        cut.WaitForState(() => fake.Requests.Count == 1);
+        fake.LastToken.IsCancellationRequested.Should().BeFalse("tant que la page vit, le chargement n'est pas annulé");
+
+        await DisposeComponentsAsync();
+
+        fake.LastToken.IsCancellationRequested.Should().BeTrue("quitter la page annule le chargement (token propagé au seam)");
+    }
+
     private static GedDocumentDetailViewModel BuildModel(Guid id, string title) => new()
     {
         Id = id,
@@ -195,6 +216,9 @@ public sealed class GedDocumentTests : BunitContext
 
         public List<Guid> Requests { get; } = [];
 
+        /// <summary>Dernier token passé au seam : sert à vérifier que la page propage son token de durée de vie et l'annule au Dispose (GDF12).</summary>
+        public CancellationToken LastToken { get; private set; }
+
         /// <summary>Si posée, le chargement de <see cref="GateId"/> attend cette porte (requête EN VOL).</summary>
         public TaskCompletionSource? Gate { get; set; }
 
@@ -206,6 +230,7 @@ public sealed class GedDocumentTests : BunitContext
         public async Task<GedDocumentDetailViewModel?> GetAsync(Guid managedDocumentId, CancellationToken cancellationToken = default)
         {
             Requests.Add(managedDocumentId);
+            LastToken = cancellationToken;
 
             if (Gate is not null && managedDocumentId == GateId)
             {

@@ -201,4 +201,50 @@ public sealed class GedSearchViewTests : BunitContext
         cut.Find("[data-testid='ged-search-error']").TextContent.Should().Contain("indisponible");
         cut.FindAll("[data-testid='ged-search-empty']").Should().BeEmpty();
     }
+
+    [Fact]
+    public void An_In_Progress_Edit_Is_Preserved_When_The_Parent_Re_Renders_With_The_Same_Query()
+    {
+        // P2 GDF12 (1) : une saisie liée par oninput mais NON encore soumise ne doit pas être perdue quand le
+        // parent se re-rend avec le MÊME Query (clic facette / retrait de chip / fin de « Charger plus » : la
+        // requête effective portée par la page n'a pas changé).
+        var cut = Render<GedSearchView>(p => p
+            .Add(v => v.Results, GedSearchResults.Empty)
+            .Add(v => v.Query, "facture")
+            .Add(v => v.HasSearched, true));
+
+        // L'utilisateur continue de taper sans soumettre (oninput met à jour l'état local de la vue).
+        cut.Find("[data-testid='ged-search-input']").Input("facture 2026");
+
+        // Le parent se re-rend avec le MÊME Query (une facette a été cliquée : la page relance mais ne change
+        // pas le texte de la requête).
+        cut.Render(p => p
+            .Add(v => v.Results, GedSearchResults.Empty)
+            .Add(v => v.Query, "facture")
+            .Add(v => v.HasSearched, true));
+
+        cut.Find("[data-testid='ged-search-input']").GetAttribute("value")
+            .Should().Be("facture 2026", "la saisie en cours n'est pas écrasée par un paramètre Query inchangé");
+    }
+
+    [Fact]
+    public void A_Changed_Query_Parameter_Resynchronises_The_Input()
+    {
+        // Le pendant de la préservation : quand la page pousse une NOUVELLE requête effective (Query change), la
+        // saisie est bien ré-alimentée (ré-affichage après aller-retour serveur — comportement d'origine conservé).
+        var cut = Render<GedSearchView>(p => p
+            .Add(v => v.Results, GedSearchResults.Empty)
+            .Add(v => v.Query, "facture")
+            .Add(v => v.HasSearched, true));
+
+        cut.Find("[data-testid='ged-search-input']").Input("brouillon en cours");
+
+        cut.Render(p => p
+            .Add(v => v.Results, GedSearchResults.Empty)
+            .Add(v => v.Query, "avoir")
+            .Add(v => v.HasSearched, true));
+
+        cut.Find("[data-testid='ged-search-input']").GetAttribute("value")
+            .Should().Be("avoir", "un vrai changement de Query resynchronise la saisie affichée");
+    }
 }
