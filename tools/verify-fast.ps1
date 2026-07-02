@@ -206,6 +206,45 @@ if ($ok) {
     }
 }
 
+# ── Step 2a-sexies: GED genericity lints + self-tests (always run) ──────────
+# Two outillé guards for the GED module (GED11, RL-27, F19 §7/§8), EACH with its self-test proving it
+# discriminates (green on real code, red on an injected violation) — a lint that returns 0 by default
+# would be a false green. (1) anti-literal genericity: no hardcoded business vocabulary in
+# src/Modules/Ged/** (rule 7). (2) cross-schema: no SQL join ged_* -> documents./mandats./tvamapping.
+# (rule 9, invisible to NetArchTest which sees only .NET refs). Pure PowerShell, no dotnet — always run.
+if ($ok) {
+    $ok = Run-Step 'ged-literal: lint self-test' {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot 'tools\test-ged-generic-literals-lint.ps1')
+        if ($LASTEXITCODE -ne 0) {
+            throw "ged anti-literal lint self-test failed (exit $LASTEXITCODE) — see tools/test-ged-generic-literals-lint.ps1"
+        }
+    }
+}
+if ($ok) {
+    $ok = Run-Step 'ged-literal: genericity lint' {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot 'tools\lint-ged-generic-literals.ps1')
+        if ($LASTEXITCODE -ne 0) {
+            throw "hardcoded business vocabulary in src/Modules/Ged/** (exit $LASTEXITCODE) — GED rule 7, see F19 §7"
+        }
+    }
+}
+if ($ok) {
+    $ok = Run-Step 'ged-xschema: lint self-test' {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot 'tools\test-ged-cross-schema-lint.ps1')
+        if ($LASTEXITCODE -ne 0) {
+            throw "ged cross-schema lint self-test failed (exit $LASTEXITCODE) — see tools/test-ged-cross-schema-lint.ps1"
+        }
+    }
+}
+if ($ok) {
+    $ok = Run-Step 'ged-xschema: cross-schema lint' {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot 'tools\lint-ged-cross-schema.ps1')
+        if ($LASTEXITCODE -ne 0) {
+            throw "cross-schema SQL reference in src/Modules/Ged/** (exit $LASTEXITCODE) — GED rule 9, see F19 §3.4.1"
+        }
+    }
+}
+
 # ── Step 2b: socle provenance guard (when the vendored tree exists) ──
 # Any silent modification of a vendored Stratum.* file that is not consigned in
 # docs/architecture/provenance-socle-stratum.md is a P1 (CLAUDE.md rule 11). The check pins

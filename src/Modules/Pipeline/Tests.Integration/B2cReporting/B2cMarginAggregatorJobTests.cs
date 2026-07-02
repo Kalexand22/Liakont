@@ -66,6 +66,76 @@ public sealed class B2cMarginAggregatorJobTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Residual_Issued_But_ReadyToSend_Document_Is_Reconciled_To_EReported_Without_Re_Posting()
+    {
+        // GDF02 / ADR-0037 D3 : un document dont l'émission a été ACCEPTÉE (entrée journal Issued) mais dont la
+        // transition d'état a échoué (fenêtre de crash/annulation) reste figé ReadyToSend et EXCLU des runs par
+        // l'attempt-once → affiché « À envoyer » à vie. Le rattrapage EN RÉGIME PERMANENT du job le porte à
+        // EReported en rejouant la SEULE transition d'état — JAMAIS un 2e POST (l'API SuperPDP n'a aucune clé
+        // d'idempotence). Prouve que l'état résiduel n'est plus définitif.
+        await _harness.UsePublishedFakeAsync();
+
+        var documentId = Guid.NewGuid();
+        var sourceReference = "ba-" + documentId.ToString("N");
+        var declaration = CheckIntegrationFixtures.BuildB2cMarginDeclaration(sourceReference, "NORMAL");
+        await _harness.SeedDetectedAndStageAsync(documentId, declaration);
+        await _harness.MarkReadyToSendAsync(documentId);
+
+        // État résiduel : émission ACCEPTÉE journalisée (Pending → Issued), mais document JAMAIS transitionné.
+        await _harness.SeedResidualIssuedB2cEmissionAsync(documentId, sourceReference, new DateOnly(2026, 1, 20));
+        (await _harness.GetDocumentStateAsync(documentId)).Should()
+            .Be("ReadyToSend", "précondition : le document résiduel est figé ReadyToSend malgré une émission Issued.");
+
+        // Précondition : le résidu n'a PAS de lien reporting↔pièce (sous-cas où c'est le GEL qui avait échoué).
+        (await _harness.GetReportingPieceLinksAsync(documentId)).Should()
+            .BeEmpty("précondition : le lien de traçabilité n'a pas été gelé (l'échec de finalisation le simule).");
+
+        await _harness.RunB2cMarginAsync();
+
+        (await _harness.GetDocumentStateAsync(documentId)).Should()
+            .Be("EReported", "le rattrapage rejoue la finalisation → transition ReadyToSend → EReported (ADR-0037 D3) — plus d'état résiduel définitif.");
+        _harness.PaCallCount(SendB2cTransaction, MarginTxDetail).Should()
+            .Be(0, "le document résiduel est déjà tenté (journal Issued) → JAMAIS un 2e POST (attempt-once).");
+        (await _harness.GetB2cMarginEmissionsAsync(documentId)).Count(e => e.Status == "Issued").Should()
+            .Be(1, "aucune nouvelle émission n'est écrite : seule la finalisation est rejouée.");
+
+        // Le rattrapage rejoue AUSSI le gel du lien (D2, idempotent) : le document n'est plus EReported « nu »,
+        // sa traçabilité d'export fiscal est restaurée (couvre le sous-cas où le gel initial avait échoué).
+        var links = await _harness.GetReportingPieceLinksAsync(documentId);
+        links.Should().ContainSingle("le rattrapage gèle le lien reporting↔pièce manquant (traçabilité D2 restaurée).");
+        links.Single().SourceReference.Should().Be(sourceReference);
+    }
+
+    [Fact]
+    public async Task Residual_Candidate_Without_Issued_Emission_Is_Never_Marked_EReported()
+    {
+        // GDF02 (sûreté fiscale) : un document B2C TENTÉ puis REJETÉ par la PA (Pending → RejectedByPa) reste
+        // ReadyToSend et devient candidat au rattrapage — mais il n'est PAS e-reporté (aucune entrée Issued). Le
+        // rattrapage ne doit JAMAIS le transitionner à EReported (état « déclaré à l'administration » mensonger)
+        // ni geler de lien de traçabilité. La sûreté repose sur le filtre status = 'Issued' de la requête de
+        // rattrapage — ce test le prouve de bout en bout (job réel).
+        await _harness.UsePublishedFakeAsync();
+
+        var documentId = Guid.NewGuid();
+        var sourceReference = "ba-" + documentId.ToString("N");
+        var declaration = CheckIntegrationFixtures.BuildB2cMarginDeclaration(sourceReference, "NORMAL");
+        await _harness.SeedDetectedAndStageAsync(documentId, declaration);
+        await _harness.MarkReadyToSendAsync(documentId);
+
+        // Émission TENTÉE mais REJETÉE (Pending → RejectedByPa) : « handled » (exclu du re-POST), aucune entrée Issued.
+        await _harness.SeedRejectedB2cEmissionAsync(documentId, sourceReference, new DateOnly(2026, 1, 20));
+
+        await _harness.RunB2cMarginAsync();
+
+        (await _harness.GetDocumentStateAsync(documentId)).Should()
+            .Be("ReadyToSend", "un document rejeté (aucune émission Issued) n'est JAMAIS e-reporté par le rattrapage.");
+        (await _harness.GetReportingPieceLinksAsync(documentId)).Should()
+            .BeEmpty("aucun lien de traçabilité n'est gelé pour un document non e-reporté.");
+        _harness.PaCallCount(SendB2cTransaction, MarginTxDetail).Should()
+            .Be(0, "le document est déjà tenté (attempt-once) → jamais un 2e POST.");
+    }
+
+    [Fact]
     public async Task Margin_Emission_Aggregates_Are_Read_Grouped_By_Emission_Batch_With_Current_Status()
     {
         // Vue console (B4) : le journal append-only (Pending puis Issued PAR DOCUMENT) est lu REGROUPÉ par lot

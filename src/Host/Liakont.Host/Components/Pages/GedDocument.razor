@@ -1,0 +1,149 @@
+@page "/ged/document/{Id:guid}"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@attribute [Authorize(Policy = LiakontPermissions.GedRead)]
+@implements IDisposable
+@using System.Threading
+@using Liakont.Host.Components
+@using Liakont.Host.Ged
+@using Liakont.Host.Security
+@using Stratum.Common.UI.Models
+@inject IGedDocumentConsoleQueries DocumentQueries
+@inject ILogger<GedDocument> Logger
+
+@* Fiche document GED (/ged/document/{id}, GED09b, F19 §6.7). Page MINCE : elle charge la fiche assemblée via
+ * IGedDocumentConsoleQueries (aucun accès base direct, aucune logique métier — délégué aux Contracts Ged/Archive
+ * et au journal de consultation) et délègue le rendu à la vue pure GedDocumentView. La permission liakont.ged.read
+ * garde l'accès à la page ; le masquage des axes/entités CONFIDENTIELS est appliqué SERVER-SIDE (le modèle ne les
+ * porte pas sans le droit liakont.ged.confidential). Un échec de chargement reste VISIBLE (bandeau) et tracé.
+ * Le prerender est DÉSACTIVÉ (rendermode explicite ci-dessus) : le chargement écrit une trace de consultation
+ * probante ("view_document", §6.6) qui doit être enregistrée EXACTEMENT une fois par consultation ; avec le
+ * prerender par défaut, la page serait instanciée deux fois (passe SSR puis circuit interactif) et doublerait
+ * cette trace d'audit. *@
+
+<PageTitle>Document GED — Liakont</PageTitle>
+
+<div class="liakont-ged-doc-page">
+    <div class="liakont-ged-doc-page__head">
+        <StratumButton Text="Retour à la recherche"
+                       Variant="ButtonVariant.Secondary"
+                       Outline
+                       Size="ButtonSize.Small"
+                       Href="/ged/recherche"
+                       TestId="ged-document-back" />
+    </div>
+
+    @if (_loadFailed)
+    {
+        <LiakontAlert TestId="ged-document-error">
+            Impossible de charger ce document pour le moment. Réessayez plus tard.
+        </LiakontAlert>
+    }
+    else if (_notFound)
+    {
+        <LiakontAlert Severity="Severity.Warning" TestId="ged-document-notfound">
+            Ce document est introuvable. Il a peut-être été remplacé, ou il n'appartient pas à ce tenant.
+        </LiakontAlert>
+    }
+    else if (_model is null)
+    {
+        <LiakontLoading TestId="ged-document-loading" />
+    }
+    else
+    {
+        <h1 class="liakont-ged-doc-page__title" data-testid="ged-document-page-title">@_model.Title</h1>
+        <GedDocumentView Model="_model" />
+    }
+</div>
+
+@code {
+    /// <summary>Identifiant GED du document (segment de route). Charge la fiche au changement d'identifiant.</summary>
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private Guid? _loadedId;
+    private GedDocumentDetailViewModel? _model;
+    private bool _notFound;
+    private bool _loadFailed;
+    // Annulation liée à la durée de vie de la page : le token est propagé jusqu'à Dapper (assemblage de la fiche) ;
+    // quitter la page (Dispose) coupe la requête encore en vol côté Postgres (P2 GDF12).
+    private readonly CancellationTokenSource _cts = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Charge une seule fois par identifiant distinct (un re-rendu sans changement d'Id ne recharge pas).
+        if (_loadedId == Id)
+        {
+            return;
+        }
+
+        _loadedId = Id;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        // Identité à laquelle CE chargement appartient, capturée AVANT tout await. La navigation /ged/document/A →
+        // /ged/document/B (même composant) relance LoadAsync avant qu'un GetAsync(A) en vol ne réponde ; la garde
+        // l.69 (OnParametersSetAsync) ne couvre que les re-rendus à Id IDENTIQUE. Sans cette garde, une réponse
+        // tardive de A écrirait sa fiche (ou son échec) sous l'URL B — association document↔fiche trompeuse (produit
+        // de conformité). On rattache donc chaque réponse à SON identifiant. Modèle : la garde forRoot de GedObjet
+        // (GED09c). _loadedId porte toujours l'identifiant le plus récent (posé par OnParametersSetAsync avant l'appel).
+        var forId = Id;
+        // Token capturé AVANT tout await (le lire depuis _cts après Dispose lèverait) : le départ de la page
+        // (Dispose → _cts.Cancel) l'annule et coupe la requête en vol.
+        var cancellationToken = _cts.Token;
+        _model = null;
+        _notFound = false;
+        _loadFailed = false;
+
+        try
+        {
+            var model = await DocumentQueries.GetAsync(forId, cancellationToken);
+
+            // La route a changé d'identifiant pendant l'await : cette réponse appartient à l'ancien document — ne pas
+            // l'appliquer (un chargement plus récent pilote désormais l'état).
+            if (_loadedId != forId)
+            {
+                return;
+            }
+
+            if (model is null)
+            {
+                _notFound = true;
+            }
+            else
+            {
+                _model = model;
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Chargement annulé par le départ de la page (Dispose) : requête coupée, composant en cours de
+            // destruction — aucun état à mettre à jour, aucune erreur à afficher (annulation ≠ échec).
+            return;
+        }
+        catch (Exception ex)
+        {
+            // Échec d'un chargement SUPERSÉDÉ (identifiant changé pendant l'await) : ne pas écraser l'état du nouveau
+            // document.
+            if (_loadedId != forId)
+            {
+                return;
+            }
+
+            // L'échec reste VISIBLE pour l'opérateur (bandeau) et tracé — jamais avalé en silence. En régime de
+            // consultation PROBANT (§6.6), une trace de consultation en échec LÈVE ici → l'accès est refusé (le
+            // bandeau générique préserve l'anti-oracle : on ne détaille pas la cause).
+            _loadFailed = true;
+            Logger.LogError(ex, "Failed to load the GED document detail page for document {ManagedDocumentId}.", forId);
+        }
+    }
+
+    // Départ de la page : annule le chargement en vol (le token propagé jusqu'à Dapper coupe la requête côté
+    // Postgres) puis libère la source d'annulation.
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

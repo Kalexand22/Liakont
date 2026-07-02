@@ -1,10 +1,12 @@
 namespace Liakont.Host.AgentApi;
 
+using System.Collections.Generic;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using Liakont.Agent.Contracts;
+using Liakont.Agent.Contracts.Ged;
 using Liakont.Agent.Contracts.Pivot;
 using Liakont.Agent.Contracts.Transport;
 
@@ -32,9 +34,11 @@ using Liakont.Agent.Contracts.Transport;
 /// REJETTE tout membre inconnu (<see cref="JsonUnmappedMemberHandling.Disallow"/>) — un payload v1
 /// portant un membre post-v1 est REFUSÉ (400), pas droppé, ce qui préserve l'intégrité du hash
 /// (« bloquer plutôt qu'envoyer faux », CLAUDE.md n°3). La garde est posée par RÉFLEXION sur l'assembly
-/// de contrat (et non type par type) — impossible à oublier sur un futur DTO. Elle ne touche QUE les
-/// types <c>Liakont.Agent.Contracts</c> (les endpoints console, d'un autre assembly, gardent le défaut
-/// permissif). Sans incidence sur la SÉRIALISATION (réponses) : <c>UnmappedMemberHandling</c> ne joue
+/// de contrat (et non type par type) — impossible à oublier sur un futur DTO. Elle couvre les DEUX canaux
+/// agent qui re-sérialisent-puis-hashent : le contrat FISCAL <c>Liakont.Agent.Contracts</c> (PIV04) ET le
+/// contrat d'ingestion GÉNÉRIQUE GED <c>Liakont.Agent.Contracts.Ged</c> (GED05b, INV-GED-06) ; les endpoints
+/// console, d'autres assemblys, gardent le défaut permissif. Sans incidence sur la SÉRIALISATION
+/// (réponses) : <c>UnmappedMemberHandling</c> ne joue
 /// qu'en désérialisation.</para>
 /// <para>Le correctif vit ici, côté Host, et non sur les types du contrat : l'assembly de contrat est
 /// <c>netstandard2.0</c> « zéro PackageReference » (BCL seul, pureté vérifiée par test) — y poser un
@@ -43,8 +47,25 @@ using Liakont.Agent.Contracts.Transport;
 /// </summary>
 internal static class AgentApiJson
 {
-    /// <summary>Assembly des DTOs du contrat agent (cible de la liaison stricte des membres inconnus).</summary>
-    private static readonly Assembly ContractAssembly = typeof(AgentContractVersion).Assembly;
+    /// <summary>
+    /// Assemblys des DTOs du contrat agent (cibles de la liaison stricte des membres inconnus, RDL04) : le contrat
+    /// FISCAL (<c>Liakont.Agent.Contracts</c>) ET le contrat d'ingestion GÉNÉRIQUE GED (<c>Liakont.Agent.Contracts.Ged</c>,
+    /// GED05a). Les deux canaux re-sérialisent le DTO STJ-désérialisé puis le hashent (anti-doublon PIV04 / INV-GED-06) :
+    /// un membre inconnu droppé casserait l'empreinte des DEUX. Un HashSet — impossible d'oublier un canal.
+    /// </summary>
+    private static readonly HashSet<Assembly> ContractAssemblies =
+    [
+        typeof(AgentContractVersion).Assembly,
+        typeof(GedContractVersion).Assembly,
+    ];
+
+    /// <summary>
+    /// Vue lecture seule des assemblys de contrat portant la liaison stricte des membres inconnus (RDL04).
+    /// Exposée pour la garde de couverture (GDF13) : un test parcourt les DTO réellement bindés par les
+    /// endpoints agent et exige que tout assembly <c>Liakont.Agent.Contracts*</c> atteint figure ici — un
+    /// futur canal oublié dans ce set droppe silencieusement ses membres inconnus (piège payé à GED05a).
+    /// </summary>
+    internal static IReadOnlySet<Assembly> BoundContractAssemblies => ContractAssemblies;
 
     /// <summary>
     /// Configure, sur les options fournies, la liaison JSON du contrat agent : convertisseurs
@@ -78,7 +99,7 @@ internal static class AgentApiJson
     // (→ 400 à la frontière HTTP), au lieu d'être silencieusement ignoré.
     private static void RejectUnknownContractMembers(JsonTypeInfo typeInfo)
     {
-        if (typeInfo.Kind == JsonTypeInfoKind.Object && typeInfo.Type.Assembly == ContractAssembly)
+        if (typeInfo.Kind == JsonTypeInfoKind.Object && ContractAssemblies.Contains(typeInfo.Type.Assembly))
         {
             typeInfo.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
         }

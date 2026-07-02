@@ -18,6 +18,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
+    <!-- Contrat GED (Contracts.Ged) : exercé par le golden cross-runtime GED côté plateforme (.NET 10). -->
+    <ProjectReference Include="..\..\..\src\Contracts\Liakont.Agent.Contracts.Ged\Liakont.Agent.Contracts.Ged.csproj" />
   </ItemGroup>
 
   <!-- Tests de contrat CROSS-RUNTIME (PIV02) partagés avec la solution agent (net48) : un seul code,
@@ -29,6 +31,8 @@
     <Compile Include="..\..\_shared\contract-v1\ContractFixtureTests.cs" Link="ContractV1\ContractFixtureTests.cs" />
     <Compile Include="..\..\_shared\contract-v1\CanonicalEnumGuardTests.cs" Link="ContractV1\CanonicalEnumGuardTests.cs" />
     <Compile Include="..\..\_shared\contract-v1\CanonicalDeterminismTests.cs" Link="ContractV1\CanonicalDeterminismTests.cs" />
+    <!-- Golden cross-runtime du canal GED (IngestedDocumentDto → GedCanonicalJson, RL-39). -->
+    <Compile Include="..\..\_shared\contract-v1\IngestedDocumentContractGoldenTests.cs" Link="ContractV1\IngestedDocumentContractGoldenTests.cs" />
   </ItemGroup>
 
   <!-- Golden files du contrat v1 (PIV03) : copiés en sortie pour être lus par les tests des deux

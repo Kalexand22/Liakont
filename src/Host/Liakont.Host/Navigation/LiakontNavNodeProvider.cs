@@ -68,6 +68,16 @@ internal sealed class LiakontNavNodeProvider : INavNodeProvider
             children.Add(new() { Label = "TVA / Déclaration", Href = "/tva-declaration" });
         }
 
+        // GED — Recherche documentaire (GED09a, F19 §6.7) : surface de CONSULTATION de la GED (recherche
+        // multidimensionnelle + facettes, /ged/recherche). Tenant-scopée (index ged_index en base tenant) et
+        // gardée par la permission DÉDIÉE liakont.ged.read — distincte de liakont.read : la GED est un silo
+        // (F19 §6.5/§7), un lecteur fiscal n'a pas d'office l'accès GED. La page porte la même policy ; le
+        // masquage des axes/entités confidentiels (liakont.ged.confidential) est appliqué server-side.
+        if (tenantScoped && _permissions.HasPermission(LiakontPermissions.GedRead))
+        {
+            children.Add(new NavNode { Label = "Recherche GED", Href = "/ged/recherche" });
+        }
+
         // Réconciliation : visible uniquement si l'agent du tenant alimente un pool de PDF non rattachés. Le
         // nombre d'éléments en attente (propositions + orphelins) est embarqué dans le libellé — le modèle
         // NavNode du socle vendored n'a pas de champ « badge » et n'est pas modifié (CLAUDE.md n°11). Le compteur

@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading.RateLimiting;
 using Asp.Versioning;
 using Liakont.Host.AgentApi;
+using Liakont.Host.Backfill;
 using Liakont.Host.Behaviors;
 using Liakont.Host.Clients;
 using Liakont.Host.Components;
@@ -31,6 +32,7 @@ using Liakont.Modules.Documents.Web;
 using Liakont.Modules.FacturX.Infrastructure;
 using Liakont.Modules.FleetSupervision.Application;
 using Liakont.Modules.FleetSupervision.Infrastructure;
+using Liakont.Modules.Ged.Infrastructure;
 using Liakont.Modules.Ingestion.Application;
 using Liakont.Modules.Ingestion.Infrastructure;
 using Liakont.Modules.Ingestion.Web;
@@ -431,6 +433,22 @@ public static class AppBootstrap
         // de l'opérateur via ITenantScopeFactory.Create — aucune itération multi-tenant (CLAUDE.md n°9).
         builder.Services.AddJobHandler<SendTenantTrigger, SendTenantFanInHandler>("Envoi des documents (tenant courant)");
 
+        // Module GED (GED02, F19 §2.1) : GED dynamique & coffre-fort documentaire, AU-DESSUS du coffre WORM
+        // existant, SANS toucher le flux fiscal. À ce stade (scaffold), AddGedModule ne fait QUE déclarer
+        // l'assembly d'Infrastructure au runner de migrations DbUp — les 3 schémas sont créés VIDES :
+        // ged_catalog + ged_index (base tenant), ged_ingestion (base système, atomique avec l'outbox comme
+        // ingestion.received_documents). Aucune table métier, aucun handler, aucun job ici (GED03+). Le module
+        // est un SILO isolé : aucun module fiscal ne référence Ged.* (frontière F19 §7, garde NetArchTest).
+        builder.Services.AddGedModule();
+
+        // Backfill rétroactif GED du corpus fiscal déjà scellé (GED10, F19 §11 D12) : handler SYSTÈME de fan-out
+        // câblé au COMPOSITION ROOT — seul endroit qui voit à la fois l'archive fiscale (IArchiveEntryStore),
+        // les documents (IDocumentQueries) ET le point d'entrée GED (IGedArchivedDocumentBackfill), la GED restant
+        // un silo. GESTE OPÉRÉ (cadence de déploiement, cron null — SystemJobDefinitions) ; chemin DIRECT idempotent,
+        // jamais un effet de bord du flux fiscal (RL-21).
+        builder.Services.AddJobHandler<GedCorpusBackfillTrigger, GedCorpusBackfillFanOutHandler>(
+            "Rétrofit GED du corpus fiscal (tous les tenants)");
+
         // Stockage des PDF reçus (PIV04) : chemin racine = PARAMÉTRAGE de déploiement (jamais en dur,
         // CLAUDE.md n°7). Lié depuis la config ; à défaut, repli sous le content root de l'instance.
         builder.Services.Configure<IngestionStorageOptions>(
@@ -690,6 +708,17 @@ public static class AppBootstrap
         // Composition en lecture du tableau de bord d'accueil (WEB01) : isole l'assemblage hors de la page.
         builder.Services.AddScoped<Liakont.Host.Dashboard.IDashboardQueries, Liakont.Host.Dashboard.DashboardQueryService>();
 
+        // Composition en lecture du portail GED (GED09a, F19 §6.7) : isole l'accès à l'index de recherche
+        // (GED08), la résolution du droit de confidentialité (GED06) et l'audit de consultation (GED13) hors de
+        // la page /ged/recherche. SCOPED (résolution de permission dépendante de l'acteur ; index tenant-scopé).
+        builder.Services.AddScoped<Liakont.Host.Ged.IGedQueries, Liakont.Host.Ged.GedSearchQueryService>();
+
+        // Composition en lecture de l'exploration de graphe GED (GED09c, F19 §6.7) : isole la traversée bornée
+        // bidirectionnelle (GED08), la résolution du droit de confidentialité (GED06) et l'audit de consultation
+        // (GED13) hors de la page /ged/objet. SCOPED (résolution de permission dépendante de l'acteur ; index
+        // tenant-scopé).
+        builder.Services.AddScoped<Liakont.Host.Ged.IGedGraphQueries, Liakont.Host.Ged.GedGraphQueryService>();
+
         // Composition en lecture de la page Documents (WEB02) : charge tout le périmètre période (boucle
         // sur la liste paginée serveur, aucune troncature) hors de la page.
         builder.Services.AddScoped<Liakont.Host.Documents.IDocumentConsoleQueries, Liakont.Host.Documents.DocumentConsoleQueryService>();
@@ -743,6 +772,12 @@ public static class AppBootstrap
         // Composition en lecture de la page TVA / Déclaration (L2) : lit le registre de la marge agrégé par mois
         // × devise × taux (pipeline.margin_registry) et le projette (avec totaux) pour l'aide à la déclaration de TVA.
         builder.Services.AddScoped<Liakont.Host.TvaDeclaration.ITvaDeclarationConsoleQueries, Liakont.Host.TvaDeclaration.TvaDeclarationConsoleQueryService>();
+
+        // Composition en lecture de la fiche document GED (/ged/document/{id}, GED09b, F19 §6.7) : orchestre le
+        // port de lecture GED (méta + axes + entités, masquage confidentiel server-side), la surface de coffre
+        // (Archive.Contracts : intégrité re-lue vs content_hash + aperçu ReadableHtml) et le journal de
+        // consultation (view_document). Isole l'accès aux modules hors de la page (mince).
+        builder.Services.AddScoped<Liakont.Host.Ged.IGedDocumentConsoleQueries, Liakont.Host.Ged.GedDocumentConsoleQueryService>();
 
         // Composition de la page Réconciliation des PDF (WEB08) : lecture des trois files (TRK07/API04) et
         // actions opérateur (confirmer / rejeter / lier), appelées in-process par la page (tenant-scopé,

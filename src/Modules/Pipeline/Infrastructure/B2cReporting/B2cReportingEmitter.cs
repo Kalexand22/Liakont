@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using Liakont.Modules.Archive.Contracts;
 using Liakont.Modules.Documents.Contracts.Lifecycle;
 using Liakont.Modules.Pipeline.Application;
+using Liakont.Modules.Pipeline.Contracts.Queries;
 using Liakont.Modules.Pipeline.Domain.B2cReporting;
 using Liakont.Modules.TenantSettings.Contracts.Queries;
 using Liakont.Modules.Transmission.Contracts;
@@ -105,9 +106,71 @@ internal static partial class B2cReportingEmitter
         return new EmissionTally(issued, rejected, technical);
     }
 
-    // Émet UN agrégat : Pending (crash-safe) AVANT le POST, puis l'issue. Si Issued, gèle le lien reporting↔pièce
-    // par contribution (D2, APRÈS confirmation, clé document — export préservé). Isolé : une exception laisse les
-    // entrées Pending → documents exclus du run suivant (jamais 2 POST), opérateur informé.
+    /// <summary>
+    /// Rattrapage EN RÉGIME PERMANENT (ADR-0037 D3) de l'état résiduel « émission ACCEPTÉE (entrée journal Issued)
+    /// mais document resté <c>ReadyToSend</c> » — créé par une fenêtre de crash/annulation entre le POST accepté et
+    /// la finalisation (le document est alors exclu de tout run par l'attempt-once, donc affiché « À envoyer »
+    /// indéfiniment). Pour chaque <paramref name="candidateDocumentIds"/> (document DÉJÀ TENTÉ et encore
+    /// ReadyToSend, collecté par la découverte — jamais un re-POST), rejoue la FINALISATION COMPLÈTE : gel du lien
+    /// reporting↔pièce (D2, idempotent — couvre le sous-cas où c'est LUI qui avait échoué, sinon le document
+    /// deviendrait EReported sans lien de traçabilité) ET transition <c>ReadyToSend → EReported</c> (idempotente,
+    /// non-throwante). AGNOSTIQUE AU CANAL (marge / prix total / export / ordinaire — table partagée). Tenant-scopé.
+    /// Les candidats sont pré-collectés dans l'UNIQUE scan de la découverte (aucune 2e passe, aucune mutation de la
+    /// file ReadyToSend pendant sa pagination). Porté par le job marge, qui tourne pour CHAQUE tenant à chaque
+    /// cadence (fan-out) : ce filet couvre les résidus des 4 voies sans dupliquer la logique par canal.
+    /// </summary>
+    /// <param name="services">Le fournisseur de services du scope tenant.</param>
+    /// <param name="companyId">L'identité fiscale du tenant (gel du lien reporting↔pièce).</param>
+    /// <param name="candidateDocumentIds">Documents ReadyToSend DÉJÀ TENTÉS (candidats résiduels, pré-collectés par la découverte).</param>
+    /// <param name="logger">Le journal applicatif.</param>
+    /// <param name="cancellationToken">Le jeton d'annulation.</param>
+    /// <returns>Le nombre de documents réconciliés (finalisation rejouée avec succès).</returns>
+    public static async Task<int> ReconcileResidualEReportsAsync(
+        IServiceProvider services,
+        Guid companyId,
+        IReadOnlyCollection<Guid> candidateDocumentIds,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        if (candidateDocumentIds.Count == 0)
+        {
+            return 0; // aucun candidat (aucun document tenté encore ReadyToSend) → rien à rattraper.
+        }
+
+        // UNE seule requête pour tous les candidats (pas de N+1) : ne remontent que les VRAIS résiduels e-reportés
+        // (émission Issued). Un candidat resté Pending (crash avant l'issue) ou RejectedByPa/Technical (D1) est
+        // ABSENT → jamais un faux EReported (sûreté fiscale portée par le filtre status = 'Issued' de la requête).
+        var emissionQueries = services.GetRequiredService<IB2cMarginEmissionQueries>();
+        var residuals = await emissionQueries.GetResidualIssuedEmissionsAsync(candidateDocumentIds, cancellationToken);
+        var reconciled = 0;
+
+        foreach (var residual in residuals)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Rejoue la finalisation COMPLÈTE (gel du lien D2 + transition EReported) — mêmes garanties de
+            // résilience et d'idempotence qu'au run nominal ; le gel est ré-appliqué (idempotent) pour couvrir le
+            // sous-cas où c'est LUI qui avait échoué (sinon le document serait EReported sans lien de traçabilité).
+            var contribution = new B2cContributionRef { DocumentId = residual.DocumentId, SourceReference = residual.SourceReference };
+            if (await FinalizeAcceptedContributionAsync(services, companyId, contribution, residual.EmissionBatchId, logger, cancellationToken))
+            {
+                reconciled++;
+            }
+        }
+
+        if (reconciled > 0)
+        {
+            LogResidualReconciled(logger, reconciled);
+        }
+
+        return reconciled;
+    }
+
+    // Émet UN agrégat : Pending (crash-safe) AVANT le POST, puis l'issue. Une exception DANS la voie d'émission
+    // (Pending/POST/issue) laisse les entrées Pending → document exclu du run suivant (attempt-once, jamais 2 POST),
+    // opérateur informé (7460). Si Issued, la finalisation (gel du lien D2 + transition EReported ADR-0037) se fait
+    // HORS de ce try d'émission, résiliente PAR CONTRIBUTION : elle ne peut plus faire retomber une émission ACCEPTÉE
+    // en Technical ni logger un 7460 mensonger ; le résiduel éventuel est rattrapé au run suivant (D3).
     private static async Task<B2cMarginEmissionStatus> EmitOneAsync(
         IServiceProvider services,
         IB2cMarginEmissionStore emissionStore,
@@ -129,6 +192,7 @@ internal static partial class B2cReportingEmitter
         // identique — document tardif → nouvel agrégat) à la vue console, jamais fusionnées.
         var emissionBatchId = Guid.NewGuid();
 
+        B2cMarginEmissionStatus status;
         try
         {
             // Pré-POST : marque chaque document tenté (crash-safe). Un crash après le POST mais avant l'issue
@@ -141,7 +205,8 @@ internal static partial class B2cReportingEmitter
             }
 
             var result = await paClient.SendB2cTransactionAsync(reportingTx, cancellationToken);
-            var (status, detail) = MapResult(result);
+            string? detail;
+            (status, detail) = MapResult(result);
 
             foreach (var contribution in transaction.Contributions)
             {
@@ -149,24 +214,6 @@ internal static partial class B2cReportingEmitter
                     BuildEntry(contribution, transaction, categoryCode, roleCode, contentHash, emissionBatchId, status, result.PaDocumentId, result.RawResponse, detail),
                     cancellationToken);
             }
-
-            if (status == B2cMarginEmissionStatus.Issued)
-            {
-                foreach (var contribution in transaction.Contributions)
-                {
-                    await FreezeReportingPieceLinkAsync(services, companyId, contribution.DocumentId, contribution.SourceReference, cancellationToken);
-
-                    // Voie e-reporting B2C AGRÉGÉE (BUG-24, ADR-0037) : le document composant l'agrégat aboutit à
-                    // EReported (ReadyToSend → EReported), à côté du gel de lien — un seul hook couvre les 4 canaux
-                    // (marge/taxable/prix-total/export). BEST-EFFORT : un échec ne fait JAMAIS retomber une émission
-                    // ACCEPTÉE en Technical. L'état résiduel (rare : crash/erreur de persistance dans la fenêtre) est
-                    // signalé (log 7461) et réconcilié hors-ligne — il n'est PAS auto-rattrapé en régime permanent
-                    // (V012 est une réconciliation one-shot, pas un job récurrent). Cf. ADR-0037 §7 + point ouvert D3.
-                    await MarkDocumentEReportedAsync(services, contribution.DocumentId, emissionBatchId, logger, cancellationToken);
-                }
-            }
-
-            return status;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -174,8 +221,59 @@ internal static partial class B2cReportingEmitter
         }
         catch (Exception ex)
         {
+            // Échec de l'ÉMISSION elle-même (écriture Pending, POST, ou écriture d'issue) : les entrées Pending
+            // écrites subsistent → le document est exclu du run suivant (attempt-once, jamais 2 POST). Le message
+            // 7460 est EXACT ici (on est bien dans la voie « émission en échec », pas dans la finalisation post-POST).
             LogEmissionFailed(logger, transaction.Date, transaction.CurrencyCode, ex);
             return B2cMarginEmissionStatus.Technical;
+        }
+
+        // Finalisation post-ACCEPTATION, DÉLIBÉRÉMENT HORS du try d'émission : le POST est confirmé et le journal
+        // d'issue est écrit → le statut retourné est FIGÉ (Issued). Le gel de lien (D2) et la transition d'état
+        // (EReported, ADR-0037) sont BEST-EFFORT et RÉSILIENTS PAR CONTRIBUTION : un échec (persistance) ou une
+        // annulation (shutdown) sur une contribution est journalisé (7461) et n'interrompt NI les autres
+        // contributions NI l'émission — jamais un retour Technical (mensonge inverse), jamais le 7460 mensonger
+        // (les entrées sont Issued, pas Pending). L'état résiduel « journal Issued / document ReadyToSend » est
+        // rattrapé en régime permanent par ReconcileResidualEReportsAsync au run suivant (ADR-0037 D3).
+        if (status == B2cMarginEmissionStatus.Issued)
+        {
+            foreach (var contribution in transaction.Contributions)
+            {
+                // Le succès/échec par contribution est déjà journalisé (7461) dans la finalisation ; l'émission
+                // reste Issued quoi qu'il arrive (le résiduel éventuel est rattrapé au run suivant).
+                _ = await FinalizeAcceptedContributionAsync(services, companyId, contribution, emissionBatchId, logger, cancellationToken);
+            }
+        }
+
+        return status;
+    }
+
+    // Finalise UNE contribution d'un agrégat ACCEPTÉ (BUG-24, ADR-0037) : gel du lien reporting↔pièce (D2, clé
+    // document — export préservé) PUIS transition ReadyToSend → EReported, un seul hook pour les 4 canaux
+    // (marge/taxable/prix-total/export). Résilient : toute erreur (persistance) OU annulation (shutdown) est
+    // journalisée (7461) et AVALÉE — jamais propagée — pour qu'un POST e-reporting ACCEPTÉ ne retombe pas en
+    // Technical et que les autres contributions soient finalisées. Le résiduel éventuel est rattrapé au run
+    // suivant (ReconcileResidualEReportsAsync, ADR-0037 D3), qui REJOUE cette même finalisation (le gel comme la
+    // transition sont idempotents). Retourne true si la finalisation a réussi (gel + transition sans erreur).
+    private static async Task<bool> FinalizeAcceptedContributionAsync(
+        IServiceProvider services,
+        Guid companyId,
+        B2cContributionRef contribution,
+        Guid emissionBatchId,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await FreezeReportingPieceLinkAsync(services, companyId, contribution.DocumentId, contribution.SourceReference, cancellationToken);
+            await services.GetRequiredService<IDocumentLifecycle>()
+                .MarkEReportedAsync(contribution.DocumentId, emissionBatchId, cancellationToken);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogDocumentEReportFailed(logger, contribution.DocumentId, ex);
+            return false;
         }
     }
 
@@ -199,33 +297,6 @@ internal static partial class B2cReportingEmitter
             documentId,
             new[] { sourceReference },
             cancellationToken);
-    }
-
-    // Transitionne le document composant l'agrégat vers EReported (BUG-24, ADR-0037) APRÈS confirmation d'envoi.
-    // La transition est non-throwante côté Documents pour les cas ATTENDUS (rejeu idempotent, course) ; toute erreur
-    // INATTENDUE (persistance) est ici journalisée et AVALÉE — jamais propagée — pour qu'un POST e-reporting ACCEPTÉ
-    // ne retombe pas en Technical (mensonge inverse). L'état résiduel éventuel (fenêtre de crash) est signalé (log
-    // 7461) et réconcilié hors-ligne — pas d'auto-rattrapage en régime permanent (V012 est one-shot). ADR-0037 §7 / D3.
-    private static async Task MarkDocumentEReportedAsync(
-        IServiceProvider services,
-        Guid documentId,
-        Guid emissionBatchId,
-        ILogger logger,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            await services.GetRequiredService<IDocumentLifecycle>()
-                .MarkEReportedAsync(documentId, emissionBatchId, cancellationToken);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            LogDocumentEReportFailed(logger, documentId, ex);
-        }
     }
 
     private static B2cReportingTransaction MapToReportingTransaction(
@@ -316,8 +387,12 @@ internal static partial class B2cReportingEmitter
     private static partial void LogEmissionFailed(ILogger logger, DateOnly date, string currency, Exception exception);
 
     [LoggerMessage(EventId = 7461, Level = LogLevel.Warning,
-        Message = "E-reporting B2C : transition du document {DocumentId} vers « E-reporté » échouée après un envoi ACCEPTÉ — l'émission reste valide (obligation e-reporting remplie), mais le document peut rester affiché « À envoyer ». Action : signaler au support pour réconcilier l'état persisté du document (BUG-24/ADR-0037).")]
+        Message = "E-reporting B2C : transition du document {DocumentId} vers « E-reporté » échouée après un envoi ACCEPTÉ — l'émission reste valide (obligation e-reporting remplie). Le document peut rester affiché « À envoyer » jusqu'au rattrapage AUTOMATIQUE du prochain run e-reporting (ADR-0037 D3). Action seulement si l'écart PERSISTE sur plusieurs runs : signaler au support (erreur de persistance récurrente).")]
     private static partial void LogDocumentEReportFailed(ILogger logger, Guid documentId, Exception exception);
+
+    [LoggerMessage(EventId = 7462, Level = LogLevel.Information,
+        Message = "E-reporting B2C : {Count} document(s) au statut résiduel « déclaré mais resté À envoyer » rattrapé(s) automatiquement (transition « E-reporté » rejouée, sans nouvelle transmission — ADR-0037 D3).")]
+    private static partial void LogResidualReconciled(ILogger logger, int count);
 
     /// <summary>Bilan d'émission d'un lot d'agrégats (issues terminales/non terminales).</summary>
     /// <param name="Issued">Agrégats transmis (200).</param>

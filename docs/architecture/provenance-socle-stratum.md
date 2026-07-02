@@ -312,6 +312,8 @@ src/Modules/Identity/Infrastructure/Queries/PostgresIdentityQueries.cs
 src/Modules/Identity/Infrastructure/Queries/PostgresAgentQueries.cs
 src/Modules/Identity/Infrastructure/Queries/PostgresTeamQueries.cs
 src/Common/UI/wwwroot/js/stratum-ui.js
+<!-- §4.44 — GDF01 : registre de types d'événements outbox peuplé au build DI (course de démarrage supprimée) -->
+src/Common/Infrastructure/Events/ServiceCollectionExtensions.cs
 <!-- SOCLE-CONSIGNED-DRIFT:END -->
 
 ### 4.13 Harness E2E — adapté de `Stratum.Tests.E2E` (SOL05)
@@ -1217,6 +1219,57 @@ in-process, et le Host ne porte aucun projet Playwright/E2E navigateur en V1. Un
 de défaut à `compact` ne serait donc PAS rattrapé par un test automatisé — seulement par la recette manuelle
 ci-dessus. Dette assumée et tracée : si un projet E2E navigateur Host est introduit, y ajouter le cas « nouvel
 utilisateur sans préférence → `document.documentElement[data-density] === 'standard'` » pour fermer ce trou.
+
+### 4.44 GDF01 — registre de types d'événements outbox peuplé AU BUILD DI (course de démarrage supprimée)
+
+Review d'intégration GED (2026-07-02, CONFIRMED) : une course de démarrage constructible faisait perdre
+SILENCIEUSEMENT des événements outbox pendants. L'`OutboxWorker` (`BackgroundService`, enregistré par
+`AddStratumEvents`) démarre AVANT les `...EventTypeRegistrar` (`IHostedService`) et son `ExecuteAsync`
+polle immédiatement ; un `event_type` non encore enregistré est vu « inconnu » et marqué `processed` à
+vide, sans dead-letter (`OutboxWorker.cs` — comportement INCHANGÉ, correct pour un vrai typo qui, sinon,
+re-pollerait à l'infini). Au redémarrage du Host avec des `ged.managed-document.received` pendants →
+documents jamais indexés. La correction déplace l'enregistrement des types de « au démarrage des hosted
+services » vers « à la construction du registre » (au build DI), donc AVANT tout poll.
+
+**Changement VENDORED (consigné ici)** — `src/Common/Infrastructure/Events/ServiceCollectionExtensions.cs`
+(`AddStratumEvents`) : la registration de `IEventTypeRegistry` passe d'un simple
+`AddSingleton<IEventTypeRegistry, EventTypeRegistry>()` à une **factory** qui, à la construction du
+singleton, applique **tous les `IEventTypeRegistrar` enregistrés** (`sp.GetServices<IEventTypeRegistrar>()`).
+Comme le worker (et les consommateurs) résolvent `IEventTypeRegistry` à leur propre construction — au
+tout début de `IHost.StartAsync`, avant l'exécution du moindre `StartAsync` de hosted service — le registre
+est déjà peuplé des types contribués avant le premier poll. Un enregistrement TARDIF via `IHostedService`
+reste possible (il mute le même singleton mutable `EventTypeRegistry`) : les modules socle non migrés
+(Identity/Job/Notification) gardent leur `...EventTypeRegistrar` `IHostedService` inchangé — **hors périmètre
+GDF01** (nommé GED + Ingestion), comportement STRICTEMENT préservé, aucune régression. Aucun `EventTypeRegistry`
+n'est modifié (l'API `Register` reste identique).
+
+**Périmètre = les canaux à consommateur durable (risque de perte OBSERVABLE).** La perte silencieuse au
+démarrage n'a d'effet QUE si l'événement pendant possède un `IIntegrationEventConsumer<T>` durable : sans
+consommateur, « marqué processed à vide (type inconnu) » et « dispatché vers zéro consommateur » sont
+strictement équivalents (no-op). Or les SEULS types d'événements portant un consommateur durable sont
+`ingestion.document.received` / `ingestion.source.altered` (Pipeline, Documents) et
+`ged.managed-document.received` (indexeur + projecteur GED) — exactement les deux canaux migrés par GDF01.
+Les événements socle Identity/Job/Notification (`identity.user.*`, `job.job.*`, `notification.email.*`)
+n'ont **aucun** consommateur durable enregistré dans Liakont : leur course de démarrage pré-existante est
+donc **sans effet observable** aujourd'hui, ce qui justifie de NE PAS migrer ces trois registrars socle
+(éviter 6 dérives socle pour un bénéfice comportemental nul, règle n°11). **Suivi (RESTE OUVERT) :** si un
+canal socle reçoit un jour un consommateur durable, migrer son registrar vers `IEventTypeRegistrar` +
+`AddSingleton<IEventTypeRegistrar, …>()` (même patch mécanique, fichier socle → à consigner ici) AVANT de
+le brancher, sinon la course redevient une perte silencieuse réelle.
+
+**Fichier AJOUTÉ (non épinglé)** — `src/Common/Infrastructure/Outbox/IEventTypeRegistrar.cs` : nouvelle
+abstraction de contributeur, porteuse du marqueur de tête `// Liakont addition (GDF01)` (exclue du périmètre
+épinglé par §4.12, comme §4.14). Les registrars Ged/Ingestion (code **Liakont**, `Liakont.Modules.*`, non
+épinglés) l'implémentent désormais au lieu d'`IHostedService`, et sont enregistrés via
+`AddSingleton<IEventTypeRegistrar, …>()`.
+
+**Vérification** : test de mécanisme (`Common.Infrastructure.Tests.Unit` — un `IEventTypeRegistrar` de test
+est appliqué à la construction du registre, prouvé SANS démarrer aucun hosted service) ; test d'intégration
+GED end-to-end **via le VRAI `OutboxWorker`** (événement `ged.managed-document.received` pendant → réellement
+dispatché et indexé, JAMAIS marqué processed à vide — ne contourne PAS le worker, contrairement aux tests
+d'ingestion existants) ; test Ingestion (le registre issu de `AddStratumEvents + AddIngestionModule` connaît
+`ingestion.document.received` / `ingestion.source.altered`). Garde `socle-provenance-check` verte (drift
+consigné ci-dessous). Aucun nouveau pin.
 
 ## 5. ADR du socle hérités
 

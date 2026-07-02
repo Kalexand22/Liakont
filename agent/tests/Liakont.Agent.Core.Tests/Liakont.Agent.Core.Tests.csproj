@@ -25,6 +25,9 @@
     <ProjectReference Include="..\..\src\Liakont.Agent.Adapters.DemoErpA\Liakont.Agent.Adapters.DemoErpA.csproj" />
     <ProjectReference Include="..\..\src\Liakont.Agent.Adapters.DemoErpB\Liakont.Agent.Adapters.DemoErpB.csproj" />
     <ProjectReference Include="..\..\..\src\Contracts\Liakont.Agent.Contracts\Liakont.Agent.Contracts.csproj" />
+    <!-- Contrat GED (Contracts.Ged) : exercé par le golden cross-runtime GED (RL-39) et par la frontière
+         AgentBoundaryTests. Lien cross-solution figé dans ContractCouplingGuardTests. -->
+    <ProjectReference Include="..\..\..\src\Contracts\Liakont.Agent.Contracts.Ged\Liakont.Agent.Contracts.Ged.csproj" />
   </ItemGroup>
 
   <!-- Client HTTP (tests du HttpPlatformClient contre un serveur HttpListener mocké, AGT02). -->
@@ -43,6 +46,9 @@
     <Compile Include="..\..\..\tests\_shared\contract-v1\ContractFixtureTests.cs" Link="ContractV1\ContractFixtureTests.cs" />
     <Compile Include="..\..\..\tests\_shared\contract-v1\CanonicalEnumGuardTests.cs" Link="ContractV1\CanonicalEnumGuardTests.cs" />
     <Compile Include="..\..\..\tests\_shared\contract-v1\CanonicalDeterminismTests.cs" Link="ContractV1\CanonicalDeterminismTests.cs" />
+    <!-- Golden cross-runtime du canal GED (IngestedDocumentDto → GedCanonicalJson, RL-39) : même code lié
+         des deux côtés, empreinte identique net48/.NET 10. -->
+    <Compile Include="..\..\..\tests\_shared\contract-v1\IngestedDocumentContractGoldenTests.cs" Link="ContractV1\IngestedDocumentContractGoldenTests.cs" />
   </ItemGroup>
 
   <!-- Golden files du contrat v1 (PIV03) : copiés en sortie pour être lus côté agent (net48) avec

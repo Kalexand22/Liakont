@@ -104,6 +104,25 @@ public sealed class LiakontNavNodeProviderTests
     }
 
     [Fact]
+    public void GetNavNode_Should_Show_Ged_Search_With_GedRead_Permission()
+    {
+        // GED (GED09a) : surface de consultation gardée par la permission DÉDIÉE liakont.ged.read (silo GED, F19 §6.5).
+        var root = BuildProvider(permissions: [LiakontPermissions.GedRead]).GetNavNode();
+
+        Labels(root).Should().Contain("Recherche GED");
+    }
+
+    [Fact]
+    public void GetNavNode_Should_Hide_Ged_Search_Without_GedRead_Permission()
+    {
+        // La permission de lecture FISCALE (liakont.read) N'OUVRE PAS la GED : un lecteur sans liakont.ged.read
+        // ne voit pas « Recherche GED » (silo GED — la fuite ne se déplace pas de la GED vers le fiscal).
+        var root = BuildProvider(permissions: [LiakontPermissions.Read]).GetNavNode();
+
+        Labels(root).Should().NotContain("Recherche GED");
+    }
+
+    [Fact]
     public void GetNavNode_For_A_Reader_Should_Show_All_Consultation_Entries_And_The_Settings_Hub_As_A_Leaf()
     {
         // Preuve d'acceptance RLF03 (rôle `lecture`, matrice §3 : liakont.read seul) : il consulte

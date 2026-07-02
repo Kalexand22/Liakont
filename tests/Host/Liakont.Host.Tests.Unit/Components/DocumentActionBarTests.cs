@@ -130,6 +130,35 @@ public sealed class DocumentActionBarTests : BunitContext
     }
 
     [Fact]
+    public void Should_Hide_Send_For_A_Residual_ReadyToSend_Document_Already_E_Reported()
+    {
+        // GDF03 (filet read-time léger) : un document déjà DÉCLARÉ par la voie AGRÉGÉE (journal d'émission Issued)
+        // mais resté ReadyToSend dans la fenêtre RÉSIDUELLE transitoire (avant rattrapage GDF02) porte un lot
+        // d'émission résolu (EReportedBatchId != null). « Envoyer » ne doit PAS réapparaître de façon trompeuse
+        // (la garde réelle reste serveur : SendTenantJob défère toute déclaration 10.3). Aucune autre action
+        // n'étant pertinente, la barre entière disparaît.
+        var cut = Render<DocumentActionBar>(p => p
+            .Add(b => b.Model, Model(Doc("9000005", "ReadyToSend", companyHint: true), eReportedBatchId: Guid.NewGuid()))
+            .Add(b => b.CanAct, true));
+
+        cut.FindAll("[data-testid='document-detail-send']").Should().BeEmpty("un document déjà e-reporté (résidu ReadyToSend) ne se renvoie pas par la voie document");
+        cut.FindAll("[data-testid='document-detail-send-hint']").Should().BeEmpty();
+        cut.FindAll("[data-testid='document-detail-action-region']").Should().BeEmpty("aucune action pertinente → pas de barre");
+    }
+
+    [Fact]
+    public void Should_Still_Offer_Send_For_A_ReadyToSend_Document_Never_E_Reported()
+    {
+        // Garde-fou anti-régression : un ReadyToSend ORDINAIRE (jamais e-reporté → aucun lot résolu) reste envoyable.
+        // Le masquage GDF03 ne se déclenche QUE sur la présence d'un lot d'émission (signal « déjà déclaré »).
+        var cut = Render<DocumentActionBar>(p => p
+            .Add(b => b.Model, Model(Doc("9000006", "ReadyToSend"), eReportedBatchId: null))
+            .Add(b => b.CanAct, true));
+
+        cut.FindAll("[data-testid='document-detail-send']").Should().ContainSingle("un document prêt à l'envoi jamais déclaré reste envoyable");
+    }
+
+    [Fact]
     public void Should_Hide_Send_When_Not_CanAct_Even_If_ReadyToSend()
     {
         var cut = Render<DocumentActionBar>(p => p
@@ -250,13 +279,14 @@ public sealed class DocumentActionBarTests : BunitContext
         cut.Find("[data-testid='document-detail-recheck']").HasAttribute("disabled").Should().BeTrue();
     }
 
-    private static DocumentDetailViewModel Model(DocumentDto doc) => new()
+    private static DocumentDetailViewModel Model(DocumentDto doc, Guid? eReportedBatchId = null) => new()
     {
         Document = doc,
         Events = [],
         BlockingReason = string.Equals(doc.State, "Blocked", StringComparison.Ordinal) ? "Un contrôle a échoué." : null,
         Archive = null,
         IsArchived = false,
+        EReportedBatchId = eReportedBatchId,
     };
 
     private static DocumentDto Doc(

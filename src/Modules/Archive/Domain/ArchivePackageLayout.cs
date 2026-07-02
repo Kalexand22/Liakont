@@ -85,6 +85,23 @@ public static class ArchivePackageLayout
         return result;
     }
 
+    /// <summary>
+    /// Encode un segment de chemin DYNAMIQUE fourni par l'appelant (ex. une clé de document) de façon INJECTIVE :
+    /// le nom assaini reste lisible, mais un suffixe = empreinte (préfixe) de la valeur BRUTE garantit que deux
+    /// valeurs DISTINCTES ne peuvent jamais produire le même segment. Sans cela, <see cref="SanitizeSegment"/>
+    /// est plusieurs-vers-un (« K:42 » et « K?42 » → « K_42 ») : deux documents différents tomberaient dans le
+    /// même répertoire → conflit WORM PERMANENT (le 2e contenu devient inarchivable à vie) ou fausse dédup sous
+    /// la clé de l'autre. Le suffixe est TOUJOURS présent (jamais conditionnel : un suffixe conditionnel se
+    /// laisserait contourner par une clé déjà de la forme « slug-hash »). Deux segments encodés ne coïncident
+    /// donc que si la valeur brute assainie ET le préfixe d'empreinte coïncident — soit une collision SHA-256
+    /// (64 bits sur le préfixe), jamais un simple aliasing d'assainissement.
+    /// </summary>
+    public static string InjectiveSegment(string segment)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(segment);
+        return $"{SanitizeSegment(segment)}-{Sha256Hex.OfString(segment)[..16]}";
+    }
+
     private static bool IsAllowed(char c) =>
         char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.';
 }

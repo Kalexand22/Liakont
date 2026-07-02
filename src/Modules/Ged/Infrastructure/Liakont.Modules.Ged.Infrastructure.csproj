@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Microsoft.Extensions.* (DI, Options, Logging) du framework partagé — aucun package NuGet nouveau,
+         aucun ADR (repo-standards §4). Le scaffold GED ne porte aucun secret. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <!-- MediatR (version centralisée, déjà utilisée par tous les modules) : AddMediatR + IRequestHandler du
+         SetAxisValueCommandHandler (GED04). Ni MediatR.Contracts (IRequest) transitif via Common.Abstractions,
+         ni Dapper/Npgsql transitifs via Common.Infrastructure ne portent AddMediatR/IRequestHandler. -->
+    <PackageReference Include="MediatR" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Liakont.Modules.Ged.Tests.Unit" />
+    <InternalsVisibleTo Include="Liakont.Modules.Ged.Tests.Integration" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Ged.Domain.csproj" />
+    <ProjectReference Include="../Application/Liakont.Modules.Ged.Application.csproj" />
+    <ProjectReference Include="../Contracts/Liakont.Modules.Ged.Contracts.csproj" />
+    <ProjectReference Include="../../../Common/Abstractions/Stratum.Common.Abstractions.csproj" />
+    <ProjectReference Include="../../../Common/Infrastructure/Stratum.Common.Infrastructure.csproj" />
+    <!-- Ingestion GED (GED05b) : le handler stage le pivot canonique et le consommateur le relit, via l'abstraction
+         de staging (ADR-0014). Dépendance aux CONTRACTS du module Staging seulement (frontière F19 §6), jamais à
+         Ingestion (le canal GED est disjoint du canal fiscal, RL-01). -->
+    <ProjectReference Include="../../Staging/Contracts/Liakont.Modules.Staging.Contracts.csproj" />
+  </ItemGroup>
+</Project>

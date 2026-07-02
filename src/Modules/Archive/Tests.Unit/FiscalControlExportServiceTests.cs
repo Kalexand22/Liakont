@@ -168,6 +168,31 @@ public sealed class FiscalControlExportServiceTests
             .Should().ThrowAsync<ArgumentException>();
     }
 
+    [Fact]
+    public async Task BuildForRange_ExcludesGedVault_OptionC()
+    {
+        // Un paquet fiscal (chaîne) + un paquet GED (option C, rangé sous _ged/ HORS chaîne, GED07) dans le MÊME
+        // coffre. L'export de contrôle fiscal n'énumère que la chaîne fiscale → aucun paquet _ged/ n'y apparaît.
+        ArchivePackageRequest fiscal = ArchiveTestData.PackageRequest();
+        await _archiveService.ArchiveIssuedDocumentAsync(fiscal);
+        _documentQueries.Add(BuildDoc(fiscal.DocumentId, fiscal.DocumentNumber));
+
+        var generic = new GenericArchiveService(_store, _tenant);
+        await generic.ArchiveManagedDocumentAsync(new GedArchivePackageRequest(
+            ArchiveKind: "bordereau",
+            ArchiveKey: "K-42",
+            FiledOn: new DateOnly(2026, 5, 12),
+            Contents: [new ArchiveAttachment("piece.pdf", "application/pdf", System.Text.Encoding.UTF8.GetBytes("%PDF-ged"))],
+            ReadableHtml: null,
+            IndexAxes: []));
+
+        FiscalControlExport export = await Create().BuildForRangeAsync(null, null);
+
+        export.IsComplete.Should().BeTrue();
+        export.Files.Select(f => f.Path).Should().Contain("2026/05/F-2026-001/manifest.json");
+        export.Files.Select(f => f.Path).Should().NotContain(p => p.StartsWith("_ged/", StringComparison.Ordinal));
+    }
+
     private FiscalControlExportService Create()
     {
         var verifier = new ArchiveVerifier(_archiveService, _entryStore, _anchorStore, _store, new NoAnchorTimestampAnchor(), _tenant);

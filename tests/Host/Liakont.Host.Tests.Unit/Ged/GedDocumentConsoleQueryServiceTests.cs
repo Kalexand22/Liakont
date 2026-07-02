@@ -1,0 +1,299 @@
+namespace Liakont.Host.Tests.Unit.Ged;
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using FluentAssertions;
+using Liakont.Host.Ged;
+using Liakont.Host.Security;
+using Liakont.Modules.Archive.Application;
+using Liakont.Modules.Archive.Contracts;
+using Liakont.Modules.Archive.Domain;
+using Liakont.Modules.Ged.Contracts.Consultation;
+using Liakont.Modules.Ged.Contracts.Queries;
+using Stratum.Common.Abstractions.MultiTenancy;
+using Stratum.Common.Abstractions.Security;
+using Xunit;
+
+// Assemblage de la fiche document GED (GED09b) : orchestration du port de lecture GED, de la surface de coffre
+// (intégrité re-lue + aperçu) et du journal de consultation. On couvre : le passage du droit confidentiel au
+// masquage server-side, la trace view_document, le mapping d'intégrité GED-seul vs fiscal-lié, et le not-found.
+public sealed class GedDocumentConsoleQueryServiceTests
+{
+    private static readonly Guid DocId = Guid.Parse("aaaaaaaa-0000-4000-8000-000000000001");
+
+    [Fact]
+    public async Task Returns_Null_And_Does_Not_Log_When_Document_Is_Not_Found()
+    {
+        var queries = new FakeGedDocumentQueries(document: null);
+        var reader = new FakeManagedArchiveReader();
+        var consultation = new FakeConsultationAuditWriter();
+        var service = Build(queries, reader, consultation, permissions: GrantAll());
+
+        var result = await service.GetAsync(DocId);
+
+        result.Should().BeNull();
+        consultation.Entries.Should().BeEmpty("aucun document lu → aucune consultation à journaliser");
+        reader.VerifyCalls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Passes_Confidential_Right_To_The_Query_And_Logs_A_View_Document_Consultation()
+    {
+        var queries = new FakeGedDocumentQueries(GedOnlyDocument());
+        var reader = new FakeManagedArchiveReader(
+            integrity: new GedArchiveIntegrityResult(GedArchiveIntegrityStatus.Verified, "hash", "hash", null),
+            readableHtml: "<p>aperçu</p>");
+        var consultation = new FakeConsultationAuditWriter();
+
+        // Acteur AVEC le droit confidentiel.
+        var service = Build(queries, reader, consultation, permissions: GrantAll());
+
+        var result = await service.GetAsync(DocId);
+
+        result.Should().NotBeNull();
+        queries.LastHasConfidentialRight.Should().BeTrue("le droit confidentiel de l'acteur pilote le masquage server-side");
+
+        consultation.Entries.Should().ContainSingle();
+        var entry = consultation.Entries[0];
+        entry.Action.Should().Be(ConsultationAction.ViewDocument);
+        entry.ManagedDocumentId.Should().Be(DocId);
+        entry.ActorHasConfidentialAccess.Should().BeTrue();
+
+        result!.Integrity.State.Should().Be(GedDocumentIntegrityState.Verified);
+        result.PreviewHtml.Should().Contain("aperçu");
+    }
+
+    [Fact]
+    public async Task Masks_Confidential_When_The_Actor_Lacks_The_Right()
+    {
+        var queries = new FakeGedDocumentQueries(GedOnlyDocument());
+        var reader = new FakeManagedArchiveReader();
+        var consultation = new FakeConsultationAuditWriter();
+
+        // Acteur SANS le droit confidentiel (seulement lecture GED).
+        var service = Build(queries, reader, consultation, permissions: Grant(LiakontPermissions.GedRead));
+
+        await service.GetAsync(DocId);
+
+        queries.LastHasConfidentialRight.Should().BeFalse("sans liakont.ged.confidential, le masquage exclut les axes/entités confidentiels");
+        consultation.Entries[0].ActorHasConfidentialAccess.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Uses_Fiscal_Integrity_And_Does_Not_Re_Read_The_Ged_Package_For_A_Fiscal_Linked_Document()
+    {
+        var fiscalId = Guid.Parse("bbbbbbbb-0000-4000-8000-000000000002");
+        var archiveEntryId = Guid.Parse("cccccccc-0000-4000-8000-000000000003");
+        var queries = new FakeGedDocumentQueries(GedOnlyDocument() with
+        {
+            FiscalDocumentId = fiscalId,
+            ArchiveEntryId = archiveEntryId,
+        });
+        var reader = new FakeManagedArchiveReader();
+        var consultation = new FakeConsultationAuditWriter();
+        var service = Build(queries, reader, consultation, permissions: GrantAll());
+
+        var result = await service.GetAsync(DocId);
+
+        result!.IsFiscalLinked.Should().BeTrue();
+        result.FiscalDocumentId.Should().Be(fiscalId);
+        result.Integrity.State.Should().Be(GedDocumentIntegrityState.FiscalLinked);
+        result.PreviewHtml.Should().BeNull();
+        reader.VerifyCalls.Should().Be(0, "l'intégrité fiscale est portée par le coffre fiscal, pas par la re-lecture GED");
+        reader.ReadableCalls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Maps_Missing_Integrity_From_The_Archive_Reader()
+    {
+        var queries = new FakeGedDocumentQueries(GedOnlyDocument());
+        var reader = new FakeManagedArchiveReader(
+            integrity: new GedArchiveIntegrityResult(GedArchiveIntegrityStatus.Missing, "hash", null, "introuvable"));
+        var consultation = new FakeConsultationAuditWriter();
+        var service = Build(queries, reader, consultation, permissions: GrantAll());
+
+        var result = await service.GetAsync(DocId);
+
+        result!.Integrity.State.Should().Be(GedDocumentIntegrityState.Missing);
+        result.Integrity.Detail.Should().Contain("introuvable");
+        reader.VerifyCalls.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task An_Unknown_Archive_Integrity_Status_Fails_Loudly_Instead_Of_Defaulting_To_NotArchived()
+    {
+        // P2 GDF12 (3) : un statut d'intégrité de coffre INCONNU (valeur future du contrat Archive) ne doit PAS
+        // retomber silencieusement sur NotArchived (« pas encore rangé dans le coffre » = verdict d'intégrité
+        // TROMPEUR sur un produit de conformité) — le mapping exhaustif échoue BRUYAMMENT (à étendre).
+        var unknownStatus = (GedArchiveIntegrityStatus)999;
+        var queries = new FakeGedDocumentQueries(GedOnlyDocument());
+        var reader = new FakeManagedArchiveReader(
+            integrity: new GedArchiveIntegrityResult(unknownStatus, "hash", "hash", null));
+        var consultation = new FakeConsultationAuditWriter();
+        var service = Build(queries, reader, consultation, permissions: GrantAll());
+
+        var act = async () => await service.GetAsync(DocId);
+
+        await act.Should().ThrowAsync<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public async Task Propagates_When_The_Consultation_Writer_Fails_In_Evidential_Mode()
+    {
+        var queries = new FakeGedDocumentQueries(GedOnlyDocument());
+        var reader = new FakeManagedArchiveReader();
+        var consultation = new FakeConsultationAuditWriter(throwOnWrite: true);
+        var service = Build(queries, reader, consultation, permissions: GrantAll());
+
+        // Régime probant : une trace en échec LÈVE → la page traduit en refus d'accès (fail-closed §6.6).
+        var act = async () => await service.GetAsync(DocId);
+        await act.Should().ThrowAsync<ConsultationAuditException>();
+    }
+
+    [Fact]
+    public async Task Renders_An_Altered_Verdict_Instead_Of_Throwing_When_The_Real_Reader_Meets_A_Corrupt_Manifest()
+    {
+        // GDF08 — bout-en-bout de la fiche avec le VRAI ManagedArchiveReader : un manifest JSON valide mais
+        // altéré (archiveKey vide → SanitizeSegment lève) NE DOIT PLUS faire planter /ged/document ; la fiche
+        // affiche le verdict Altered (contrat l.147-149). C'est le mode de défaillance corrigé par GDF08.
+        var document = GedOnlyDocument();
+        var queries = new FakeGedDocumentQueries(document);
+
+        byte[] corruptManifest = Encoding.UTF8.GetBytes(
+            "{\"archiveKind\":\"documents\",\"archiveKey\":\"\",\"filedOn\":\"2026-06-01\"," +
+            "\"packageHash\":\"seal\",\"files\":[{\"name\":\"payload.json\"}]}");
+        var store = new FakeArchiveStore();
+        store.Put("t1", document.ArchivePath!, corruptManifest);
+        var realReader = new ManagedArchiveReader(store, new FakeTenantContext("t1"));
+
+        var consultation = new FakeConsultationAuditWriter();
+        var service = Build(queries, realReader, consultation, permissions: GrantAll());
+
+        GedDocumentDetailViewModel? result = null;
+        Func<Task> act = async () => result = await service.GetAsync(DocId);
+
+        await act.Should().NotThrowAsync("un manifest corrompu produit un verdict d'intégrité, jamais une exception sur la fiche");
+        result!.Integrity.State.Should().Be(GedDocumentIntegrityState.Altered);
+        result.Integrity.Detail.Should().Contain("corrompu");
+    }
+
+    private static GedDocumentConsoleQueryService Build(
+        IGedDocumentQueries queries,
+        IManagedArchiveReader reader,
+        IConsultationAuditWriter consultation,
+        IPermissionService permissions) => new(queries, reader, consultation, permissions);
+
+    private static GedManagedDocumentView GedOnlyDocument() => new()
+    {
+        Id = DocId,
+        Title = "Bordereau acheteur 42",
+        DocKind = "bordereau",
+        Status = "indexed",
+        RetentionClass = "tenant_bounded",
+        ArchivePath = "_ged/documents/2026/06/bordereau-42/manifest.json",
+        ContentHash = "hash",
+        CreatedUtc = new DateTimeOffset(2026, 6, 1, 10, 0, 0, TimeSpan.Zero),
+        Axes = [],
+        Entities = [],
+    };
+
+    private static FakePermissionService GrantAll() =>
+        Grant(LiakontPermissions.GedRead, LiakontPermissions.GedExport, LiakontPermissions.GedConfidential);
+
+    private static FakePermissionService Grant(params string[] permissions) => new(permissions);
+
+    private sealed class FakeGedDocumentQueries(GedManagedDocumentView? document) : IGedDocumentQueries
+    {
+        public bool LastHasConfidentialRight { get; private set; }
+
+        public Task<GedManagedDocumentView?> GetAsync(Guid managedDocumentId, bool hasConfidentialRight, CancellationToken cancellationToken = default)
+        {
+            LastHasConfidentialRight = hasConfidentialRight;
+            return Task.FromResult(document);
+        }
+    }
+
+    private sealed class FakeManagedArchiveReader(
+        GedArchiveIntegrityResult? integrity = null,
+        string? readableHtml = null) : IManagedArchiveReader
+    {
+        public int VerifyCalls { get; private set; }
+
+        public int ReadableCalls { get; private set; }
+
+        public Task<GedArchiveIntegrityResult> VerifyManagedPackageAsync(string? manifestPath, string? indexedContentHash, CancellationToken cancellationToken = default)
+        {
+            VerifyCalls++;
+            return Task.FromResult(integrity
+                ?? new GedArchiveIntegrityResult(GedArchiveIntegrityStatus.NotArchived, indexedContentHash, null, null));
+        }
+
+        public Task<string?> ReadManagedReadableHtmlAsync(string? manifestPath, CancellationToken cancellationToken = default)
+        {
+            ReadableCalls++;
+            return Task.FromResult(readableHtml);
+        }
+    }
+
+    private sealed class FakeConsultationAuditWriter(bool throwOnWrite = false) : IConsultationAuditWriter
+    {
+        public List<ConsultationLogEntry> Entries { get; } = [];
+
+        public Task WriteAsync(ConsultationLogEntry entry, CancellationToken cancellationToken = default)
+        {
+            if (throwOnWrite)
+            {
+                throw new ConsultationAuditException(
+                    "Trace de consultation en échec (régime probant).",
+                    new InvalidOperationException("écriture du journal impossible"));
+            }
+
+            Entries.Add(entry);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakePermissionService(params string[] granted) : IPermissionService
+    {
+        private readonly HashSet<string> _granted = new(granted, StringComparer.Ordinal);
+
+        public event Action? OnPermissionsChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public bool HasPermission(string permission) => _granted.Contains(permission);
+    }
+
+    private sealed class FakeArchiveStore : IArchiveStore
+    {
+        private readonly Dictionary<string, byte[]> _objects = new(StringComparer.Ordinal);
+
+        public ArchiveStoreCapabilities Capabilities => ArchiveStoreCapabilities.None;
+
+        public void Put(string tenant, string relativePath, byte[] content) => _objects[tenant + "|" + relativePath] = content;
+
+        public Task WriteAsync(string tenant, string relativePath, byte[] content, CancellationToken cancellationToken = default)
+        {
+            _objects[tenant + "|" + relativePath] = content;
+            return Task.CompletedTask;
+        }
+
+        public Task<bool> ExistsAsync(string tenant, string relativePath, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_objects.ContainsKey(tenant + "|" + relativePath));
+
+        public Task<byte[]> ReadAsync(string tenant, string relativePath, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_objects[tenant + "|" + relativePath]);
+    }
+
+    private sealed class FakeTenantContext(string tenantId) : ITenantContext
+    {
+        public string? TenantId { get; } = tenantId;
+
+        public bool IsResolved => true;
+    }
+}

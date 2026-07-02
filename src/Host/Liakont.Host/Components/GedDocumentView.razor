@@ -1,0 +1,277 @@
+@namespace Liakont.Host.Components
+@using System
+@using System.Globalization
+@using Liakont.Host.Ged
+@using Liakont.Modules.Ged.Contracts.Queries
+@using Stratum.Common.UI.Components
+@using Stratum.Common.UI.Models
+
+@* GedDocumentView — rendu PUR de la fiche document GED (/ged/document/{id}, GED09b, F19 §6.7). Reçoit son
+ * modèle assemblé en paramètre (aucune injection, aucune logique métier, aucun accès base) pour être testable
+ * en bUnit sans auth ni base. Cartes empilées (Stratum SectionCard/StatusBadge/LiakontAlert) : En-tête,
+ * Intégrité, Aperçu, Axes d'indexation, Entités liées. Le masquage de confidentialité est déjà appliqué
+ * server-side (les axes/entités confidentiels sont ABSENTS du modèle sans le droit) : la vue n'ajoute aucun
+ * filtrage. Montants en decimal (jamais double), horodatages en UTC explicite. 100 % français. *@
+
+<div class="liakont-ged-doc" data-testid="ged-document">
+
+    @* ── En-tête ───────────────────────────────────────────────────────────────────────── *@
+    <SectionCard Title="En-tête" TestId="ged-document-header">
+        <dl class="liakont-ged-doc__defs">
+            <div class="liakont-ged-doc__row">
+                <dt>Titre</dt>
+                <dd data-testid="ged-document-title">@Model.Title</dd>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(Model.DocKind))
+            {
+                <div class="liakont-ged-doc__row">
+                    <dt>Type de document</dt>
+                    <dd data-testid="ged-document-kind">@Model.DocKind</dd>
+                </div>
+            }
+            <div class="liakont-ged-doc__row">
+                <dt>Statut</dt>
+                <dd><StatusBadge Label="@StatusLabel" Severity="StatusSeverity" TestId="ged-document-status" /></dd>
+            </div>
+            <div class="liakont-ged-doc__row">
+                <dt>Rétention</dt>
+                <dd data-testid="ged-document-retention">@RetentionLabel</dd>
+            </div>
+            <div class="liakont-ged-doc__row">
+                <dt>Créé le</dt>
+                <dd>@FormatDateTime(Model.CreatedUtc)</dd>
+            </div>
+            @if (Model.UpdatedUtc is { } updated)
+            {
+                <div class="liakont-ged-doc__row">
+                    <dt>Mis à jour le</dt>
+                    <dd>@FormatDateTime(updated)</dd>
+                </div>
+            }
+        </dl>
+
+        @if (string.Equals(Model.Status, "deferred", StringComparison.Ordinal))
+        {
+            <LiakontAlert Severity="Severity.Warning" TestId="ged-document-defer">
+                <span class="liakont-ged-doc__alert-title">Document en attente d'indexation</span>
+                <span>@(string.IsNullOrWhiteSpace(Model.DeferReason)
+                    ? "Aucun profil de mapping ne couvre encore ce type de document ; il est conservé tel quel, sans indexation devinée."
+                    : Model.DeferReason)</span>
+            </LiakontAlert>
+        }
+
+        @if (Model.IsFiscalLinked)
+        {
+            <p class="liakont-ged-doc__hint" data-testid="ged-document-fiscal-link">
+                Ce document est rattaché à un document fiscal.
+                @if (Model.FiscalDocumentId is { } fiscalId)
+                {
+                    <a href="@($"/documents/{fiscalId}")" data-testid="ged-document-fiscal-anchor">Voir la fiche fiscale</a><text>.</text>
+                }
+            </p>
+        }
+    </SectionCard>
+
+    @* ── Intégrité (re-lecture du coffre vs empreinte indexée) ──────────────────────────── *@
+    <SectionCard Title="Intégrité du coffre" TestId="ged-document-integrity">
+        <dl class="liakont-ged-doc__defs">
+            <div class="liakont-ged-doc__row">
+                <dt>État</dt>
+                <dd><StatusBadge Label="@IntegrityLabel" Severity="IntegritySeverity" TestId="ged-document-integrity-state" /></dd>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(Model.Integrity.IndexedHash))
+            {
+                <div class="liakont-ged-doc__row">
+                    <dt>Empreinte indexée</dt>
+                    <dd class="liakont-ged-doc__hash" data-testid="ged-document-integrity-hash">@Model.Integrity.IndexedHash</dd>
+                </div>
+            }
+            @if (Model.Integrity.State == GedDocumentIntegrityState.Altered && !string.IsNullOrWhiteSpace(Model.Integrity.RecomputedHash))
+            {
+                <div class="liakont-ged-doc__row">
+                    <dt>Empreinte recalculée</dt>
+                    <dd class="liakont-ged-doc__hash" data-testid="ged-document-integrity-recomputed">@Model.Integrity.RecomputedHash</dd>
+                </div>
+            }
+        </dl>
+
+        @if (Model.Integrity.State == GedDocumentIntegrityState.FiscalLinked)
+        {
+            <p class="liakont-ged-doc__hint" data-testid="ged-document-integrity-fiscal">
+                L'intégrité de ce document est portée par la chaîne de hashes et l'ancrage horodaté du coffre fiscal
+                (vérifiables via l'export pour contrôle fiscal de la fiche fiscale).
+            </p>
+        }
+        else if (!string.IsNullOrWhiteSpace(Model.Integrity.Detail))
+        {
+            <LiakontAlert Severity="IntegritySeverity" TestId="ged-document-integrity-detail">
+                @Model.Integrity.Detail
+            </LiakontAlert>
+        }
+    </SectionCard>
+
+    @* ── Aperçu (ReadableHtml du paquet, rendu en bac à sable) ──────────────────────────── *@
+    <SectionCard Title="Aperçu du document" TestId="ged-document-preview-card">
+        @if (!string.IsNullOrWhiteSpace(Model.PreviewHtml))
+        {
+            @* Aperçu rendu dans une iframe SANDBOX (attribut sandbox vide = restrictions maximales : ni script,
+             * ni formulaire, ni même origine) : le HTML lisible provient du paquet archivé (donnée source) et
+             * n'est jamais exécuté dans le contexte de la console (défense en profondeur XSS). *@
+            <iframe class="liakont-ged-doc__preview"
+                    title="Aperçu lisible du document"
+                    sandbox=""
+                    srcdoc="@Model.PreviewHtml"
+                    data-testid="ged-document-preview"></iframe>
+        }
+        else
+        {
+            <p class="liakont-ged-doc__hint" data-testid="ged-document-preview-none">
+                Aucun aperçu lisible n'est disponible pour ce document.
+            </p>
+        }
+    </SectionCard>
+
+    @* ── Axes d'indexation ──────────────────────────────────────────────────────────────── *@
+    <SectionCard Title="Axes d'indexation" TestId="ged-document-axes-card">
+        @if (Model.Axes.Count == 0)
+        {
+            <p class="liakont-ged-doc__hint" data-testid="ged-document-axes-empty">
+                Aucun axe d'indexation n'est renseigné (ou visible avec vos droits) pour ce document.
+            </p>
+        }
+        else
+        {
+            <dl class="liakont-ged-doc__defs" data-testid="ged-document-axes">
+                @foreach (var axis in Model.Axes)
+                {
+                    <div class="liakont-ged-doc__row" data-testid="ged-document-axis">
+                        <dt>@axis.Label</dt>
+                        <dd>@AxisDisplay(axis)</dd>
+                    </div>
+                }
+            </dl>
+        }
+    </SectionCard>
+
+    @* ── Entités liées ──────────────────────────────────────────────────────────────────── *@
+    <SectionCard Title="Entités liées" TestId="ged-document-entities-card">
+        @if (Model.Entities.Count == 0)
+        {
+            <p class="liakont-ged-doc__hint" data-testid="ged-document-entities-empty">
+                Aucune entité liée (ou visible avec vos droits) pour ce document.
+            </p>
+        }
+        else
+        {
+            <ul class="liakont-ged-doc__entities" data-testid="ged-document-entities">
+                @foreach (var entity in Model.Entities)
+                {
+                    <li data-testid="ged-document-entity">
+                        <span class="liakont-ged-doc__entity-role">@entity.Role</span>
+                        <span class="liakont-ged-doc__entity-type">@entity.EntityTypeLabel</span>
+                        <span class="liakont-ged-doc__entity-name">@entity.DisplayName</span>
+                        @if (!string.IsNullOrWhiteSpace(entity.IdentityValue))
+                        {
+                            <span class="liakont-ged-doc__entity-identity">(@entity.IdentityValue)</span>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+    </SectionCard>
+
+</div>
+
+@code {
+    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+
+    /// <summary>Modèle assemblé de la fiche (jamais <c>null</c> : la page en fournit toujours un).</summary>
+    [Parameter, EditorRequired]
+    public GedDocumentDetailViewModel Model { get; set; } = null!;
+
+    // Statut d'indexation → libellé + sévérité de badge (présentation pure ; le statut brut reste dans le modèle).
+    private string StatusLabel => Model.Status switch
+    {
+        "indexed" => "Indexé",
+        "deferred" => "En attente d'indexation",
+        "archived" => "Archivé",
+        "draft" => "Brouillon",
+        _ => Model.Status,
+    };
+
+    private Severity StatusSeverity => Model.Status switch
+    {
+        "indexed" => Severity.Success,
+        "deferred" => Severity.Warning,
+        _ => Severity.Info,
+    };
+
+    private string RetentionLabel => Model.RetentionClass switch
+    {
+        "legal_hold" => "Conservation légale",
+        "tenant_bounded" => "Borné au tenant",
+        "erasable" => "Effaçable",
+        _ => Model.RetentionClass,
+    };
+
+    // Verdict d'intégrité → libellé + sévérité (présentation pure).
+    private string IntegrityLabel => Model.Integrity.State switch
+    {
+        GedDocumentIntegrityState.Verified => "Intégrité vérifiée",
+        GedDocumentIntegrityState.Altered => "Intégrité compromise",
+        GedDocumentIntegrityState.Missing => "Paquet introuvable",
+        GedDocumentIntegrityState.NotArchived => "Non archivé",
+        GedDocumentIntegrityState.FiscalLinked => "Document fiscal lié",
+        _ => "Inconnu",
+    };
+
+    private Severity IntegritySeverity => Model.Integrity.State switch
+    {
+        GedDocumentIntegrityState.Verified => Severity.Success,
+        GedDocumentIntegrityState.Altered => Severity.Error,
+        GedDocumentIntegrityState.Missing => Severity.Warning,
+        _ => Severity.Info,
+    };
+
+    // Horodatage en UTC EXPLICITE (suffixe « UTC »), pour s'aligner sur l'export fiscal — un vérificateur recoupe
+    // écran et export sans ambiguïté de fuseau (en Blazor Server, l'heure « locale » serait celle du SERVEUR).
+    private static string FormatDateTime(DateTimeOffset when) =>
+        when.ToUniversalTime().ToString("dd/MM/yyyy HH:mm 'UTC'", Fr);
+
+    // Valeur d'axe affichable, selon son type. Montant en decimal (jamais double), échelle portée par l'axe
+    // (value_scale) ; aucune valeur inventée : repli sur la valeur normalisée puis « — ».
+    private static string AxisDisplay(GedManagedAxisValue axis)
+    {
+        if (axis.ValueNumber is { } number)
+        {
+            string formatted = axis.ValueScale is { } scale
+                ? number.ToString("N" + scale.ToString(CultureInfo.InvariantCulture), Fr)
+                : number.ToString("0.############", Fr);
+            return string.IsNullOrWhiteSpace(axis.Unit) ? formatted : $"{formatted} {axis.Unit}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(axis.ValueString))
+        {
+            return axis.ValueString;
+        }
+
+        if (!string.IsNullOrWhiteSpace(axis.ValueEntityName))
+        {
+            return axis.ValueEntityName;
+        }
+
+        if (axis.ValueBoolean is { } boolean)
+        {
+            return boolean ? "Oui" : "Non";
+        }
+
+        if (!string.IsNullOrWhiteSpace(axis.ValueDate))
+        {
+            return DateOnly.TryParseExact(axis.ValueDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateOnly date)
+                ? date.ToString("dd/MM/yyyy", Fr)
+                : axis.ValueDate;
+        }
+
+        return string.IsNullOrWhiteSpace(axis.NormalizedValue) ? "—" : axis.NormalizedValue;
+    }
+}

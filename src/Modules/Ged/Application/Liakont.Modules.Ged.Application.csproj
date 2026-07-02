@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Liakont.Modules.Ged.Domain.csproj" />
+  </ItemGroup>
+</Project>

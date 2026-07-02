@@ -1,0 +1,106 @@
+@namespace Liakont.Host.Components
+@using Liakont.Host.Ged
+
+@* GedGraphView — rendu PUR de l'exploration de graphe GED (GED09c, F19 §6.7). Reçoit ses données en paramètre
+ * et remonte l'intention « page suivante » par EventCallback (aucune injection, aucune logique métier, aucun
+ * accès base ni index) pour être testable en bUnit. La PAGE (GedObjet) porte l'état (racine, curseur keyset,
+ * accumulation des pages) et appelle IGedGraphQueries. La traversée est déjà BORNÉE bidirectionnelle et le
+ * masquage de confidentialité (racine + extrémités) est SERVER-SIDE (§6.4/§6.5) — la vue n'a jamais à décider
+ * quoi masquer/traverser. 100 % français. *@
+
+<div class="ged-graph" data-testid="ged-graph">
+
+    <header class="ged-graph__header">
+        <h2 class="ged-graph__title" data-testid="ged-graph-heading">Exploration de l'objet</h2>
+        <p class="ged-graph__root" data-testid="ged-graph-root">
+            <span class="ged-graph__root-type">@RootTypeLabel</span>
+            <span class="ged-graph__root-id">@RootId</span>
+        </p>
+    </header>
+
+    <section class="ged-graph__results" data-testid="ged-graph-results" aria-label="Documents rattachés">
+        @if (LoadFailed)
+        {
+            <LiakontAlert TestId="ged-graph-error">
+                L'exploration de l'objet est momentanément indisponible. Réessayez dans quelques instants.
+            </LiakontAlert>
+        }
+        else if (Busy && Results.Hits.Count == 0)
+        {
+            <p class="ged-graph__loading" data-testid="ged-graph-loading">
+                Exploration du graphe en cours…
+            </p>
+        }
+        else if (Results.Hits.Count == 0)
+        {
+            <p class="ged-graph__empty" data-testid="ged-graph-empty">
+                Aucun document n'est rattaché à cet objet dans le périmètre exploré.
+            </p>
+        }
+        else
+        {
+            <ul class="ged-graph__hits">
+                @foreach (var hit in Results.Hits)
+                {
+                    <li class="ged-graph__hit" data-testid="@($"ged-graph-hit-{hit.DocumentId}")">
+                        <a class="ged-graph__hit-link"
+                           href="@($"/ged/document/{hit.DocumentId}")"
+                           data-testid="@($"ged-graph-hit-link-{hit.DocumentId}")">
+                            Document @hit.DocumentId
+                        </a>
+                        <span class="ged-graph__hit-role" data-testid="@($"ged-graph-hit-role-{hit.DocumentId}")">@RoleLabel(hit.Role)</span>
+                        <span class="ged-graph__hit-depth">@DepthLabel(hit.Depth)</span>
+                    </li>
+                }
+            </ul>
+
+            @if (Results.NextCursor is not null)
+            {
+                <button type="button"
+                        class="ged-graph__more"
+                        data-testid="ged-graph-more"
+                        disabled="@Busy"
+                        @onclick="LoadMoreAsync">
+                    Charger plus de documents
+                </button>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    /// <summary>Résultat de la page courante (jamais <c>null</c> : la page fournit toujours un modèle).</summary>
+    [Parameter, EditorRequired]
+    public GedGraphResults Results { get; set; } = GedGraphResults.Empty;
+
+    /// <summary>Code du type d'entité racine (libellé d'en-tête) ; la confidentialité réelle est résolue en base.</summary>
+    [Parameter]
+    public string? EntityType { get; set; }
+
+    /// <summary>Identité de l'entité racine (en-tête).</summary>
+    [Parameter]
+    public Guid RootId { get; set; }
+
+    /// <summary>Vrai si la dernière exploration a échoué (bandeau d'erreur FR, jamais avalé).</summary>
+    [Parameter]
+    public bool LoadFailed { get; set; }
+
+    /// <summary>Vrai pendant qu'une requête est en vol : indicateur de chargement + désactive « Charger plus » (garde de ré-entrance côté page).</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>Demande de page suivante (keyset) : la page appelle l'index avec le curseur courant.</summary>
+    [Parameter]
+    public EventCallback OnLoadMore { get; set; }
+
+    private string RootTypeLabel => string.IsNullOrWhiteSpace(EntityType) ? "Objet" : EntityType!;
+
+    private Task LoadMoreAsync() =>
+        OnLoadMore.HasDelegate ? OnLoadMore.InvokeAsync() : Task.CompletedTask;
+
+    private static string RoleLabel(string role) =>
+        string.IsNullOrWhiteSpace(role) ? "(rôle non précisé)" : role;
+
+    private static string DepthLabel(int depth) =>
+        depth <= 0 ? "objet lui-même" : $"à {depth} lien(s)";
+}
