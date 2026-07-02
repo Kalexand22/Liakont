@@ -12,8 +12,9 @@ using Liakont.Modules.Ged.Infrastructure.Index;
 /// Projette une entrée du corpus fiscal déjà scellé (<see cref="GedBackfillDocumentRequest"/>) en pivot GED BRUT et
 /// délègue au foyer d'écriture UNIQUE <see cref="IGedDocumentIndexer"/> — le même chemin que l'ingestion GED (GED05b),
 /// avec la source <c>import</c> et les soft-links posés. Idempotent : l'identité GED est DÉTERMINISTE
-/// (<see cref="GedDeterministicId.ForArchiveEntry"/>), donc un re-passage no-ope (RL-21). Chemin DIRECT (hors-outbox) :
-/// le mapping <c>deferred</c> pour un type sans profil est le cas nominal (jamais deviner, règle 3).
+/// (<see cref="GedDeterministicId.ForArchiveEntry"/>), donc un re-passage sur un document déjà indexé no-ope (RL-21) ;
+/// un document déféré devenu mappable (profil validé depuis) est REPRIS et promu deferred→indexed (GDF10, ResumeDeferred).
+/// Chemin DIRECT (hors-outbox) : le mapping <c>deferred</c> pour un type sans profil est le cas nominal (jamais deviner, règle 3).
 /// </summary>
 internal sealed class GedArchivedDocumentBackfill : IGedArchivedDocumentBackfill
 {
@@ -43,8 +44,11 @@ internal sealed class GedArchivedDocumentBackfill : IGedArchivedDocumentBackfill
             ArchivePath: request.ArchivePath,
             ContentHash: request.ContentHash);
 
+        // ResumeDeferred: le job Host re-énumère TOUT le corpus à chaque run (idempotent) → un re-run REPREND les
+        // documents déférés devenus mappables (profil créé+validé depuis) en les promouvant deferred→indexed (GDF10).
+        // Un document déjà indexé reste no-op ; un déféré encore non mappable reste déféré.
         var outcome = await _indexer.IndexAsync(
-            new GedIndexRequest(managedDocumentId, ingested, BackfillSource, softLinks), cancellationToken);
+            new GedIndexRequest(managedDocumentId, ingested, BackfillSource, softLinks, ResumeDeferred: true), cancellationToken);
 
         return outcome switch
         {

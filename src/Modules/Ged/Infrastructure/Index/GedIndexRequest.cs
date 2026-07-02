@@ -16,8 +16,17 @@ using Liakont.Agent.Contracts.Ged;
 /// backfill rétroactif) — jamais inventée, portée par l'appelant.
 /// </param>
 /// <param name="SoftLinks">Liens souples vers le corpus fiscal (backfill GED10) ; <see langword="null"/> pour le canal GED pur.</param>
+/// <param name="ResumeDeferred">
+/// Reprise CIBLÉE d'un document déjà rangé <c>deferred</c> (GDF10) : <see langword="true"/> autorise l'indexeur à
+/// RE-MAPPER un document <c>deferred</c> qui mappe désormais (profil créé+validé depuis le 1er passage) et à le PROMOUVOIR
+/// <c>deferred</c>→<c>indexed</c>. Réservé au canal BACKFILL (<see cref="Liakont.Modules.Ged.Infrastructure.Backfill.GedArchivedDocumentBackfill"/>),
+/// dont le job Host re-énumère tout le corpus à chaque run : un re-run reprend les déférés devenus mappables. Le canal
+/// d'ingestion GED05b laisse <see langword="false"/> (sémantique de replay INCHANGÉE : tout statut existant = no-op, RL-04).
+/// Un statut TERMINAL <c>indexed</c> reste TOUJOURS un no-op (idempotence conservée), quel que soit ce drapeau.
+/// </param>
 internal sealed record GedIndexRequest(
     Guid ManagedDocumentId,
     IngestedDocumentDto Ingested,
     string Source,
-    GedDocumentSoftLinks? SoftLinks = null);
+    GedDocumentSoftLinks? SoftLinks = null,
+    bool ResumeDeferred = false);

@@ -125,10 +125,13 @@ Les scénarios base-réelle sont portés par les items qui livrent le comporteme
     tels quels ; filtrer par `numero_lot` remonte TOUS les documents du lot **sans faux positif** sur un axe multi-valeur
     (patron F19 §6.2) ; le MÊME `document_axis_links` porte un montant **EUR** (échelle 2) ET un avancement **%** (échelle 0)
     **sans un seul ALTER TABLE** (généricité prouvée par configuration, F19 §11 D12). Aucun vocabulaire métier en dur (n°7).
-  - **Portée d'un re-passage** : l'idempotence est TERMINALE sur tout statut — un re-run indexe seulement les entrées PAS
-    ENCORE présentes ; un document déjà `deferred` (types fiscaux sans profil = déféral NOMINAL de masse) n'est **PAS**
-    re-mappé après création d'un profil (cohérent avec le replay GED05b). La reprise des `deferred` = capacité DISTINCTE
-    hors V1 (fast-follow). Documenté sur `IGedArchivedDocumentBackfill` pour éviter le piège opérateur.
+  - **Portée d'un re-passage (reprise des déférés, GDF10)** : l'idempotence est terminale sur `indexed` (un document indexé
+    reste no-op au replay), mais un re-run **REPREND les documents `deferred` devenus mappables** — un type fiscal d'abord
+    déféré (déféral NOMINAL de masse, pas de profil GED) est RE-MAPPÉ et promu `deferred`→`indexed` dès qu'un profil VALIDÉ
+    couvre son type. La mutation de statut est tracée (`managed_document_change_log` append-only, `status_changed`) ; un
+    déféré encore non mappable reste déféré (DEFER reste DEFER). L'opérateur qui ajoute un profil n'a qu'à **relancer le
+    backfill** (job Host qui re-énumère tout le corpus) — l'action prescrite par le motif de déférement produit son effet.
+    Propre au canal backfill (`ResumeDeferred`) ; le replay GED05b garde une idempotence terminale sur tout statut (RL-04).
 - **GED11** — lints anti-littéral + SQL cross-schéma, chacun avec self-test (RL-27).
 - **GED12 — LIVRÉ** (`GedMappingProfileMigrationsIntegrationTests`, collection `GedIntegration`, base isolée
   par test) : un profil **VALIDÉ** fait un round-trip (règles axe/entité/relation préservées via jsonb) ; un

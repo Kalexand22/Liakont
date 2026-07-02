@@ -44,6 +44,30 @@ internal sealed class PostgresGedIndexUnitOfWork : IGedIndexUnitOfWork
         ON CONFLICT (id) DO NOTHING
         """;
 
+    // Reprise ciblée du backfill (GDF10) : PROMEUT un document DÉFÉRÉ devenu mappable vers 'indexed'. `managed_documents`
+    // est MUTABLE sur ses méta-colonnes (V008) — l'UPDATE est GARDÉ par `status = 'deferred'` (transition depuis le seul
+    // statut légitime ; une course perdue lit déjà 'indexed' sous le verrou consultatif → 0 ligne, aucune double
+    // promotion). `defer_reason` est effacé (le document n'est plus en attente). `updated_utc` horodate la mutation.
+    private const string PromoteDeferredToIndexedSql = """
+        UPDATE ged_index.managed_documents
+        SET status = 'indexed',
+            title = @Title,
+            doc_kind = @DocKind,
+            defer_reason = NULL,
+            fiscal_document_id = @FiscalDocumentId,
+            archive_entry_id = @ArchiveEntryId,
+            archive_path = @ArchivePath,
+            content_hash = @ContentHash,
+            updated_utc = now()
+        WHERE id = @Id AND status = 'deferred'
+        """;
+
+    // Trace immuable de la promotion (V010, append-only, motif §3.6) : la mutation de statut est auditable (règle 4).
+    private const string InsertManagedDocumentStatusChangedLogSql = """
+        INSERT INTO ged_index.managed_document_change_log (managed_document_id, change_type, before_value, after_value)
+        VALUES (@Id, 'status_changed', '{"status": "deferred"}'::jsonb, '{"status": "indexed"}'::jsonb)
+        """;
+
     private const string CurrentAxisValueSql = """
         SELECT id
         FROM ged_index.current_axis_links
@@ -158,6 +182,39 @@ internal sealed class PostgresGedIndexUnitOfWork : IGedIndexUnitOfWork
             },
             _txn.Transaction,
             cancellationToken: cancellationToken));
+    }
+
+    public async Task<int> PromoteDeferredToIndexedAsync(ManagedDocument document, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+
+        var promoted = await _txn.Connection.ExecuteAsync(new CommandDefinition(
+            PromoteDeferredToIndexedSql,
+            new
+            {
+                document.Id,
+                document.Title,
+                document.DocKind,
+                document.FiscalDocumentId,
+                document.ArchiveEntryId,
+                document.ArchivePath,
+                document.ContentHash,
+            },
+            _txn.Transaction,
+            cancellationToken: cancellationToken));
+
+        // Seule une promotion RÉELLE (deferred→indexed) est tracée : sous le verrou consultatif la garde WHERE affecte
+        // toujours 1 ligne, mais on n'écrit l'audit que si la transition a bien eu lieu (jamais un status_changed fictif).
+        if (promoted > 0)
+        {
+            await _txn.Connection.ExecuteAsync(new CommandDefinition(
+                InsertManagedDocumentStatusChangedLogSql,
+                new { document.Id },
+                _txn.Transaction,
+                cancellationToken: cancellationToken));
+        }
+
+        return promoted;
     }
 
     public async Task<Guid> AppendAxisLinkAsync(DocumentAxisLink link, bool isSingleValued, CancellationToken cancellationToken = default)
