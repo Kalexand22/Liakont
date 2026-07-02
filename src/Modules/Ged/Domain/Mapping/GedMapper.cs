@@ -93,9 +93,14 @@ public static class GedMapper
             }
 
             // Dédup avant append (V009 n'impose aucune contrainte d'unicité ; le sélecteur conserve les doublons du
-            // document) : deux valeurs produisant le MÊME lien courant (valeur normalisée identique) ne créent qu'UN
-            // lien — sinon facette/fiche en double, jamais corrigeables (index append-only, règle 4).
-            var seenValues = new HashSet<NormalizedAxisValue>();
+            // document) : deux valeurs produisant le MÊME lien courant ne créent qu'UN lien — sinon facette/fiche en
+            // double, jamais corrigeables (index append-only, règle 4). L'identité d'un lien courant est la valeur
+            // NORMALISÉE (clé de facette/recherche : le SQL de facettes groupe par normalized_value), donc deux valeurs
+            // ne différant que par la casse/les espaces (« Paris »/« PARIS ») partagent la même valeur normalisée →
+            // un seul lien. Un axe json n'a PAS de valeur normalisée (présentation-only, INV-GED-04) → repli sur
+            // l'égalité complète du record pour ne pas fusionner à tort des fragments json distincts.
+            var seenNormalized = new HashSet<string>(System.StringComparer.Ordinal);
+            var seenJsonRecords = new HashSet<NormalizedAxisValue>();
             foreach (var raw in values)
             {
                 NormalizedAxisValue normalized;
@@ -109,7 +114,10 @@ public static class GedMapper
                         $"La valeur « {raw} » de l'axe « {rule.AxisCode} » du document « {ingested.SourceReference} » est incompatible avec son type déclaré : {ex.Message} Document rangé en attente (deferred) — jamais interpréter au mieux.");
                 }
 
-                if (seenValues.Add(normalized))
+                var isNovel = normalized.NormalizedValue is { } normalizedKey
+                    ? seenNormalized.Add(normalizedKey)
+                    : seenJsonRecords.Add(normalized);
+                if (isNovel)
                 {
                     axes.Add(new MappedAxisValue(rule.AxisCode, normalized));
                 }

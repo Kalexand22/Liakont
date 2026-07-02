@@ -250,6 +250,43 @@ public sealed class GedMapperTests
     }
 
     [Fact]
+    public void Deduplicates_multi_valued_axis_values_differing_only_by_case_or_whitespace()
+    {
+        // GDF04 (3, review round 1 P2) : l'identité d'un lien courant est la valeur NORMALISÉE (casefold+trim,
+        // clé de facette). Deux valeurs ne différant que par la casse (« Paris »/« PARIS ») partagent la même
+        // valeur normalisée → un seul lien (sinon compteur de facette gonflé, append-only, non corrigeable).
+        var profile = GedMappingProfile.Create(
+            "typ_a",
+            GedMappingProfile.InitialProfileVersion,
+            storagePolicy: null,
+            validatedBy: "ec@example.test",
+            validatedDate: new DateOnly(2026, 1, 1),
+            axisRules: new[] { new AxisMappingRule("axe_ref", "$.axes[?name=='refs'].values[*]", IsRequired: false, IsMulti: true) },
+            entityRules: Array.Empty<EntityMappingRule>(),
+            relationRules: Array.Empty<RelationMappingRule>(),
+            createdAt: DateTimeOffset.UnixEpoch);
+        var doc = new IngestedDocumentDto(
+            sourceReference: "src-11",
+            documentType: "typ_a",
+            sourceAxes: new[] { new RawAxisHint("refs", new List<string> { "Paris", "PARIS" }) });
+
+        var result = GedMapper.Map(profile, doc, Catalog());
+
+        result.IsMapped.Should().BeTrue();
+        var refs = new List<MappedAxisValue>();
+        foreach (var a in result.Document!.Axes)
+        {
+            if (a.AxisCode == "axe_ref")
+            {
+                refs.Add(a);
+            }
+        }
+
+        refs.Should().ContainSingle();
+        refs[0].Value.NormalizedValue.Should().Be("paris");
+    }
+
+    [Fact]
     public void Pairs_entity_labels_positionally_when_counts_match()
     {
         // GDF04 (2) : deux entités, deux libellés (M==N) → appariement POSITIONNEL (E-1↔Un, E-2↔Deux),
