@@ -606,7 +606,6 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Modules.Ged.Tests.Integration", "Modules\Ged\Tests.Integration\Liakont.Modules.Ged.Tests.Integration.csproj", "{3FD89230-A23A-4FD6-952C-A63823910AC3}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Agent.Contracts.Ged", "Contracts\Liakont.Agent.Contracts.Ged\Liakont.Agent.Contracts.Ged.csproj", "{3E8851B2-AF48-4117-9BDB-95D54CDEAEF4}"
-EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Reference", "Reference", "{498F38DA-9F55-0429-415C-FEC8A552546D}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Liakont.Modules.Reference.Contracts", "Modules\Reference\Contracts\Liakont.Modules.Reference.Contracts.csproj", "{3CEAC945-49D6-4879-830F-F9A2CAD88140}"

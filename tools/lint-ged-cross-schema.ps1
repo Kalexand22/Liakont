@@ -33,13 +33,17 @@ $Root = (Resolve-Path -LiteralPath $Root).Path
 # la GED ne parle qu'à ses propres schémas ged_catalog / ged_index / ged_ingestion.
 $forbiddenSchemas = @('documents', 'mandats', 'tvamapping')
 
-# Schéma insensible à la casse, mais le caractère suivant le point doit être minuscule/underscore
-# (table snake_case) → distingue une référence SQL d'un accès membre C# PascalCase (.Documents.Count).
-# Lookbehind : pas précédé d'une lettre/chiffre/_/point (évite un identifiant plus long ou une chaîne
-# d'accès membre `a.documents.b`).
+# Schéma insensible à la casse. Lookbehind : pas précédé d'une lettre/chiffre/_/point (évite un
+# identifiant plus long ou une chaîne d'accès membre `a.documents.b`). Le caractère POST-point dépend
+# du langage ($lang, dans la boucle) :
+#   - .cs  → minuscule/underscore SEULEMENT : distingue une chaîne SQL d'un accès membre C# PascalCase
+#            (`request.Documents.Count`) → zéro faux positif sur le code .NET.
+#   - .sql → INSENSIBLE à la casse (`[A-Za-z_]`) : PostgreSQL replie la casse des identifiants non cités,
+#            donc `JOIN documents.Documents d` est une jointure cross-schéma FONCTIONNELLE — l'exclusion
+#            PascalCase (légitime pour les .cs) la laisserait filer en SQL (faux-vert de la règle 9).
 $alt = ($forbiddenSchemas | ForEach-Object { [regex]::Escape($_) }) -join '|'
-$pattern = "(?<![\p{L}\p{N}_.])(?i:$alt)\.[a-z_]"
-$rx = [regex]::new($pattern)
+$rxCs  = [regex]::new("(?<![\p{L}\p{N}_.])(?i:$alt)\.[a-z_]")
+$rxSql = [regex]::new("(?<![\p{L}\p{N}_.])(?i:$alt)\.[A-Za-z_]")
 
 $files = @(Get-GedLintFiles -Root $Root -Extensions @('.cs', '.sql'))
 
@@ -53,9 +57,13 @@ if ($files.Count -eq 0) {
 
 $offenders = @()
 foreach ($f in $files) {
-    $raw = Get-Content -LiteralPath $f.FullName -Raw
+    # Lecture EXPLICITE en UTF-8 (RL-27) : sous Windows PowerShell 5.1 (interpréteur de verify-fast),
+    # Get-Content -Raw décoderait un .cs UTF-8 SANS BOM (norme du repo) en CP1252 → faux-vert local /
+    # divergence CI (pwsh, UTF-8). ReadAllText(UTF8) décode en UTF-8 et gère un BOM éventuel.
+    $raw = [System.IO.File]::ReadAllText($f.FullName, [System.Text.Encoding]::UTF8)
     if (-not $raw) { continue }
     $lang = if ($f.Extension -ieq '.sql') { 'sql' } else { 'cs' }
+    $rx = if ($lang -eq 'sql') { $rxSql } else { $rxCs }
     $code = Convert-CommentsToBlanks -Text $raw -Language $lang
     $lines = $code -split "`n"
     for ($ln = 0; $ln -lt $lines.Count; $ln++) {

@@ -96,6 +96,115 @@ public static class GedSelector
         return results;
     }
 
+    /// <summary>
+    /// Apparie DEUX sélecteurs de champ à la SOURCE : rend, pour chaque valeur de <paramref name="valueSelector"/>,
+    /// le libellé lu par <paramref name="companionSelector"/> sur le MÊME nœud source parent (jointure par référence,
+    /// modèle construit UNE seule fois). Corrige le piège de deux <see cref="Evaluate"/> indépendants : le saut des
+    /// valeurs nulles (<see cref="ApplyStep"/>) compacte les deux listes SÉPARÉMENT, si bien que deux listes de même
+    /// longueur ne sont PAS forcément alignées — un libellé pourrait alors être collé à une AUTRE entité (INV-GED-05,
+    /// n°3). Un nœud primaire sans libellé (ou dont le parent ne porte pas le sélecteur secondaire) rend
+    /// <see langword="null"/> (best-effort, jamais deviner).
+    /// </summary>
+    /// <param name="valueSelector">Sélecteur de la valeur primaire (ex. identifiant externe d'entité) ; doit être valide.</param>
+    /// <param name="companionSelector">Sélecteur du libellé apparié, ou <see langword="null"/> (aucun libellé).</param>
+    /// <param name="document">Le document ingéré BRUT.</param>
+    /// <returns>Les paires (valeur primaire, libellé apparié ou <see langword="null"/>), dans l'ordre du document.</returns>
+    /// <exception cref="InvalidGedSelectorException">Un sélecteur est syntaxiquement invalide.</exception>
+    public static IReadOnlyList<(string Value, string? Companion)> EvaluatePaired(
+        string valueSelector, string? companionSelector, IngestedDocumentDto document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        var model = BuildModel(document);
+        var primary = EvaluateTerminalsWithParent(Parse(valueSelector), model);
+
+        var companionByParent = new Dictionary<object, string?>(ReferenceEqualityComparer.Instance);
+        if (companionSelector is not null)
+        {
+            foreach (var (parent, value) in EvaluateTerminalsWithParent(Parse(companionSelector), model))
+            {
+                // Un nœud d'entité ne porte qu'un libellé : le premier gagne, jamais deviner en cas de pluralité.
+                if (parent is not null && !companionByParent.ContainsKey(parent))
+                {
+                    companionByParent[parent] = value;
+                }
+            }
+        }
+
+        var results = new List<(string, string?)>(primary.Count);
+        foreach (var (parent, value) in primary)
+        {
+            string? companion = null;
+            if (parent is not null)
+            {
+                companionByParent.TryGetValue(parent, out companion);
+            }
+
+            results.Add((value, companion));
+        }
+
+        return results;
+    }
+
+    // Évalue un sélecteur jusqu'à ses valeurs scalaires terminales en conservant, pour chacune, le NŒUD PARENT
+    // immédiat (l'objet d'où la valeur a été lue). Permet d'apparier deux sélecteurs de champ à la source par
+    // jointure sur la référence du parent (voir EvaluatePaired). Le parent est null pour une valeur racine.
+    private static List<(object? Parent, string Value)> EvaluateTerminalsWithParent(
+        List<(StepKind Kind, string A, string B)> steps, object model)
+    {
+        var results = new List<(object?, string)>();
+        if (steps.Count == 0)
+        {
+            if (model is string rootScalar)
+            {
+                results.Add((null, rootScalar));
+            }
+
+            return results;
+        }
+
+        var parents = new List<object?> { model };
+        for (var s = 0; s < steps.Count - 1; s++)
+        {
+            var next = new List<object?>();
+            foreach (var node in parents)
+            {
+                ApplyStep(steps[s], node, next);
+            }
+
+            parents = next;
+        }
+
+        var lastStep = steps[steps.Count - 1];
+        foreach (var parent in parents)
+        {
+            var produced = new List<object?>();
+            ApplyStep(lastStep, parent, produced);
+            foreach (var node in produced)
+            {
+                switch (node)
+                {
+                    case string scalar:
+                        results.Add((parent, scalar));
+                        break;
+                    case List<object?> list:
+                        foreach (var element in list)
+                        {
+                            if (element is string elementScalar)
+                            {
+                                results.Add((parent, elementScalar));
+                            }
+                        }
+
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+        return results;
+    }
+
     private static void ApplyStep((StepKind Kind, string A, string B) step, object? node, List<object?> output)
     {
         switch (step.Kind)

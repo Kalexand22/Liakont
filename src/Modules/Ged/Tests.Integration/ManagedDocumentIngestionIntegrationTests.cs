@@ -22,6 +22,7 @@ using Liakont.Modules.Ged.Tests.Integration.Doubles;
 using Liakont.Modules.Ged.Tests.Integration.Fixtures;
 using Liakont.Modules.Staging.Contracts;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Stratum.Common.Abstractions.Events;
 using Stratum.Common.Abstractions.MultiTenancy;
@@ -298,6 +299,84 @@ public sealed class ManagedDocumentIngestionIntegrationTests
         var index = new PostgresDocumentSearchIndex(factory, new PostgresAxisCatalog(factory));
         var search = await index.SearchAsync(new DocumentSearchQuery { FullText = "cafe" });
         search.Hits.Should().ContainSingle(h => h.ManagedDocumentId == evt.Payload.ManagedDocumentId);
+    }
+
+    [Fact]
+    public async Task Pending_ged_event_is_consumed_by_the_real_outbox_worker_not_marked_processed_empty()
+    {
+        var factory = _fixture.CreateTenantDatabase();
+        var staging = new InMemoryPayloadStagingStore();
+        await SeedAxisAsync(factory, "d", "string");
+        await SeedValidatedProfileAsync(factory, "NOTE", "d", "$.fields.d");
+        var handler = BuildHandler(factory, staging);
+
+        // L'événement ged.managed-document.received est PENDANT dans l'outbox AVANT que le worker ne démarre :
+        // reproduit un redémarrage du Host avec un événement en attente (GDF01). Contrairement aux tests
+        // ci-dessus, ce test ne DRAINE pas manuellement l'événement et n'appelle pas le consommateur en direct —
+        // il exécute le VRAI OutboxWorker de bout en bout.
+        await IngestAsync(handler, TenantA, "SRC-1", "NOTE", new Dictionary<string, string> { ["d"] = "2026-06-30" });
+        var evt = await DrainSingleGedEventAsync(factory);
+        var managedDocumentId = evt.Payload.ManagedDocumentId;
+
+        var scopeFactory = new StubTenantScopeFactory(
+            new Dictionary<string, IConnectionFactory> { [TenantA] = factory }, staging);
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<ITenantScopeFactory>(scopeFactory);
+        services.AddSingleton<ISystemConnectionFactory>((ISystemConnectionFactory)factory);
+        services.Configure<OutboxWorkerOptions>(o =>
+        {
+            o.PollingInterval = TimeSpan.FromMilliseconds(100);
+            o.BatchSize = 10;
+        });
+        services.AddStratumEvents(); // registre PEUPLÉ AU BUILD depuis les IEventTypeRegistrar + OutboxWorker
+        services.AddGedModule();     // GedEventTypeRegistrar (contributeur) + les deux consommateurs
+        await using var provider = services.BuildServiceProvider();
+
+        // Structurel (GDF01) : le registre résolu connaît DÉJÀ le type GED (contribué à sa construction) — donc
+        // avant tout poll de l'OutboxWorker. Prouvé SANS démarrer le moindre hosted service.
+        provider.GetRequiredService<IEventTypeRegistry>()
+            .GetPayloadType(GedEventTypes.ManagedDocumentReceived)
+            .Should().Be<ManagedDocumentReceivedV1>(
+                "le type GED est enregistré à la construction du registre, jamais après le premier poll (GDF01)");
+
+        var worker = provider.GetServices<IHostedService>().OfType<OutboxWorker>().Single();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await worker.StartAsync(cts.Token);
+        try
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(25);
+            string? status = null;
+            while (DateTime.UtcNow < deadline)
+            {
+                status = await StatusAsync(factory, managedDocumentId);
+                if (status == "indexed")
+                {
+                    break;
+                }
+
+                await Task.Delay(100);
+            }
+
+            status.Should().Be(
+                "indexed",
+                "l'événement pendant est réellement dispatché par le VRAI worker et indexé — jamais vu « inconnu » puis marqué processed à vide");
+        }
+        finally
+        {
+            await worker.StopAsync(CancellationToken.None);
+        }
+
+        (await GedEventIsProcessedAsync(factory, evt.EventId)).Should().BeTrue(
+            "l'événement outbox est marqué processed APRÈS un dispatch réussi (le document est indexé), pas laissé pendant");
+    }
+
+    private static async Task<bool> GedEventIsProcessedAsync(IConnectionFactory factory, Guid eventId)
+    {
+        using var connection = await factory.OpenAsync();
+        return await connection.ExecuteScalarAsync<bool>(
+            "SELECT processed_at IS NOT NULL FROM outbox.pending_events WHERE id = @Id",
+            new { Id = eventId });
     }
 
     // NpgsqlConnectionFactory implémente IConnectionFactory ET ISystemConnectionFactory : en test, la MÊME base sert de

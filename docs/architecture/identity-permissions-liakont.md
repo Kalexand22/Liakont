@@ -53,9 +53,9 @@ défaut attribué à tout nouvel utilisateur est `lecture`.
 Résumé : `lecture` → read ; `operateur` → read + actions ; `parametrage` → read + actions
 + settings ; `superviseur` → read + actions + settings + supervision + instance.settings
 (l'opérateur d'instance : la supervision cross-tenant en lecture ET le paramétrage d'instance
-en écriture, ADR-0039). **GED** (option/upsell par tenant) : chaque rôle éditeur reçoit
-`ged.read` (consultation) ; `ged.export` à partir d'`operateur` ; `ged.confidential` au seul
-`superviseur`.
+en écriture, ADR-0039). **GED** (option/upsell par tenant) :
+chaque rôle éditeur reçoit `ged.read` (consultation) ; `ged.export` à partir d'`operateur` ;
+`ged.confidential` au seul `superviseur`.
 
 > **Colonnes GED (amendement GED06 — F19 §6.5, ADR-0032/0035/0036).** Les 3 permissions GED sont
 > **matérialisées en code** (`RolePermissionCatalog` + `const` — RL-35), **pas** du paramétrage
