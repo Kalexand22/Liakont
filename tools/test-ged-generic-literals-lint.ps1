@@ -43,6 +43,17 @@ function New-Case([string]$name, [string]$relFile, [string]$content) {
     return $dir
 }
 
+# Écrit un cas en UTF-8 SANS BOM (Set-Content -Encoding utf8 écrit un BOM sous PS 5.1 → aveugle au trou
+# CP1252 que RL-27 ferme). Reproduit la norme réelle du repo (.cs sans BOM) : le seul écrivain qui prouve
+# que la lecture UTF-8 explicite du lint capte bien un littéral accentué décodé correctement.
+function New-CaseNoBom([string]$name, [string]$relFile, [string]$content) {
+    $dir = Join-Path $tmpRoot $name
+    $path = Join-Path $dir $relFile
+    New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
+    [System.IO.File]::WriteAllText($path, $content, (New-Object System.Text.UTF8Encoding($false)))
+    return $dir
+}
+
 # Ajoute un fichier de code GÉNÉRIQUE bénin dans le répertoire du cas : garantit que le scan n'est PAS
 # vide, de sorte qu'un cas d'exclusion prouve bien « fichier exclu ignoré » et non « scan vide » (qui
 # échoue désormais). Sans ce fichier, la garde 0-fichier masquerait ce que le cas veut prouver.
@@ -76,6 +87,14 @@ try {
     # 2) Littéral métier dans une CHAINE C# → le lint DOIT échouer (exit 1).
     $c2 = New-Case 'bad-cs-string' 'Domain/AxisCatalog.cs' 'public static class AxisCatalog { public const string Code = "adjudication"; }'
     Check 'littéral métier en chaîne C# (adjudication)' (Invoke-Lint $c2) 1
+
+    # 2bis) Littéral métier ACCENTUÉ dans un .cs UTF-8 SANS BOM (norme du repo) → le lint DOIT échouer
+    #    (exit 1). C'EST le cas qui prouve RL-27 : sans lecture UTF-8 explicite, Get-Content -Raw sous
+    #    Windows PowerShell 5.1 (interpréteur de verify-fast) décoderait « enchères » en CP1252
+    #    (« enchÃ¨res »), le littéral échapperait au scan et ce Check obtiendrait 0 (faux-vert LOCAL,
+    #    divergence CI pwsh). Le mot « enchères » est dans $forbidden (variante accentuée).
+    $c2b = New-CaseNoBom 'bad-cs-accented-nobom' 'Domain/SaleCatalog.cs' 'public static class SaleCatalog { public const string Code = "enchères"; }'
+    Check 'littéral accentué en chaîne C# sans BOM (enchères)' (Invoke-Lint $c2b) 1
 
     # 3) Code d'axe snake_case dans une migration SQL → le lint DOIT échouer (exit 1). Prouve que la
     #    frontière traite `_` comme séparateur (numero_lot est capté), pas comme un caractère de mot.
