@@ -52,6 +52,45 @@ public sealed class ValueNormalizerTests
     }
 
     [Theory]
+    [InlineData("1.5", "1.5")]
+    [InlineData("1.50", "1.5")]
+    [InlineData("1.500", "1.5")]
+    [InlineData("100.00", "100")]
+    [InlineData("-1.50", "-1.5")]
+    [InlineData("0.0", "0")]
+    public void Number_with_null_scale_canonicalizes_trailing_zeros(string raw, string expectedNormalized)
+    {
+        // GDF09 : sans échelle déclarée, la forme canonique retire les zéros de fin (échelle minimale) — value_number
+        // garde le decimal parsé EXACT, seule normalized_value est canonicalisée.
+        var result = ValueNormalizer.Normalize(AxisDataType.Number, valueScale: null, raw);
+
+        result.NormalizedValue.Should().Be(expectedNormalized);
+        result.ValueNumber.Should().Be(decimal.Parse(raw, CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public void Number_with_null_scale_maps_equal_values_to_the_same_facet_key()
+    {
+        // Golden GDF09 : « 1.5 » et « 1.50 » (axe number sans échelle) → MÊME normalized_value → un seul bucket de
+        // facette / une seule clé de déduplication pour le même nombre.
+        var plain = ValueNormalizer.Normalize(AxisDataType.Number, valueScale: null, "1.5");
+        var padded = ValueNormalizer.Normalize(AxisDataType.Number, valueScale: null, "1.50");
+
+        padded.NormalizedValue.Should().Be(plain.NormalizedValue);
+    }
+
+    [Fact]
+    public void String_value_is_trimmed_consistently_with_its_canonical_key()
+    {
+        // GDF09 : value_string ne conserve pas les espaces de bord — cohérent avec la clé casefold (trimée) et
+        // avec NormalizeEnum.
+        var result = ValueNormalizer.Normalize(AxisDataType.Text, valueScale: null, "  Réf 42  ");
+
+        result.ValueString.Should().Be("Réf 42");
+        result.NormalizedValue.Should().Be("réf 42");
+    }
+
+    [Theory]
     [InlineData("abc")]
     [InlineData("1,234")]
     [InlineData("1e3")]

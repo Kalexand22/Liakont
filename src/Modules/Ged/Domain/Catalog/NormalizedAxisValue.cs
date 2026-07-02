@@ -38,9 +38,10 @@ public sealed record NormalizedAxisValue
     /// Forme canonique de la valeur. Pour <c>string</c>/<c>enum</c> (casefold) et <c>date</c> (ISO), c'est
     /// directement une clé lexicalement monotone, utilisable pour le tri / la facette / la recherche. Pour
     /// un axe <c>number</c>, ce n'est PAS une clé de tri : c'est une forme canonique à échelle FIXE
-    /// (<c>value_scale</c>) pour l'affichage / la déduplication ; le tri et les plages numériques doivent se
-    /// faire sur la colonne typée <see cref="ValueNumber"/> (<c>decimal</c>). <see langword="null"/> pour un
-    /// axe <c>json</c> (présentation-only, non facetté — INV-GED-04).
+    /// (<c>value_scale</c>) — ou à échelle MINIMALE, zéros de fin retirés, quand l'axe ne déclare pas d'échelle —
+    /// pour l'affichage / la déduplication ; le tri et les plages numériques doivent se faire sur la colonne
+    /// typée <see cref="ValueNumber"/> (<c>decimal</c>). <see langword="null"/> pour un axe <c>json</c>
+    /// (présentation-only, non facetté — INV-GED-04).
     /// </summary>
     public string? NormalizedValue { get; }
 
