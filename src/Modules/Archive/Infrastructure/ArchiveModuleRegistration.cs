@@ -52,6 +52,11 @@ public static class ArchiveModuleRegistration
         services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<IGenericArchiveService, GenericArchiveService>();
 
+        // Surface de LECTURE d'un paquet GED (GED09b, F19 §6.7) : re-lecture des octets write-once pour la
+        // vérification d'intégrité (empreinte recalculée vs content_hash indexé) et l'aperçu (ReadableHtml).
+        // Encapsule le format de paquet dans Archive (les consommateurs restent sur Archive.Contracts).
+        services.AddScoped<IManagedArchiveReader, ManagedArchiveReader>();
+
         // Traçabilité reporting↔pièces (B2C03) : lien append-only, double sens, tenant-scopé
         // (documents.reporting_piece_links, V011). Consommé par l'export contrôle fiscal.
         services.AddScoped<IReportingPieceLinkStore, PostgresReportingPieceLinkStore>();

@@ -744,6 +744,12 @@ public static class AppBootstrap
         // × devise × taux (pipeline.margin_registry) et le projette (avec totaux) pour l'aide à la déclaration de TVA.
         builder.Services.AddScoped<Liakont.Host.TvaDeclaration.ITvaDeclarationConsoleQueries, Liakont.Host.TvaDeclaration.TvaDeclarationConsoleQueryService>();
 
+        // Composition en lecture de la fiche document GED (/ged/document/{id}, GED09b, F19 §6.7) : orchestre le
+        // port de lecture GED (méta + axes + entités, masquage confidentiel server-side), la surface de coffre
+        // (Archive.Contracts : intégrité re-lue vs content_hash + aperçu ReadableHtml) et le journal de
+        // consultation (view_document). Isole l'accès aux modules hors de la page (mince).
+        builder.Services.AddScoped<Liakont.Host.Ged.IGedDocumentConsoleQueries, Liakont.Host.Ged.GedDocumentConsoleQueryService>();
+
         // Composition de la page Réconciliation des PDF (WEB08) : lecture des trois files (TRK07/API04) et
         // actions opérateur (confirmer / rejeter / lier), appelées in-process par la page (tenant-scopé,
         // garde liakont.actions). Isole l'accès au module hors de la page.
