@@ -1080,9 +1080,30 @@ revue Claude **clean** au round 3). Détail + commit sous chaque bug.
 - **✅ FAIT (2026-07-02)** : `build-sqlserver-from-samples.ps1` étendu aux 6 tables GED (types UTINYINT +
   binaire hex sans corruption ; skip explicite tant que les samples ne sont pas revenus du serveur).
   Review clean (round 2), verify-fast vert.
-- **⏳ RESTE** : (1) Karl exécute `ged-extract.ps1 -DataDir <dossier> -Declare` sur le serveur Zen et renvoie
-  `samples\GED_*.json` → régénération `encheresv6-demo-sqlserver.sql` (tables + data GED dans la base démo) ;
-  (2) Karl récupère les fichiers PDF sur sa machine ; (3) chantier produit : brancher `IEncheresV6PdfSource`
-  dans les extracteurs + section PDF `agent.json` + source « table GED » (lecture `GED_Relation` pour lier
-  PDF ↔ no_ba/no_bv) ; (4) install prod : la déclaration dictionnaire devient une étape d'installation
-  (wizard) puisque l'agent lira via le même ODBC.
+- **✅ FAIT (2026-07-02, après-midi)** :
+  - (1) samples GED extraits (702 documents / 702 relations / 702 ext, 10 param, 13 types, 1 global) →
+    `encheresv6-demo-sqlserver.sql` régénéré (gitignoré) et **tables GED appliquées chirurgicalement** sur
+    la base live `EncheresV6_Demo` (sans `demo.ps1 source -Force`, qui régénérerait le mot de passe RO et
+    casserait la chaîne ODBC chiffrée des agents).
+  - (2) dossier GED copié sur le poste (`C:\Source\Enchères SVV\Tools\EncheresExtract\GED`) et **croisé** :
+    570/570 BA+BV non supprimés retrouvés, arborescence prouvée
+    `<racine>\<No_dossier>\<Année>\<Mois 2 ch.>\<Type_modele>\<Référence>\<Nom_fichier><ext>` ;
+    liaison = `GED_Relation.Ref_numerique1` = no_ba (flux 5) / no_bv (flux 6, table `GED_Type`).
+    NB : flux 7 (factures client) a `Ref_numerique1 = 0` → liaison NON sourcée, hors périmètre.
+  - (3) chantier produit livré : `GedTableEncheresV6PdfSource` (ODBC lecture seule, `SelectGedLinkedPdfSql`
+    avec Supprime=0 + scope dossier, chemin reconstruit + garde sous-racine, racine =
+    `GED_Param_Document.Chemin_stockage` avec override `gedPdfRoot`) ; délégation `PervasiveExtractor`
+    (capacités reflétées) ; config `adapterConfig.EncheresV6.gedPdf="tables"` (+ `gedPdfRoot`), valeurs
+    inconnues/orphelines/fixture-mode refusées en français ; tables GED dans `CheckHealth` quand la source
+    est active ; gabarits `demo.ps1 agent-config -GedPdfRoot <chemin>`. **+ fix robustesse
+    `ExtractionCycle`** : collecte des PDF AVANT le skip anti re-push du document (un PDF tardif/raté après
+    acquittement était perdu définitivement) — idempotence par la clé PDF (chemin). Échec ODBC de la
+    collecte = `SourceUnavailableException` propagée (cycle réessayable, jamais de PDF perdu en silence) ;
+    anomalie de donnée = Warning français + bordereau transmis sans pièce (70 BA réels sans PDF : légitime).
+- **⏳ RESTE** : (a) recette Karl (agents : ajouter `gedPdf`/`gedPdfRoot` à l'agent.json installé, relancer
+  un run, vérifier la pièce jointe sur un document dans la console) — NB : les documents déjà acquittés ne
+  sont ré-examinés que s'ils repassent dans la fenêtre d'extraction ; pour un rattrapage complet, ré-extraire
+  la période (reset du filigrane/queue locale — le serveur dédoublonne) ; (b) install prod : la déclaration
+  des tables GED au dictionnaire Zen devient une étape d'installation (wizard) puisque l'agent lit via le
+  même ODBC ; (c) éventuel fast-follow : liaison GED des factures client (flux 7) si la clé réelle est
+  élucidée un jour (Ref_numerique1=0 aujourd'hui).

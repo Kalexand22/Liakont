@@ -124,6 +124,42 @@ public class ExtractionCycleTests
     }
 
     [Fact]
+    public void Run_collects_a_late_pdf_for_an_already_acknowledged_document()
+    {
+        using (var db = new TempDatabase())
+        using (var queue = new LocalQueue(db.Path, new MutableClock(Clock)))
+        {
+            // Cycle 1 : le document part SANS PDF (pas encore déposé dans la source) et est acquitté.
+            var withoutPdf = new FixtureExtractor(
+                "Fixture",
+                capabilities: new ExtractorCapabilities(providesSourceDocuments: true),
+                documents: new[] { PivotTestData.Document("REF-1", Mid) });
+            var cycle = new ExtractionCycle(queue, new NullAgentLog());
+            cycle.Run(withoutPdf, From, To);
+            queue.Acknowledge(queue.Peek(QueueItemStatus.Pending, QueueItemKind.Document, 1)[0].Id);
+
+            // Cycle 2 : le PDF est arrivé. Le document (déjà acquitté) est sauté, mais son PDF est
+            // quand même collecté — sinon il serait DÉFINITIVEMENT perdu (le skip anti re-push du
+            // document courait avant la collecte). L'idempotence PDF reste garantie par sa propre clé.
+            var withPdf = new FixtureExtractor(
+                "Fixture",
+                capabilities: new ExtractorCapabilities(providesSourceDocuments: true),
+                documents: new[] { PivotTestData.Document("REF-1", Mid) },
+                attachments: new[] { new SourceAttachment("REF-1", "C:\\pdf\\tardif.pdf") });
+
+            ExtractionResult result = cycle.Run(withPdf, From, To);
+
+            result.DocumentsSkipped.Should().Be(1, "le document acquitté n'est pas ré-enfilé");
+            result.LinkedPdfsEnqueued.Should().Be(1, "le PDF tardif est rattrapé");
+            queue.Peek(QueueItemStatus.Pending, QueueItemKind.Pdf, 10).Should().ContainSingle();
+
+            // Cycle 3 : rien de neuf — le PDF déjà enfilé n'est pas dupliqué.
+            cycle.Run(withPdf, From, To).LinkedPdfsEnqueued.Should().Be(0);
+            queue.Peek(QueueItemStatus.Pending, QueueItemKind.Pdf, 10).Should().ContainSingle();
+        }
+    }
+
+    [Fact]
     public void Run_collects_pool_pdfs_when_the_capability_is_declared()
     {
         using (var db = new TempDatabase())

@@ -22,8 +22,13 @@ public static class EncheresV6ExtractorFactory
     /// <summary>Nom de l'adaptateur (valeur de <c>extraction.adapter</c> et clé de <c>adapterConfig</c>).</summary>
     public const string AdapterName = "EncheresV6";
 
+    /// <summary>Valeur de <c>gedPdf</c> activant la source PDF « tables GED » (seule source PDF actuelle).</summary>
+    public const string GedPdfModeTables = "tables";
+
     private const string KeyDossier = "dossier";
     private const string KeySchema = "schema";
+    private const string KeyGedPdf = "gedPdf";
+    private const string KeyGedPdfRoot = "gedPdfRoot";
 
     /// <summary>Crée un extracteur EncheresV6 configuré pour le cycle de run.</summary>
     /// <param name="config">Configuration de l'agent (chargée depuis agent.json).</param>
@@ -57,6 +62,7 @@ public static class EncheresV6ExtractorFactory
                 return CreatePervasive(adapterMode, section, schema, protector, log);
 
             case EncheresV6SourceMode.Fixture:
+                EnsureNoGedPdfConfig(section);
                 return CreateFixture(adapterMode);
 
             default:
@@ -88,11 +94,67 @@ public static class EncheresV6ExtractorFactory
                 + ex.Message + " Re-chiffrez-la sur CETTE machine avec « liakont-agent-cli encrypt » (DPAPI est lié au poste).");
         }
 
+        bool gedPdfEnabled = ResolveGedPdfEnabled(section);
+        var connectionFactory = new OdbcSourceConnectionFactory(connectionString);
+        var schemaKnowledge = new EncheresV6Schema(schema, includeGedTables: gedPdfEnabled);
+        IEncheresV6PdfSource pdfSource = gedPdfEnabled
+            ? new GedTableEncheresV6PdfSource(connectionFactory, schemaKnowledge, dossier, section.GetOptional(KeyGedPdfRoot), log)
+            : (IEncheresV6PdfSource)NullEncheresV6PdfSource.Instance;
+
         return new PervasiveExtractor(
-            new OdbcSourceConnectionFactory(connectionString),
-            new EncheresV6Schema(schema),
+            connectionFactory,
+            schemaKnowledge,
             dossier,
-            log);
+            log,
+            pdfSource);
+    }
+
+    /// <summary>
+    /// Tranche l'activation de la source PDF « tables GED » depuis <c>adapterConfig.EncheresV6</c> :
+    /// <c>gedPdf = "tables"</c> l'active ; absent = pas de PDF (capacité non déclarée). Une valeur
+    /// inconnue ou un <c>gedPdfRoot</c> orphelin sont REFUSÉS (config morte ou faute de frappe = un
+    /// opérateur qui croit ses PDF transmis alors qu'ils ne le sont pas — bloquer plutôt qu'ignorer).
+    /// </summary>
+    private static bool ResolveGedPdfEnabled(AdapterConfigSection section)
+    {
+        string? gedPdf = section.GetOptional(KeyGedPdf);
+        if (gedPdf is null)
+        {
+            if (section.GetOptional(KeyGedPdfRoot) != null)
+            {
+                throw new AgentConfigException(
+                    "La configuration de l'adaptateur EncheresV6 déclare « gedPdfRoot » sans « gedPdf » : la racine "
+                    + "seule n'active aucune source PDF. Ajoutez « \"gedPdf\": \"" + GedPdfModeTables + "\" » "
+                    + "(ou retirez « gedPdfRoot »).");
+            }
+
+            return false;
+        }
+
+        if (!string.Equals(gedPdf.Trim(), GedPdfModeTables, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new AgentConfigException(
+                "Valeur inconnue pour « gedPdf » dans la configuration de l'adaptateur EncheresV6 : « " + gedPdf
+                + " ». Seule la valeur « " + GedPdfModeTables + " » (PDF référencés par les tables GED de la "
+                + "base source) est prise en charge.");
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Le mode fixtures n'a pas d'ODBC : une config PDF GED présente y est une erreur de paramétrage
+    /// (jamais ignorée en silence — l'opérateur croirait ses PDF transmis).
+    /// </summary>
+    private static void EnsureNoGedPdfConfig(AdapterConfigSection section)
+    {
+        if (section.GetOptional(KeyGedPdf) != null || section.GetOptional(KeyGedPdfRoot) != null)
+        {
+            throw new AgentConfigException(
+                "La configuration de l'adaptateur EncheresV6 déclare une source PDF GED (« gedPdf »/« gedPdfRoot ») "
+                + "en mode fixtures : les tables GED exigent le mode ODBC (« extraction.odbcConnectionString »). "
+                + "Retirez ces clés ou passez en mode ODBC.");
+        }
     }
 
     private static EncheresV6FixtureExtractor CreateFixture(EncheresV6AdapterConfig adapterMode)

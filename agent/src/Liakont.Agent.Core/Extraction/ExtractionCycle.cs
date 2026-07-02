@@ -85,6 +85,16 @@ public sealed class ExtractionCycle
                 continue;
             }
 
+            // Les PDF liés sont collectés AVANT le skip anti re-push du document : un PDF arrivé dans la
+            // source (ou dont la collecte a échoué) APRÈS l'acquittement du document serait sinon perdu
+            // définitivement — le document, déjà acquitté, saute la collecte à chaque cycle suivant tant
+            // que la fenêtre le ré-extrait. L'idempotence du PDF est garantie par SON propre anti re-push
+            // (clé = chemin du fichier, dans CollectLinkedPdfs) : rien n'est jamais poussé deux fois.
+            if (capabilities.ProvidesSourceDocuments)
+            {
+                linkedPdfs += CollectLinkedPdfs(extractor, document.SourceReference);
+            }
+
             // Anti re-push (F12 §2.2) : un document déjà acquitté (même hash) n'est pas ré-enfilé.
             if (_queue.IsAlreadyPushed(QueueItemKind.Document, document.SourceReference, hash))
             {
@@ -95,11 +105,6 @@ public sealed class ExtractionCycle
             if (_queue.Enqueue(QueueItem.ForDocument(document.SourceReference, hash, canonicalJson)) == EnqueueResult.Enqueued)
             {
                 documentsEnqueued++;
-            }
-
-            if (capabilities.ProvidesSourceDocuments)
-            {
-                linkedPdfs += CollectLinkedPdfs(extractor, document.SourceReference);
             }
         }
 
