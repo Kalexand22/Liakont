@@ -214,6 +214,29 @@ public sealed class DocumentSearchIndexIntegrationTests
     }
 
     [Fact]
+    public async Task Facet_count_is_distinct_documents_not_link_rows()
+    {
+        var factory = _fixture.CreateTenantDatabase();
+        var index = NewIndex(factory);
+        var axis = await InsertAxisAsync(factory, "categorie", "string", isSearchable: true, isFacetable: true, isMultiValue: true);
+
+        // doc1 porte DEUX liens courants de MÊME valeur (cause amont GDF04-3 : doublons multi) ; doc2 en porte UN.
+        // Le bucket de facette (categorie=alpha) doit compter 2 DOCUMENTS distincts, jamais 3 LIGNES de liens
+        // (count(DISTINCT managed_document_id), pas count(*)).
+        var doc1 = await InsertManagedDocumentAsync(factory, title: "d1");
+        await InsertStringAxisLinkAsync(factory, doc1, axis, "alpha");
+        await InsertStringAxisLinkAsync(factory, doc1, axis, "alpha");
+
+        var doc2 = await InsertManagedDocumentAsync(factory, title: "d2");
+        await InsertStringAxisLinkAsync(factory, doc2, axis, "alpha");
+
+        var result = await index.SearchAsync(new DocumentSearchQuery());
+
+        var facet = result.Facets.Should().ContainSingle(f => f.AxisCode == "categorie" && f.Value == "alpha").Subject;
+        facet.Count.Should().Be(2, "deux documents distincts portent la valeur — les 3 liens ne gonflent pas le compte");
+    }
+
+    [Fact]
     public async Task Full_text_never_indexes_confidential_axis_values_even_with_right()
     {
         var factory = _fixture.CreateTenantDatabase();

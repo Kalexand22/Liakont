@@ -191,15 +191,18 @@ internal sealed class PostgresDocumentSearchIndex : IDocumentSearchIndex
             $"WHERE ({matchesWhere}) AND md.id > @After " +
             "ORDER BY md.id LIMIT @Limit";
 
+        // Le compte de facette = nombre de DOCUMENTS distincts portant la valeur (count DISTINCT managed_document_id),
+        // jamais count(*) sur les LIGNES de liens courants : un document portant plusieurs liens courants de même
+        // (axe, valeur) — cause amont GDF04-3 — gonflerait sinon le « N document(s) » affiché (GedSearchView.razor).
         var facetsSql =
-            "SELECT ad.code AS AxisCode, dal.normalized_value AS Value, count(*) AS Count " +
+            "SELECT ad.code AS AxisCode, dal.normalized_value AS Value, count(DISTINCT dal.managed_document_id) AS Count " +
             "FROM ged_index.current_axis_links dal " +
             "JOIN ged_catalog.axis_definitions ad ON ad.id = dal.axis_id " +
             "WHERE ad.is_facetable = true AND (ad.is_confidential = false OR @HasRight) " +
             "AND dal.normalized_value IS NOT NULL " +
             $"AND dal.managed_document_id IN (SELECT md.id FROM ged_index.managed_documents md WHERE ({matchesWhere})) " +
             "GROUP BY ad.code, dal.normalized_value " +
-            "ORDER BY ad.code, count(*) DESC, dal.normalized_value";
+            "ORDER BY ad.code, count(DISTINCT dal.managed_document_id) DESC, dal.normalized_value";
 
         using var connection = await _connectionFactory.OpenAsync(cancellationToken);
 

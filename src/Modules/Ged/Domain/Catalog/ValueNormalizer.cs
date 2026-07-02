@@ -31,6 +31,14 @@ public static class ValueNormalizer
         | NumberStyles.AllowLeadingWhite
         | NumberStyles.AllowTrailingWhite;
 
+    // Forme canonique de facette/dédup d'un axe number SANS échelle déclarée (value_scale null = « valeur brute »,
+    // V005) : échelle MINIMALE, zéros de fin retirés, pour qu'un même nombre écrit « 1.5 » ou « 1.50 » produise
+    // UNE seule clé (les facettes et la déduplication groupent sur normalized_value — sinon deux buckets pour le
+    // même nombre). L'échelle max d'un decimal .NET est 28 : autant de « # » garantit qu'AUCUN chiffre significatif
+    // n'est arrondi (exact, jamais double/float). Ce n'est PAS une clé de tri — le tri/les plages numériques se
+    // font sur la colonne typée value_number (decimal).
+    private static readonly string CanonicalNumberFormat = "0." + new string('#', 28);
+
     /// <summary>
     /// Normalise <paramref name="rawValue"/> selon <paramref name="dataType"/> et, pour un axe <c>number</c>,
     /// selon <paramref name="valueScale"/> (échelle décimale déclarée de l'axe ; <see langword="null"/> = brut).
@@ -56,8 +64,11 @@ public static class ValueNormalizer
         };
     }
 
+    // value_string reçoit la valeur TRIMÉE : cohérente avec la clé canonique (Casefold trime aussi, l.147) et avec
+    // NormalizeEnum (l.65). Des espaces de bord ne doivent bruiter ni la colonne typée ni la divergence
+    // value_string / normalized_value.
     private static NormalizedAxisValue NormalizeString(string rawValue) =>
-        NormalizedAxisValue.ForString(rawValue, Casefold(rawValue));
+        NormalizedAxisValue.ForString(rawValue.Trim(), Casefold(rawValue));
 
     // Le code enum est rangé en value_string ; l'appartenance au vocabulaire (ged_catalog.axis_values) est
     // validée par IAxisCatalog (GED04), pas ici (le normaliseur pur n'a pas accès à la base).
@@ -80,11 +91,10 @@ public static class ValueNormalizer
             throw new AxisValueFormatException(AxisDataType.Number, rawValue, $"« {rawValue} » n'est pas un nombre decimal.");
         }
 
-        // Arrondi commercial half-up à l'échelle de l'axe (jamais double/float). Échelle null = valeur brute.
-        // Forme canonique d'affichage/dédup : échelle FIXE (« F{scale} ») quand l'axe déclare une échelle
-        // (largeur déterministe) — Math.Round ne matérialise pas les zéros de fin (1234,5 arrondi à 2 resterait
-        // « 1234.5 »). Ce n'est PAS une clé lexicale : le tri/la plage numérique se font sur la colonne typée
-        // value_number (decimal), jamais sur cette chaîne.
+        // Arrondi commercial half-up à l'échelle de l'axe (jamais double/float) quand l'axe DÉCLARE une échelle.
+        // Forme canonique d'affichage/dédup : échelle FIXE (« F{scale} », largeur déterministe) — Math.Round ne
+        // matérialise pas les zéros de fin (1234,5 arrondi à 2 resterait « 1234.5 »). Ce n'est PAS une clé lexicale :
+        // le tri/la plage numérique se font sur la colonne typée value_number (decimal), jamais sur cette chaîne.
         if (valueScale is int scale)
         {
             var rounded = Math.Round(parsed, scale, MidpointRounding.AwayFromZero);
@@ -93,7 +103,12 @@ public static class ValueNormalizer
                 rounded.ToString("F" + scale.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture));
         }
 
-        return NormalizedAxisValue.ForNumber(parsed, parsed.ToString(CultureInfo.InvariantCulture));
+        // Sans échelle déclarée (value_scale null) : value_number garde le decimal parsé EXACT (aucun arrondi, n°1) ;
+        // seule normalized_value est canonicalisée à l'échelle MINIMALE (CanonicalNumberFormat) pour qu'un même
+        // nombre ne se scinde pas en deux buckets de facette/dédup selon son écriture (« 1.5 » vs « 1.50 »).
+        return NormalizedAxisValue.ForNumber(
+            parsed,
+            parsed.ToString(CanonicalNumberFormat, CultureInfo.InvariantCulture));
     }
 
     private static NormalizedAxisValue NormalizeDate(string rawValue)
