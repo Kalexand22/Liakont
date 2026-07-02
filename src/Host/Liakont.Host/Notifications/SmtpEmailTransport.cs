@@ -26,7 +26,7 @@ using Stratum.Modules.Notification.Contracts;
 /// ici, au Host (monopole crypto, CLAUDE.md n°6/14). Le seam vendored reste (recipient, subject, body).
 /// </para>
 /// </summary>
-internal sealed partial class SmtpEmailTransport : IEmailTransport
+internal sealed partial class SmtpEmailTransport : IEmailTransport, IEmailSendAvailability
 {
     private readonly SmtpOptions _options;
     private readonly BrandingOptions _branding;
@@ -82,6 +82,19 @@ internal sealed partial class SmtpEmailTransport : IEmailTransport
     }
 
     /// <summary>
+    /// Disponibilité EFFECTIVE d'envoi (BUG-31) : MÊME précédence que l'envoi
+    /// (<see cref="IsAuthoritativeDbConfig"/> puis repli appsettings) mais SANS déchiffrer les
+    /// secrets — une clé de chiffrement invalide fait échouer l'ENVOI (rattrapé par l'appelant),
+    /// jamais la sonde. Les gardes du provisioning d'utilisateur interrogent CECI, jamais
+    /// <see cref="SmtpOptions"/> seul.
+    /// </summary>
+    public async Task<bool> IsConfiguredAsync(CancellationToken ct = default)
+    {
+        var db = await _configStore.GetAsync(ct).ConfigureAwait(false);
+        return IsAuthoritativeDbConfig(db) || _options.IsConfigured;
+    }
+
+    /// <summary>
     /// Compose le message MIME. Le sujet et le corps sont en UTF-8 (français accentué — CLAUDE.md n°12).
     /// L'EXPÉDITEUR (nom + adresse) et le PIED DE PAGE relèvent du branding d'instance (BRD01, marque
     /// grise) : <see cref="BrandingOptions.EmailFromName"/>/<see cref="BrandingOptions.EmailFromAddress"/>
@@ -108,7 +121,6 @@ internal sealed partial class SmtpEmailTransport : IEmailTransport
 
     /// <summary>
     /// Adresse d'expéditeur effective : branding d'instance prioritaire, repli sur la config SMTP.
-    /// Sert AUSSI à la garde <see cref="IsConfigured"/> (un transport actif sans adresse reste no-op).
     /// </summary>
     internal static string EffectiveFromAddress(SmtpOptions options, BrandingOptions branding) =>
         !string.IsNullOrWhiteSpace(branding.EmailFromAddress) ? branding.EmailFromAddress : options.FromAddress;
@@ -145,9 +157,9 @@ internal sealed partial class SmtpEmailTransport : IEmailTransport
     internal async Task<ResolvedEmailConfig?> ResolveAsync(CancellationToken ct)
     {
         var db = await _configStore.GetAsync(ct).ConfigureAwait(false);
-        if (db is not null && db.Enabled && IsDbConfigured(db))
+        if (IsAuthoritativeDbConfig(db))
         {
-            return BuildFromDb(db);
+            return BuildFromDb(db!);
         }
 
         // Repli BOOTSTRAP uniquement (aucune ligne DB autoritaire) : appsettings, SMTP basic (ADR-0018).
@@ -187,6 +199,15 @@ internal sealed partial class SmtpEmailTransport : IEmailTransport
                 break;
         }
     }
+
+    /// <summary>
+    /// La ligne DB est AUTORITAIRE : présente, <c>Enabled</c> et complète (ADR-0039 §6). Précédence
+    /// PARTAGÉE entre l'envoi (<see cref="ResolveAsync"/>) et la sonde de disponibilité
+    /// (<see cref="IsConfiguredAsync"/>) — jamais deux dérivations divergentes. Aucun déchiffrement
+    /// ici (null-checks seulement).
+    /// </summary>
+    private bool IsAuthoritativeDbConfig(InstanceEmailConfig? db) =>
+        db is not null && db.Enabled && IsDbConfigured(db);
 
     /// <summary>
     /// Vrai si la config DB est utilisable : hôte + adresse d'expéditeur (config OU branding) présents ; pour un
@@ -253,9 +274,4 @@ internal sealed partial class SmtpEmailTransport : IEmailTransport
     // ciphertext absent donne une chaîne vide (secret non saisi).
     private string Unprotect(string? ciphertext, string purpose) =>
         string.IsNullOrEmpty(ciphertext) ? string.Empty : _secretProtector.Unprotect(ciphertext, purpose);
-
-    private bool IsConfigured() =>
-        _options.Enabled
-        && !string.IsNullOrWhiteSpace(_options.Host)
-        && !string.IsNullOrWhiteSpace(EffectiveFromAddress(_options, _branding));
 }

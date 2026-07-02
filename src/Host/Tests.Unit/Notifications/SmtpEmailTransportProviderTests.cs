@@ -1,5 +1,6 @@
 namespace Liakont.Host.Tests.Unit.Notifications;
 
+using System;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Liakont.Host.Configuration;
@@ -7,6 +8,7 @@ using Liakont.Host.InstanceEmail;
 using Liakont.Host.Notifications;
 using Liakont.Host.Tests.Unit.InstanceEmail;
 using Liakont.Modules.FleetSupervision.Application;
+using Liakont.Modules.TenantSettings.Application;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
@@ -151,6 +153,57 @@ public sealed class SmtpEmailTransportProviderTests
         resolved!.ToString().Should().NotContain("s3cret", "le mot de passe déchiffré ne doit jamais fuir par ToString()");
     }
 
+    [Fact]
+    public async Task IsConfiguredAsync_Is_True_With_A_Db_Only_Config()
+    {
+        // LE bug de recette BUG-31 : config d'instance EN BASE seule (Gmail), appsettings vides — la
+        // disponibilité d'envoi doit être VRAIE (l'invitation part au lieu d'afficher le mot de passe).
+        var store = new FakeInstanceEmailConfigStore
+        {
+            Current = SmtpBasicConfig(host: "db.smtp.test", password: "s3cret", enabled: true),
+        };
+        var transport = NewTransport(new SmtpOptions { Enabled = false }, store);
+
+        (await transport.IsConfiguredAsync()).Should().BeTrue("la config d'instance en base suffit (BUG-31)");
+    }
+
+    [Fact]
+    public async Task IsConfiguredAsync_Is_True_With_Appsettings_Only()
+    {
+        var transport = NewTransport(ConfiguredAppsettings(), new FakeInstanceEmailConfigStore());
+
+        (await transport.IsConfiguredAsync()).Should().BeTrue("le repli appsettings reste une config d'envoi valable");
+    }
+
+    [Fact]
+    public async Task IsConfiguredAsync_Is_False_Without_Any_Config()
+    {
+        var transport = NewTransport(new SmtpOptions { Enabled = false }, new FakeInstanceEmailConfigStore());
+
+        (await transport.IsConfiguredAsync()).Should().BeFalse("ni base ni appsettings → le mot de passe est remis à l'opérateur");
+    }
+
+    [Fact]
+    public async Task IsConfiguredAsync_Never_Decrypts_Secrets()
+    {
+        // La sonde de disponibilité est consommée par le provisioning d'utilisateur (invitation / reset) :
+        // une clé de chiffrement invalide (ciphertext d'un autre hôte, clé tournée) doit faire échouer
+        // l'ENVOI — rattrapé par l'appelant — JAMAIS la sonde elle-même (review BUG-31).
+        var store = new FakeInstanceEmailConfigStore
+        {
+            Current = SmtpBasicConfig(host: "db.smtp.test", password: "s3cret", enabled: true),
+        };
+        var transport = new SmtpEmailTransport(
+            Options.Create(new SmtpOptions { Enabled = false }),
+            Options.Create(new BrandingOptions()),
+            store,
+            new ThrowingSecretProtector(),
+            new FakeEmailOAuthTokenProvider(),
+            NullLogger<SmtpEmailTransport>.Instance);
+
+        (await transport.IsConfiguredAsync()).Should().BeTrue("la disponibilité se sonde par null-checks, sans Unprotect");
+    }
+
     private static InstanceEmailConfig SmtpBasicConfig(string host, string password, bool enabled) => new()
     {
         Kind = EmailProviderKind.SmtpBasic,
@@ -172,4 +225,16 @@ public sealed class SmtpEmailTransportProviderTests
             Protector,
             new FakeEmailOAuthTokenProvider(),
             NullLogger<SmtpEmailTransport>.Instance);
+
+    /// <summary>Lève sur TOUT déchiffrement — prouve que la sonde de disponibilité n'en fait aucun.</summary>
+    private sealed class ThrowingSecretProtector : ISecretProtector
+    {
+        public string Protect(string plaintext) => throw new InvalidOperationException("aucun chiffrement attendu ici");
+
+        public string Unprotect(string protectedValue) => throw new InvalidOperationException("la sonde ne déchiffre jamais");
+
+        public string Protect(string plaintext, string purpose) => throw new InvalidOperationException("aucun chiffrement attendu ici");
+
+        public string Unprotect(string protectedValue, string purpose) => throw new InvalidOperationException("la sonde ne déchiffre jamais");
+    }
 }
