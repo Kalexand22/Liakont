@@ -3,6 +3,7 @@ namespace Liakont.Host.Tests.Unit.Pages;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Bunit;
@@ -179,6 +180,64 @@ public sealed class GedRechercheTests : BunitContext
         fake.Requests.Should().HaveCount(1);
     }
 
+    [Fact]
+    public async Task Leaving_The_Page_Cancels_The_Search_Token()
+    {
+        // P2 GDF12 (2) : la page propage un token lié à SA durée de vie jusqu'au seam (puis Dapper) et l'annule au
+        // départ (Dispose) — la requête de recherche Postgres encore en vol est coupée. CancellationToken.None ne
+        // pourrait JAMAIS passer à IsCancellationRequested=true : le voir basculer prouve la propagation d'un VRAI
+        // token ET son annulation au départ de la page.
+        var fake = new FakeGedQueries(Page([Guid.NewGuid()]));
+        Services.AddScoped<IGedQueries>(_ => fake);
+
+        var cut = Render<GedRecherche>();
+        cut.Find("[data-testid='ged-search-input']").Input("bordereau");
+        cut.Find("[data-testid='ged-search-submit']").Click();
+        cut.WaitForState(() => fake.Requests.Count == 1);
+        fake.LastToken.IsCancellationRequested.Should().BeFalse("tant que la page vit, la recherche n'est pas annulée");
+
+        await DisposeComponentsAsync();
+
+        fake.LastToken.IsCancellationRequested.Should().BeTrue("quitter la page annule la recherche (token propagé au seam)");
+    }
+
+    [Fact]
+    public async Task An_In_Flight_Search_Cancelled_By_Leaving_The_Page_Is_Swallowed_Without_An_Error_Banner()
+    {
+        // P2 GDF12 (2) — exerce réellement la branche catch (OperationCanceledException) when (...) : une requête
+        // EN VOL est coupée par le départ de la page (Dispose annule le token → le seam lève) et la page l'AVALE
+        // (retour silencieux, pas de bandeau d'erreur, pas d'état corrompu) — pas seulement la propagation du token.
+        var fake = new FakeGedQueries(Page([Guid.NewGuid()])) { WaitForCancellation = true };
+        Services.AddScoped<IGedQueries>(_ => fake);
+
+        var cut = Render<GedRecherche>();
+        cut.Find("[data-testid='ged-search-input']").Input("x");
+        cut.Find("[data-testid='ged-search-submit']").Click();
+
+        // Requête en vol (le fake n'a pas répondu) : état propre, aucun bandeau d'erreur affiché.
+        await fake.InFlight.Task;
+        cut.FindAll("[data-testid='ged-search-error']").Should().BeEmpty();
+
+        // Instance et champ privé capturés AVANT le Dispose : après destruction du composant, cut.Instance/FindAll
+        // lèvent (ComponentDisposedException) — la réflexion sur la référence déjà capturée reste possible et
+        // permet de vérifier l'état interne de la page malgré la destruction du rendu.
+        var page = cut.Instance;
+        var loadFailedField = page.GetType().GetField("_loadFailed", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+        // Quitter la page annule le token → OperationCanceledException levée en vol → AVALÉE par la page :
+        // le Dispose se termine proprement, sans faire remonter d'exception.
+        await DisposeComponentsAsync();
+
+        // La branche d'annulation a bien été atteinte (le token en vol a observé l'annulation). On laisse la
+        // continuation d'annulation se terminer (elle peut finir juste après le Dispose, sur le pool de threads)
+        // puis on vérifie qu'elle n'a PAS été traitée comme un échec : _loadFailed reste false — l'annulation
+        // reste bien AVALÉE (retour silencieux), jamais traitée comme un échec.
+        fake.LastToken.IsCancellationRequested.Should().BeTrue();
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
+        loadFailedField.GetValue(page).Should().Be(
+            false, "l'annulation par le Dispose est AVALÉE (retour silencieux), jamais traitée comme un échec");
+    }
+
     private static GedSearchResults Page(
         IReadOnlyList<Guid> hitIds,
         IReadOnlyList<GedSearchFacet>? facets = null,
@@ -210,14 +269,29 @@ public sealed class GedRechercheTests : BunitContext
 
         public GedSearchRequest? LastRequest => Requests.Count > 0 ? Requests[^1] : null;
 
+        /// <summary>Dernier token passé au seam : sert à vérifier que la page propage son token de durée de vie et l'annule au Dispose (GDF12).</summary>
+        public CancellationToken LastToken { get; private set; }
+
         /// <summary>Si posée, la recherche attend cette porte (simule une requête EN VOL pour la garde de ré-entrance).</summary>
         public TaskCompletionSource? Gate { get; init; }
+
+        /// <summary>Si vrai, la recherche reste EN VOL en observant le token (simule une requête coupée par le Dispose, GDF12).</summary>
+        public bool WaitForCancellation { get; set; }
+
+        public TaskCompletionSource InFlight { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public static FakeGedQueries Throwing() => new(throws: true);
 
         public async Task<GedSearchResults> SearchAsync(GedSearchRequest request, CancellationToken cancellationToken = default)
         {
             Requests.Add(request);
+            LastToken = cancellationToken;
+
+            if (WaitForCancellation)
+            {
+                InFlight.TrySetResult();
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
 
             if (Gate is not null)
             {

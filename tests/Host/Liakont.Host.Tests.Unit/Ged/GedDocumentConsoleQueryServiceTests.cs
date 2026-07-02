@@ -123,6 +123,24 @@ public sealed class GedDocumentConsoleQueryServiceTests
     }
 
     [Fact]
+    public async Task An_Unknown_Archive_Integrity_Status_Fails_Loudly_Instead_Of_Defaulting_To_NotArchived()
+    {
+        // P2 GDF12 (3) : un statut d'intégrité de coffre INCONNU (valeur future du contrat Archive) ne doit PAS
+        // retomber silencieusement sur NotArchived (« pas encore rangé dans le coffre » = verdict d'intégrité
+        // TROMPEUR sur un produit de conformité) — le mapping exhaustif échoue BRUYAMMENT (à étendre).
+        var unknownStatus = (GedArchiveIntegrityStatus)999;
+        var queries = new FakeGedDocumentQueries(GedOnlyDocument());
+        var reader = new FakeManagedArchiveReader(
+            integrity: new GedArchiveIntegrityResult(unknownStatus, "hash", "hash", null));
+        var consultation = new FakeConsultationAuditWriter();
+        var service = Build(queries, reader, consultation, permissions: GrantAll());
+
+        var act = async () => await service.GetAsync(DocId);
+
+        await act.Should().ThrowAsync<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
     public async Task Propagates_When_The_Consultation_Writer_Fails_In_Evidential_Mode()
     {
         var queries = new FakeGedDocumentQueries(GedOnlyDocument());

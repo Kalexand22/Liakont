@@ -1,7 +1,9 @@
 @page "/ged/objet/{EntityType}/{Id:guid}"
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @attribute [Authorize(Policy = LiakontPermissions.GedRead)]
+@implements IDisposable
 @using System.Collections.Generic
+@using System.Threading
 @using Liakont.Host.Ged
 @using Liakont.Host.Security
 @inject IGedGraphQueries GedGraphQueries
@@ -48,6 +50,10 @@
     private bool _isBusy;
     // Racine courante : ne ré-explore que si le couple (type, id) de la route change (pas à chaque re-rendu).
     private (string Type, Guid Id) _root;
+    // Annulation liée à la durée de vie de la page : le token est propagé jusqu'à Dapper (GedGraphQueryService →
+    // CommandDefinition → npgsql) ; quitter la page (Dispose) coupe la requête de graphe (CTE) encore en vol côté
+    // Postgres — plus de requête qui tourne après le départ (P2 GDF12).
+    private readonly CancellationTokenSource _cts = new();
 
     private GedGraphResults ViewResults => new()
     {
@@ -80,6 +86,9 @@
         // objet serait accumulée sous le nouveau (association objet↔document trompeuse — produit de conformité) et
         // corromprait le curseur keyset. On rattache donc chaque réponse à SA racine.
         var forRoot = (EntityType, Id);
+        // Token capturé AVANT tout await (le lire depuis _cts après Dispose lèverait) : le départ de la page
+        // (Dispose → _cts.Cancel) l'annule et coupe la requête en vol.
+        var cancellationToken = _cts.Token;
         _isBusy = true;
         _loadFailed = false;
 
@@ -98,7 +107,7 @@
                 RootEntityId = Id,
                 EntityTypeCode = EntityType,
                 After = afterCursor,
-            });
+            }, cancellationToken);
 
             // La route a changé de racine pendant l'await : cette réponse appartient à l'ancien objet — ne pas
             // l'accumuler (une exploration plus récente pilote désormais l'état).
@@ -109,6 +118,12 @@
 
             _hits.AddRange(page.Hits);
             _nextCursor = page.NextCursor;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Exploration annulée par le départ de la page (Dispose) : la requête Postgres est coupée. Le composant
+            // est en cours de destruction — aucun état à mettre à jour, aucune erreur à afficher (annulation ≠ échec).
+            return;
         }
         catch (Exception ex)
         {
@@ -134,5 +149,13 @@
                 _isBusy = false;
             }
         }
+    }
+
+    // Départ de la page : annule l'exploration en vol (le token propagé jusqu'à Dapper coupe la requête de graphe
+    // côté Postgres) puis libère la source d'annulation.
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
     }
 }

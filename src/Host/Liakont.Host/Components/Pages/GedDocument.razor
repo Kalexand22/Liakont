@@ -1,6 +1,8 @@
 @page "/ged/document/{Id:guid}"
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @attribute [Authorize(Policy = LiakontPermissions.GedRead)]
+@implements IDisposable
+@using System.Threading
 @using Liakont.Host.Components
 @using Liakont.Host.Ged
 @using Liakont.Host.Security
@@ -62,6 +64,9 @@
     private GedDocumentDetailViewModel? _model;
     private bool _notFound;
     private bool _loadFailed;
+    // Annulation liée à la durée de vie de la page : le token est propagé jusqu'à Dapper (assemblage de la fiche) ;
+    // quitter la page (Dispose) coupe la requête encore en vol côté Postgres (P2 GDF12).
+    private readonly CancellationTokenSource _cts = new();
 
     protected override async Task OnParametersSetAsync()
     {
@@ -84,13 +89,16 @@
         // de conformité). On rattache donc chaque réponse à SON identifiant. Modèle : la garde forRoot de GedObjet
         // (GED09c). _loadedId porte toujours l'identifiant le plus récent (posé par OnParametersSetAsync avant l'appel).
         var forId = Id;
+        // Token capturé AVANT tout await (le lire depuis _cts après Dispose lèverait) : le départ de la page
+        // (Dispose → _cts.Cancel) l'annule et coupe la requête en vol.
+        var cancellationToken = _cts.Token;
         _model = null;
         _notFound = false;
         _loadFailed = false;
 
         try
         {
-            var model = await DocumentQueries.GetAsync(forId);
+            var model = await DocumentQueries.GetAsync(forId, cancellationToken);
 
             // La route a changé d'identifiant pendant l'await : cette réponse appartient à l'ancien document — ne pas
             // l'appliquer (un chargement plus récent pilote désormais l'état).
@@ -108,6 +116,12 @@
                 _model = model;
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Chargement annulé par le départ de la page (Dispose) : requête coupée, composant en cours de
+            // destruction — aucun état à mettre à jour, aucune erreur à afficher (annulation ≠ échec).
+            return;
+        }
         catch (Exception ex)
         {
             // Échec d'un chargement SUPERSÉDÉ (identifiant changé pendant l'await) : ne pas écraser l'état du nouveau
@@ -123,5 +137,13 @@
             _loadFailed = true;
             Logger.LogError(ex, "Failed to load the GED document detail page for document {ManagedDocumentId}.", forId);
         }
+    }
+
+    // Départ de la page : annule le chargement en vol (le token propagé jusqu'à Dapper coupe la requête côté
+    // Postgres) puis libère la source d'annulation.
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
     }
 }

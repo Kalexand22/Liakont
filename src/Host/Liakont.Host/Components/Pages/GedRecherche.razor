@@ -1,8 +1,10 @@
 @page "/ged/recherche"
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = LiakontPermissions.GedRead)]
+@implements IDisposable
 @using System.Collections.Generic
 @using System.Linq
+@using System.Threading
 @using Liakont.Host.Ged
 @using Liakont.Host.Security
 @inject IGedQueries GedQueries
@@ -41,6 +43,9 @@
     // curseur non encore mis à jour → page keyset re-demandée + hits/traces dupliqués. On no-op tant qu'une
     // requête est en vol (et on désactive les boutons côté vue).
     private bool _isBusy;
+    // Annulation liée à la durée de vie de la page : le token est propagé jusqu'à Dapper (index de recherche) ;
+    // quitter la page (Dispose) coupe la requête encore en vol côté Postgres (P2 GDF12).
+    private readonly CancellationTokenSource _cts = new();
 
     private GedSearchResults ViewResults => new()
     {
@@ -91,6 +96,9 @@
 
     private async Task RunSearchAsync(bool resetPaging)
     {
+        // Token capturé AVANT tout await (le lire depuis _cts après Dispose lèverait) : le départ de la page
+        // (Dispose → _cts.Cancel) l'annule et coupe la requête en vol.
+        var cancellationToken = _cts.Token;
         _isBusy = true;
         _loadFailed = false;
         _hasSearched = true;
@@ -110,11 +118,17 @@
                 FullText = _query,
                 AxisFilters = _filters.ToList(),
                 AfterDocumentId = afterCursor,
-            });
+            }, cancellationToken);
 
             _hits.AddRange(page.Hits);
             _facets = page.Facets;
             _nextCursor = page.NextCursor;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Recherche annulée par le départ de la page (Dispose) : requête coupée, composant en cours de
+            // destruction — aucun état à mettre à jour, aucune erreur à afficher (annulation ≠ échec).
+            return;
         }
         catch (Exception ex)
         {
@@ -130,5 +144,13 @@
         {
             _isBusy = false;
         }
+    }
+
+    // Départ de la page : annule la recherche en vol (le token propagé jusqu'à Dapper coupe la requête côté
+    // Postgres) puis libère la source d'annulation.
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
     }
 }
