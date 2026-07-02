@@ -1,0 +1,134 @@
+@page "/ged/recherche"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = LiakontPermissions.GedRead)]
+@using System.Collections.Generic
+@using System.Linq
+@using Liakont.Host.Ged
+@using Liakont.Host.Security
+@inject IGedQueries GedQueries
+@inject ILogger<GedRecherche> Logger
+
+<PageTitle>Recherche documentaire — Liakont</PageTitle>
+
+<h1 class="visually-hidden">Recherche documentaire GED</h1>
+
+@* Page MINCE (F19 §6.7) : tout l'état de recherche (requête, filtres, curseur keyset, accumulation des
+   pages) et l'appel à IGedQueries vivent ici ; le rendu est délégué à la vue-pure GedSearchView. Aucune
+   logique métier : le masquage de confidentialité et la pagination keyset sont faits côté serveur/index. *@
+<GedSearchView Results="ViewResults"
+               Query="_query"
+               ActiveFilters="_filters"
+               HasSearched="_hasSearched"
+               LoadFailed="_loadFailed"
+               Busy="_isBusy"
+               OnSearch="SearchAsync"
+               OnFacetSelected="AddFacetAsync"
+               OnFilterRemoved="RemoveFilterAsync"
+               OnLoadMore="LoadMoreAsync" />
+
+@code {
+    // Filtres d'axe actifs (conjonction) et documents ACCUMULÉS sur les pages keyset déjà chargées : chaque
+    // appel à l'index ne rapporte qu'UNE page bornée (RL-20) — aucun chemin ne matérialise tout le corpus.
+    private readonly List<GedAxisFilter> _filters = new();
+    private readonly List<GedSearchHit> _hits = new();
+    private IReadOnlyList<GedSearchFacet> _facets = [];
+    private Guid? _nextCursor;
+    private string? _query;
+    private bool _hasSearched;
+    private bool _loadFailed;
+    // Garde de ré-entrance : en Blazor Server les intentions UI sont sérialisées, mais un second geste
+    // (double-clic « Charger plus », facette pendant l'await) s'exécuterait APRÈS le yield du await avec un
+    // curseur non encore mis à jour → page keyset re-demandée + hits/traces dupliqués. On no-op tant qu'une
+    // requête est en vol (et on désactive les boutons côté vue).
+    private bool _isBusy;
+
+    private GedSearchResults ViewResults => new()
+    {
+        Hits = _hits,
+        Facets = _facets,
+        NextCursor = _nextCursor,
+    };
+
+    private Task SearchAsync(string queryText)
+    {
+        if (_isBusy)
+        {
+            return Task.CompletedTask;
+        }
+
+        _query = string.IsNullOrWhiteSpace(queryText) ? null : queryText.Trim();
+        return RunSearchAsync(resetPaging: true);
+    }
+
+    private Task AddFacetAsync(GedAxisFilter filter)
+    {
+        if (_isBusy)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (!_filters.Any(f => f.AxisCode == filter.AxisCode && f.Value == filter.Value))
+        {
+            _filters.Add(filter);
+        }
+
+        return RunSearchAsync(resetPaging: true);
+    }
+
+    private Task RemoveFilterAsync(GedAxisFilter filter)
+    {
+        if (_isBusy)
+        {
+            return Task.CompletedTask;
+        }
+
+        _filters.RemoveAll(f => f.AxisCode == filter.AxisCode && f.Value == filter.Value);
+        return RunSearchAsync(resetPaging: true);
+    }
+
+    private Task LoadMoreAsync() =>
+        _isBusy || _nextCursor is null ? Task.CompletedTask : RunSearchAsync(resetPaging: false);
+
+    private async Task RunSearchAsync(bool resetPaging)
+    {
+        _isBusy = true;
+        _loadFailed = false;
+        _hasSearched = true;
+
+        // resetPaging (nouvelle recherche / changement de filtre) : on repart de la 1re page et on vide
+        // l'accumulation. Sinon (« charger plus ») : on poursuit au curseur keyset et on APPEND.
+        var afterCursor = resetPaging ? null : _nextCursor;
+        if (resetPaging)
+        {
+            _hits.Clear();
+        }
+
+        try
+        {
+            var page = await GedQueries.SearchAsync(new GedSearchRequest
+            {
+                FullText = _query,
+                AxisFilters = _filters.ToList(),
+                AfterDocumentId = afterCursor,
+            });
+
+            _hits.AddRange(page.Hits);
+            _facets = page.Facets;
+            _nextCursor = page.NextCursor;
+        }
+        catch (Exception ex)
+        {
+            // L'échec (index indisponible OU trace de consultation fail-closed en régime probant, §6.6) reste
+            // VISIBLE (bandeau) et tracé — jamais avalé, et aucun résultat n'est affiché (fail-closed).
+            _loadFailed = true;
+            _hits.Clear();
+            _facets = [];
+            _nextCursor = null;
+            Logger.LogError(ex, "GED document search failed.");
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+}

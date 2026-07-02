@@ -1,0 +1,212 @@
+@namespace Liakont.Host.Components
+@using System.Linq
+@using Liakont.Host.Ged
+@using Microsoft.AspNetCore.Components.Web
+@using Stratum.Common.UI.Models
+
+@* GedSearchView — rendu PUR de la recherche documentaire GED (GED09a, F19 §6.7). Reçoit ses données en
+ * paramètre et remonte les intentions par EventCallback (aucune injection, aucune logique métier, aucun accès
+ * base ni index) pour être testable en bUnit. La PAGE (GedRecherche) porte l'état (requête, filtres, curseur
+ * keyset, accumulation des pages) et appelle IGedQueries. Le masquage de confidentialité est SERVER-SIDE
+ * (l'index n'a jamais renvoyé ici un axe/une facette confidentiel sans le droit — §6.5). 100 % français. *@
+
+<div class="ged-search" data-testid="ged-search">
+
+    <div class="ged-search__form" data-testid="ged-search-form">
+        <label class="ged-search__label" for="ged-search-input">Recherche documentaire</label>
+        <div class="ged-search__query">
+            <input id="ged-search-input"
+                   class="ged-search__input"
+                   type="search"
+                   data-testid="ged-search-input"
+                   placeholder="Titre, mot-clé ou valeur d'axe…"
+                   aria-label="Rechercher un document"
+                   @bind="_query"
+                   @bind:event="oninput"
+                   @onkeyup="OnQueryKeyUpAsync" />
+            <button type="button" class="ged-search__submit" data-testid="ged-search-submit" disabled="@Busy" @onclick="SubmitSearchAsync">Rechercher</button>
+        </div>
+    </div>
+
+    @if (ActiveFilters.Count > 0)
+    {
+        <div class="ged-search__filters" data-testid="ged-search-filters">
+            <span class="ged-search__filters-title">Filtres actifs :</span>
+            @foreach (var filter in ActiveFilters)
+            {
+                <button type="button"
+                        class="ged-search__filter-chip"
+                        data-testid="@($"ged-filter-{filter.AxisCode}-{filter.Value}")"
+                        aria-label="@($"Retirer le filtre {filter.AxisCode} : {filter.Value}")"
+                        @onclick="() => RemoveFilterAsync(filter)">
+                    @filter.AxisCode : @filter.Value <span aria-hidden="true">✕</span>
+                </button>
+            }
+        </div>
+    }
+
+    <div class="ged-search__body">
+
+        <section class="ged-search__results" data-testid="ged-search-results" aria-label="Résultats">
+            @if (LoadFailed)
+            {
+                <LiakontAlert TestId="ged-search-error">
+                    La recherche est momentanément indisponible. Réessayez dans quelques instants.
+                </LiakontAlert>
+            }
+            else if (!HasSearched)
+            {
+                <p class="ged-search__hint" data-testid="ged-search-hint">
+                    Saisissez un titre, un mot-clé ou une valeur d'axe pour rechercher un document.
+                </p>
+            }
+            else if (Results.Hits.Count == 0)
+            {
+                <p class="ged-search__empty" data-testid="ged-search-empty">
+                    Aucun document ne correspond à cette recherche.
+                </p>
+            }
+            else
+            {
+                <ul class="ged-search__hits">
+                    @foreach (var hit in Results.Hits)
+                    {
+                        <li class="ged-search__hit" data-testid="@($"ged-hit-{hit.DocumentId}")">
+                            <a class="ged-search__hit-title"
+                               href="@($"/ged/document/{hit.DocumentId}")"
+                               data-testid="@($"ged-hit-link-{hit.DocumentId}")">
+                                @DisplayTitle(hit.Title)
+                            </a>
+                            @if (!string.IsNullOrWhiteSpace(hit.Kind))
+                            {
+                                <span class="ged-search__hit-kind">@hit.Kind</span>
+                            }
+                            <StatusBadge Label="@StatusLabel(hit.Status)" Severity="@StatusSeverity(hit.Status)" />
+                        </li>
+                    }
+                </ul>
+
+                @if (Results.NextCursor is not null)
+                {
+                    <button type="button"
+                            class="ged-search__more"
+                            data-testid="ged-search-more"
+                            disabled="@Busy"
+                            @onclick="LoadMoreAsync">
+                        Charger plus de résultats
+                    </button>
+                }
+            }
+        </section>
+
+        @if (Results.Facets.Count > 0)
+        {
+            <aside class="ged-search__facets" data-testid="ged-search-facets" aria-label="Facettes">
+                <h3 class="ged-search__facets-title">Affiner par axe</h3>
+                @foreach (var group in Results.Facets.GroupBy(f => f.AxisCode))
+                {
+                    <div class="ged-search__facet-group" data-testid="@($"ged-facet-group-{group.Key}")">
+                        <h4 class="ged-search__facet-axis">@group.Key</h4>
+                        @foreach (var facet in group)
+                        {
+                            <button type="button"
+                                    class="ged-search__facet"
+                                    data-testid="@($"ged-facet-{facet.AxisCode}-{facet.Value}")"
+                                    aria-label="@($"Filtrer sur {facet.AxisCode} = {facet.Value} ({facet.Count} document(s))")"
+                                    @onclick="() => SelectFacetAsync(facet)">
+                                @facet.Value <span class="ged-search__facet-count">(@facet.Count)</span>
+                            </button>
+                        }
+                    </div>
+                }
+            </aside>
+        }
+
+    </div>
+</div>
+
+@code {
+    private string _query = string.Empty;
+
+    /// <summary>Résultat de la page courante (jamais <c>null</c> : la page fournit toujours un modèle).</summary>
+    [Parameter, EditorRequired]
+    public GedSearchResults Results { get; set; } = GedSearchResults.Empty;
+
+    /// <summary>Texte de la requête courante, pour ré-afficher la saisie après un aller-retour serveur.</summary>
+    [Parameter]
+    public string? Query { get; set; }
+
+    /// <summary>Filtres d'axe actifs (chips), remontés par la page.</summary>
+    [Parameter]
+    public IReadOnlyList<GedAxisFilter> ActiveFilters { get; set; } = [];
+
+    /// <summary>Vrai dès qu'une recherche a été lancée (distingue l'état initial du « aucun résultat »).</summary>
+    [Parameter]
+    public bool HasSearched { get; set; }
+
+    /// <summary>Vrai si la dernière recherche a échoué (bandeau d'erreur FR, jamais avalé).</summary>
+    [Parameter]
+    public bool LoadFailed { get; set; }
+
+    /// <summary>Vrai pendant qu'une requête est en vol : désactive les boutons (garde de ré-entrance côté page).</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>Recherche demandée (soumission du formulaire), avec le texte saisi.</summary>
+    [Parameter]
+    public EventCallback<string> OnSearch { get; set; }
+
+    /// <summary>Facette cliquée : la page l'ajoute comme filtre et relance la recherche.</summary>
+    [Parameter]
+    public EventCallback<GedAxisFilter> OnFacetSelected { get; set; }
+
+    /// <summary>Filtre actif retiré (chip) : la page le retire et relance la recherche.</summary>
+    [Parameter]
+    public EventCallback<GedAxisFilter> OnFilterRemoved { get; set; }
+
+    /// <summary>Demande de page suivante (keyset) : la page appelle l'index avec le curseur courant.</summary>
+    [Parameter]
+    public EventCallback OnLoadMore { get; set; }
+
+    // La saisie est ré-alimentée depuis la page à chaque re-rendu parent (après recherche / facette / page
+    // suivante). Entre deux, la frappe (oninput) ne re-rend que ce composant et préserve _query.
+    protected override void OnParametersSet() => _query = Query ?? string.Empty;
+
+    private Task SubmitSearchAsync() =>
+        OnSearch.HasDelegate ? OnSearch.InvokeAsync(_query) : Task.CompletedTask;
+
+    // Entrée clavier « Entrée » = lancer la recherche (la valeur est déjà liée par oninput).
+    private Task OnQueryKeyUpAsync(KeyboardEventArgs args) =>
+        args.Key == "Enter" ? SubmitSearchAsync() : Task.CompletedTask;
+
+    private Task SelectFacetAsync(GedSearchFacet facet) =>
+        OnFacetSelected.HasDelegate
+            ? OnFacetSelected.InvokeAsync(new GedAxisFilter(facet.AxisCode, facet.Value))
+            : Task.CompletedTask;
+
+    private Task RemoveFilterAsync(GedAxisFilter filter) =>
+        OnFilterRemoved.HasDelegate ? OnFilterRemoved.InvokeAsync(filter) : Task.CompletedTask;
+
+    private Task LoadMoreAsync() =>
+        OnLoadMore.HasDelegate ? OnLoadMore.InvokeAsync() : Task.CompletedTask;
+
+    private static string DisplayTitle(string title) =>
+        string.IsNullOrWhiteSpace(title) ? "(sans titre)" : title;
+
+    private static string StatusLabel(string status) => status switch
+    {
+        "indexed" => "Indexé",
+        "archived" => "Archivé",
+        "deferred" => "En attente de classement",
+        "draft" => "Brouillon",
+        _ => status,
+    };
+
+    private static Severity StatusSeverity(string status) => status switch
+    {
+        "indexed" => Severity.Success,
+        "archived" => Severity.Info,
+        "deferred" => Severity.Warning,
+        _ => Severity.Neutral,
+    };
+}
