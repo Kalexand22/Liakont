@@ -929,11 +929,18 @@ revue Claude **clean** au round 3). Détail + commit sous chaque bug.
   (`/admin/audit/policies`) de la section Audit ; « Journal d'audit » demeure ; la **ROUTE reste ouverte** au
   super-admin (socle non modifié — CLAUDE.md n°11). Test `AuditNavVisibilityFilterTests` adapté (prouve l'absence
   de l'item, section non vide). verify-fast en cours.
-- **⚠️ POINT DE FOND RESTANT (non résolu par le masquage)** : la route existe toujours ; un super-admin peut
-  encore « désactiver » une politique. Reste à VÉRIFIER si la piste d'audit FISCALE (`DocumentEvent`,
-  `MappingChangeLog`, WORM append-only — règle métier n°4) dépend de ce mécanisme configurable du socle. Si oui →
-  neutraliser la capacité « Désactiver » sur ces entités (P1). Si non (audit générique users/config seulement) →
-  RAS. À trancher plus tard (masquage suffit « pour le moment »).
+- **✅ POINT DE FOND VÉRIFIÉ (2026-07-02) — AUCUN risque (Karl avait raison)** : les « Politiques d'audit »
+  (`AuditPolicy.IsEnabled`) ne gouvernent **aucun** chemin d'écriture actif dans le code Liakont. Preuves :
+  - **Piste fiscale `DocumentEvent`** → `PostgresDocumentUnitOfWork.AppendEventAsync` = `INSERT INTO
+    documents.document_events` **inconditionnel** (même transaction que le document ; immuabilité par **trigger
+    base** — CLAUDE.md n°4). Zéro consultation d'`AuditPolicy`.
+  - **`MappingChangeLog`** (module TvaMapping) : même pattern UnitOfWork ; le module TvaMapping ne référence
+    **jamais** le module Audit (`AuditPolicy` / `IAuditQueries` / `IActivityLogger`).
+  - **Journal d'activité générique** (`ActivityLogger` → `audit.activities`) : écrit **inconditionnellement**
+    (try/catch swallow — INV-AUDIT-002) et ne consulte pas les politiques. `AuditPolicy.IsEnabled` n'est lu par
+    **aucun** writer — seulement par les handlers de gestion Get/Set/Disable de l'écran masqué.
+  ⇒ L'écran est une surface socle **déclarative NON câblée** ; le masquage est purement visuel et « désactiver »
+  une politique n'a aucun effet (ni piste fiscale, ni journal générique). **Pas de P1 ; rien de plus à faire.**
 - **Fichiers** : `src/Modules/Audit/Web/Pages/AdminAuditPolicies.razor`,
   `src/Host/Liakont.Host/Navigation/AuditNavVisibilityFilter.cs`.
 
