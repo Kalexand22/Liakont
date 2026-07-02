@@ -146,7 +146,20 @@ public sealed class ManagedArchiveReader : IManagedArchiveReader
     // noms des pièces de contenu. Le répertoire est reconstruit via GedArchivePackageLayout (mêmes règles
     // d'assainissement qu'à l'écriture), jamais par découpage de chaîne du chemin de manifest. Défensif : un
     // manifest corrompu ou tronqué dans le coffre est une réalité opérationnelle (INV-ARCH-GED-2), pas une
-    // exception à laisser remonter — c'est à l'appelant de la traduire en verdict d'intégrité.
+    // exception à laisser remonter — c'est à l'appelant de la traduire en verdict d'intégrité. Le contrat couvre
+    // l'ENSEMBLE du parcours manifest→layout→pièces : les valeurs non-chaîne sont écartées par contrôle de
+    // ValueKind (jamais de GetString sur un token non-chaîne), de sorte que les deux SEULES sources d'exception
+    // restantes — JSON invalide (JsonException) et segment qui s'assainit en vide dans SanitizeSegment
+    // (ArgumentException) — rendent false (⇒ verdict Altered, fail-closed), jamais une exception jusqu'à la fiche.
+
+    // Lit une propriété chaîne OBLIGATOIRE du manifest : renvoie null si absente ou de type non-chaîne
+    // (⇒ manifest corrompu). Le contrôle de ValueKind évite tout GetString() sur un token non-chaîne (qui
+    // lèverait InvalidOperationException) — le catch reste ainsi limité à JsonException et ArgumentException.
+    private static string? RequiredString(JsonElement root, string propertyName) =>
+        root.TryGetProperty(propertyName, out JsonElement element) && element.ValueKind == JsonValueKind.String
+            ? element.GetString()
+            : null;
+
     private static bool TryParseManifest(byte[] manifestBytes, out (string PackageHash, string PackageDirectory, IReadOnlyList<string> FileNames) result)
     {
         result = default;
@@ -155,18 +168,39 @@ public sealed class ManagedArchiveReader : IManagedArchiveReader
             using var document = JsonDocument.Parse(manifestBytes);
             JsonElement root = document.RootElement;
 
-            string packageHash = root.TryGetProperty("packageHash", out JsonElement packageHashElement)
-                ? packageHashElement.GetString() ?? string.Empty
-                : string.Empty;
+            // Un manifest dont la RACINE n'est pas un objet JSON (scalaire, tableau, null — tous des documents JSON
+            // valides acceptés par JsonDocument.Parse) est corrompu : TryGetProperty LÈVERAIT InvalidOperationException
+            // sur une racine non-objet. On l'écarte ICI pour que le catch reste limité à JsonException/ArgumentException.
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
 
-            if (!root.TryGetProperty("archiveKind", out JsonElement archiveKindElement) || archiveKindElement.GetString() is not { } archiveKind
-                || !root.TryGetProperty("archiveKey", out JsonElement archiveKeyElement) || archiveKeyElement.GetString() is not { } archiveKey
-                || !root.TryGetProperty("filedOn", out JsonElement filedOnElement) || filedOnElement.GetString() is not { } filedOnText
+            // packageHash : chaîne OPTIONNELLE. Présente mais non-chaîne (nombre, objet, …) = manifest corrompu →
+            // fail-closed, jamais une InvalidOperationException (GetString sur un token non-chaîne) remontée.
+            string packageHash = string.Empty;
+            if (root.TryGetProperty("packageHash", out JsonElement packageHashElement))
+            {
+                if (packageHashElement.ValueKind != JsonValueKind.String)
+                {
+                    return false;
+                }
+
+                packageHash = packageHashElement.GetString() ?? string.Empty;
+            }
+
+            // Champs OBLIGATOIRES, tous des chaînes : un contrôle de ValueKind (RequiredString) écarte toute valeur
+            // non-chaîne SANS lever, puis DateOnly.TryParseExact ne lève jamais → aucune InvalidOperationException.
+            if (RequiredString(root, "archiveKind") is not { } archiveKind
+                || RequiredString(root, "archiveKey") is not { } archiveKey
+                || RequiredString(root, "filedOn") is not { } filedOnText
                 || !DateOnly.TryParseExact(filedOnText, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateOnly filedOn))
             {
                 return false;
             }
 
+            // Reconstruit le répertoire du paquet. SanitizeSegment LÈVE (ArgumentException) si archiveKind/archiveKey
+            // s'assainit en vide (« archiveKey":"" », « archiveKind":"/" ») : rattrapé par le catch ci-dessous.
             string packageDirectory = GedArchivePackageLayout.PackageDirectory(
                 archiveKind, filedOn.Year, filedOn.Month, archiveKey);
 
@@ -175,18 +209,38 @@ public sealed class ManagedArchiveReader : IManagedArchiveReader
             {
                 foreach (JsonElement file in filesElement.EnumerateArray())
                 {
-                    if (file.TryGetProperty("name", out JsonElement nameElement) && nameElement.GetString() is { } name)
+                    // Une pièce doit porter un nom exploitable (chaîne non vide/non blanche). Sinon = manifest
+                    // corrompu → fail-closed : et SURTOUT jamais un nom vide propagé jusqu'à ArchivePackageLayout.Combine
+                    // (appelé HORS du try de VerifyManagedPackageAsync), où il exploserait sur la fiche.
+                    if (file.ValueKind != JsonValueKind.Object
+                        || !file.TryGetProperty("name", out JsonElement nameElement)
+                        || nameElement.ValueKind != JsonValueKind.String)
                     {
-                        fileNames.Add(name);
+                        return false;
                     }
+
+                    string? name = nameElement.GetString();
+                    if (string.IsNullOrWhiteSpace(name))
+                    {
+                        return false;
+                    }
+
+                    // Pré-vol de l'assainissement que Combine appliquera à la re-lecture : un nom qui s'assainit en
+                    // vide (« / », « .. ») LÈVERAIT dans Combine (hors try de l'appelant). On le rattrape ICI, dans
+                    // le try, pour garantir que Combine ne peut plus jamais lever pour ce manifest.
+                    _ = ArchivePackageLayout.SanitizeSegment(name);
+
+                    fileNames.Add(name);
                 }
             }
 
             result = (packageHash, packageDirectory, fileNames);
             return true;
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or ArgumentException)
         {
+            // Corruption du manifest / du parcours manifest→layout→pièces (réalité opérationnelle, INV-ARCH-GED-2).
+            // Fail-closed : ne jamais rendre Verified sur un doute, ne jamais laisser l'exception atteindre la fiche.
             return false;
         }
     }
