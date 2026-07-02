@@ -1,30 +1,20 @@
 namespace Liakont.Modules.Ged.Infrastructure;
 
-using System.Threading;
-using System.Threading.Tasks;
 using Liakont.Modules.Ged.Contracts.Events;
-using Microsoft.Extensions.Hosting;
 using Stratum.Common.Infrastructure.Outbox;
 
 /// <summary>
-/// Enregistre, au démarrage, la correspondance type d'événement → payload CLR pour les événements publiés par le canal
+/// Contribue, AU BUILD DI, la correspondance type d'événement → payload CLR pour les événements publiés par le canal
 /// GED (GED05b), afin que le worker d'outbox sache les désérialiser et les dispatcher (sinon il les marque « inconnus »).
-/// Même motif que <c>IngestionEventTypeRegistrar</c>, mais espace de types DISJOINT (F19 §4.1).
+/// Enregistré comme <see cref="IEventTypeRegistrar"/> (appliqué à la construction du registre par <c>AddStratumEvents</c>),
+/// donc AVANT le premier poll de l'OutboxWorker (GDF01 : l'ancien motif <c>IHostedService</c> enregistrait trop tard, en
+/// concurrence avec le worker → événement pendant marqué processed à vide). Même motif que <c>IngestionEventTypeRegistrar</c>,
+/// mais espace de types DISJOINT (F19 §4.1).
 /// </summary>
-internal sealed class GedEventTypeRegistrar : IHostedService
+internal sealed class GedEventTypeRegistrar : IEventTypeRegistrar
 {
-    private readonly IEventTypeRegistry _registry;
-
-    public GedEventTypeRegistrar(IEventTypeRegistry registry)
+    public void Register(IEventTypeRegistry registry)
     {
-        _registry = registry;
+        registry.Register<ManagedDocumentReceivedV1>(GedEventTypes.ManagedDocumentReceived);
     }
-
-    public Task StartAsync(CancellationToken cancellationToken)
-    {
-        _registry.Register<ManagedDocumentReceivedV1>(GedEventTypes.ManagedDocumentReceived);
-        return Task.CompletedTask;
-    }
-
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
