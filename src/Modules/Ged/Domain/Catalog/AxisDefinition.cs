@@ -33,6 +33,15 @@ public sealed record AxisDefinition
     public required bool IsActive { get; init; }
 
     /// <summary>
+    /// Un axe searchable alimente le <c>search_vector</c> plein-texte (poids B, valeurs non confidentielles, GED08).
+    /// Une écriture manuelle sur un tel axe doit RE-PROJETER le dérivé <c>document_search</c> figé à l'ingestion,
+    /// sinon la correction opérateur reste introuvable en plein-texte et l'ancienne valeur supersédée continue de
+    /// remonter le document (F19 §6.1, règle 4 : le dérivé reconstructible n'est pas une mutation d'audit). Un axe
+    /// non searchable n'entraîne aucune re-projection.
+    /// </summary>
+    public required bool IsSearchable { get; init; }
+
+    /// <summary>
     /// Vocabulaire déclaré (codes actifs de <c>ged_catalog.axis_values</c>) d'un axe <c>enum</c> ; vide pour tout
     /// autre type. Le handler refuse une valeur d'enum hors de cet ensemble (jamais deviner, règle 2).
     /// </summary>

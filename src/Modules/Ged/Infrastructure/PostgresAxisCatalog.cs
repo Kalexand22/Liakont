@@ -24,7 +24,8 @@ internal sealed class PostgresAxisCatalog : IAxisCatalog
                data_type     AS DataType,
                value_scale   AS ValueScale,
                is_multi_value AS IsMultiValue,
-               is_active     AS IsActive
+               is_active     AS IsActive,
+               is_searchable AS IsSearchable
         FROM ged_catalog.axis_definitions
         WHERE code = @Code
         """;
@@ -80,6 +81,7 @@ internal sealed class PostgresAxisCatalog : IAxisCatalog
             ValueScale = row.ValueScale,
             IsMultiValue = row.IsMultiValue,
             IsActive = row.IsActive,
+            IsSearchable = row.IsSearchable,
             AllowedEnumValues = allowedEnumValues,
         };
     }
@@ -97,5 +99,7 @@ internal sealed class PostgresAxisCatalog : IAxisCatalog
         public bool IsMultiValue { get; set; }
 
         public bool IsActive { get; set; }
+
+        public bool IsSearchable { get; set; }
     }
 }
