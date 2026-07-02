@@ -1243,6 +1243,20 @@ reste possible (il mute le même singleton mutable `EventTypeRegistry`) : les mo
 GDF01** (nommé GED + Ingestion), comportement STRICTEMENT préservé, aucune régression. Aucun `EventTypeRegistry`
 n'est modifié (l'API `Register` reste identique).
 
+**Périmètre = les canaux à consommateur durable (risque de perte OBSERVABLE).** La perte silencieuse au
+démarrage n'a d'effet QUE si l'événement pendant possède un `IIntegrationEventConsumer<T>` durable : sans
+consommateur, « marqué processed à vide (type inconnu) » et « dispatché vers zéro consommateur » sont
+strictement équivalents (no-op). Or les SEULS types d'événements portant un consommateur durable sont
+`ingestion.document.received` / `ingestion.source.altered` (Pipeline, Documents) et
+`ged.managed-document.received` (indexeur + projecteur GED) — exactement les deux canaux migrés par GDF01.
+Les événements socle Identity/Job/Notification (`identity.user.*`, `job.job.*`, `notification.email.*`)
+n'ont **aucun** consommateur durable enregistré dans Liakont : leur course de démarrage pré-existante est
+donc **sans effet observable** aujourd'hui, ce qui justifie de NE PAS migrer ces trois registrars socle
+(éviter 6 dérives socle pour un bénéfice comportemental nul, règle n°11). **Suivi (RESTE OUVERT) :** si un
+canal socle reçoit un jour un consommateur durable, migrer son registrar vers `IEventTypeRegistrar` +
+`AddSingleton<IEventTypeRegistrar, …>()` (même patch mécanique, fichier socle → à consigner ici) AVANT de
+le brancher, sinon la course redevient une perte silencieuse réelle.
+
 **Fichier AJOUTÉ (non épinglé)** — `src/Common/Infrastructure/Outbox/IEventTypeRegistrar.cs` : nouvelle
 abstraction de contributeur, porteuse du marqueur de tête `// Liakont addition (GDF01)` (exclue du périmètre
 épinglé par §4.12, comme §4.14). Les registrars Ged/Ingestion (code **Liakont**, `Liakont.Modules.*`, non
