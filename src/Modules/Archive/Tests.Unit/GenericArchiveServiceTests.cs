@@ -41,13 +41,16 @@ public sealed class GenericArchiveServiceTests
 
         GedArchivePackageResult result = await service.ArchiveManagedDocumentAsync(Request());
 
+        // Répertoire dérivé du layout (clé encodée de façon injective) — pas de chemin en dur.
+        string dir = GedArchivePackageLayout.PackageDirectory("bordereau", 2026, 5, "K-42");
         result.AlreadyArchived.Should().BeFalse();
-        result.ArchivePath.Should().Be("_ged/bordereau/2026/05/K-42/manifest.json");
+        result.ArchivePath.Should().Be(dir + "manifest.json");
+        result.ArchivePath.Should().MatchRegex("^_ged/bordereau/2026/05/K-42-[0-9a-f]{16}/manifest.json$");
         result.ContentHash.Should().MatchRegex("^[0-9a-f]{64}$");
 
         // 1 pièce + 1 aperçu + 1 manifest = 3 objets, tous sous _ged/.
         _store.ObjectCount.Should().Be(3);
-        (await _store.ExistsAsync(Tenant, "_ged/bordereau/2026/05/K-42/piece.pdf")).Should().BeTrue();
+        (await _store.ExistsAsync(Tenant, dir + "piece.pdf")).Should().BeTrue();
     }
 
     [Fact]
@@ -121,14 +124,44 @@ public sealed class GenericArchiveServiceTests
 
         GedArchivePackageResult result = await service.AddManagedAddendumAsync(addendum);
 
+        string dir = GedArchivePackageLayout.PackageDirectory("bordereau", 2026, 5, "K-42");
         result.AlreadyArchived.Should().BeFalse();
-        result.ArchivePath.Should().StartWith("_ged/bordereau/2026/05/K-42/manifest-addendum-");
+        result.ArchivePath.Should().StartWith(dir + "manifest-addendum-");
         result.ArchivePath.Should().EndWith(".json");
 
-        // Re-ajout du MÊME addendum = idempotent (chemin dérivé du hash de contenu).
+        // Re-ajout du MÊME addendum (même Kind + même contenu) = idempotent.
         GedArchivePackageResult again = await service.AddManagedAddendumAsync(addendum);
         again.AlreadyArchived.Should().BeTrue();
         again.ArchivePath.Should().Be(result.ArchivePath);
+    }
+
+    [Fact]
+    public async Task AddManagedAddendum_SameContentDifferentKind_StoresDistinctly_AndSealsEachKind()
+    {
+        // Deux addenda aux OCTETS IDENTIQUES mais de Kind DIFFÉRENT : sans le Kind dans la clé d'idempotence, le
+        // 2e serait rendu AlreadyArchived et son Kind jamais scellé (métadonnée probante perdue). GDF11 finding 2.
+        GenericArchiveService service = CreateService();
+        await service.ArchiveManagedDocumentAsync(Request());
+
+        byte[] sameBytes = Encoding.UTF8.GetBytes("addendum-octets-identiques");
+        GedArchiveAddendumRequest Addendum(string kind) => new(
+            ArchiveKind: "bordereau",
+            ArchiveKey: "K-42",
+            FiledOn: new DateOnly(2026, 5, 12),
+            Kind: kind,
+            Attachment: new ArchiveAttachment("note.txt", "text/plain", sameBytes));
+
+        GedArchivePackageResult note = await service.AddManagedAddendumAsync(Addendum("note"));
+        GedArchivePackageResult annex = await service.AddManagedAddendumAsync(Addendum("annexe"));
+
+        // Rangés SÉPARÉMENT (jamais un AlreadyArchived silencieux), chemins distincts.
+        note.AlreadyArchived.Should().BeFalse();
+        annex.AlreadyArchived.Should().BeFalse();
+        annex.ArchivePath.Should().NotBe(note.ArchivePath);
+
+        // Chaque manifest scelle SON Kind.
+        Encoding.UTF8.GetString(await _store.ReadAsync(Tenant, note.ArchivePath)).Should().Contain("\"note\"");
+        Encoding.UTF8.GetString(await _store.ReadAsync(Tenant, annex.ArchivePath)).Should().Contain("\"annexe\"");
     }
 
     [Fact]

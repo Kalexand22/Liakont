@@ -67,8 +67,10 @@ public static class GedArchivePackageBuilder
     }
 
     /// <summary>
-    /// Compose le fichier unique d'un addendum GED et calcule son empreinte (empreinte du CONTENU, indépendante
-    /// du nom — le nom de stockage est dérivé de cette empreinte, il ne peut donc pas entrer dans son calcul).
+    /// Compose le fichier unique d'un addendum GED et calcule l'empreinte de son CONTENU (indépendante du nom).
+    /// Cette empreinte de contenu est la composante d'IDENTITÉ de la clé d'idempotence de l'addendum (combinée au
+    /// <c>Kind</c> par <see cref="GenericArchiveService"/>) ; l'empreinte SCELLÉE dans le manifest, elle, est
+    /// l'empreinte de PAQUET sur la pièce stockée (nom+sha), pour une vérification uniforme.
     /// </summary>
     public static ArchivePackageContent BuildAddendumContent(GedArchiveAddendumRequest request)
     {
@@ -104,7 +106,12 @@ public static class GedArchivePackageBuilder
         return Serialize(manifest);
     }
 
-    /// <summary>Construit le manifest d'un addendum GED (octets UTF-8). L'empreinte est celle du contenu, indépendante du nom.</summary>
+    /// <summary>
+    /// Construit le manifest d'un addendum GED (octets UTF-8). <paramref name="addendumHash"/> est l'empreinte
+    /// SCELLÉE = empreinte de PAQUET sur la pièce stockée (nom+sha), pour que la vérification recalcule la même
+    /// primitive que pour un paquet (comportement de <c>Verify</c> DÉFINI sur un manifest d'addendum). Le
+    /// <c>Kind</c> de l'addendum y est figé (métadonnée probante).
+    /// </summary>
     public static byte[] BuildAddendumManifest(GedArchiveAddendumRequest request, ArchiveFile storedFile, string addendumHash, DateTimeOffset archivedUtc)
     {
         ArgumentNullException.ThrowIfNull(request);

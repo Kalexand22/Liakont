@@ -90,31 +90,42 @@ public sealed class GenericArchiveService : IGenericArchiveService
         string packageDir = GedArchivePackageLayout.PackageDirectory(
             request.ArchiveKind, request.FiledOn.Year, request.FiledOn.Month, request.ArchiveKey);
 
-        // Chemin dérivé du hash de contenu : déterministe, anti-collision, idempotent (pas de sondage).
-        string hashPrefix = content.PackageHash[..16];
-        string storedName = ArchivePackageLayout.AddendumDataFileName(hashPrefix, logicalFile.Name);
-        string manifestPath = ArchivePackageLayout.Combine(packageDir, ArchivePackageLayout.AddendumManifestFileName(hashPrefix));
+        // Clé d'idempotence indexée sur (Kind, CONTENU) — jamais le contenu seul : deux addenda aux octets
+        // identiques mais de Kind DIFFÉRENT sont des pièces probantes distinctes (le Kind est scellé), rangées
+        // séparément ; sans le Kind dans la clé, le 2e serait rendu AlreadyArchived et son Kind jamais scellé
+        // (métadonnée probante perdue en silence). Les deux composantes sont hachées (longueur fixe 64 hex) →
+        // clé sans ambiguïté de délimiteur, quel que soit le contenu du Kind. GDF11 finding 2.
+        string idempotencyKey = Sha256Hex.OfString(Sha256Hex.OfString(request.Kind ?? string.Empty) + content.PackageHash);
+        string keyPrefix = idempotencyKey[..16];
+        string storedName = ArchivePackageLayout.AddendumDataFileName(keyPrefix, logicalFile.Name);
+        string manifestPath = ArchivePackageLayout.Combine(packageDir, ArchivePackageLayout.AddendumManifestFileName(keyPrefix));
+
+        var storedFile = new ArchiveFile(storedName, logicalFile.ContentType, logicalFile.Content, logicalFile.Sha256);
+
+        // Empreinte SCELLÉE = empreinte de PAQUET (nom+sha) sur la pièce réellement stockée — MÊME primitive que
+        // le paquet, pour que VerifyManagedPackageAsync recalcule et compare UNIFORMÉMENT (aucune branche par type
+        // de manifest, jamais un faux « Altered » sur un manifest d'addendum). GDF11 finding 3.
+        string sealedHash = PackageHasher.Compute([new ArchiveFileFingerprint(storedFile.Name, storedFile.Sha256)]);
 
         if (await _store.ExistsAsync(tenant, manifestPath, cancellationToken))
         {
-            return await ReadExistingAsync(tenant, manifestPath, content.PackageHash, cancellationToken);
+            return await ReadExistingAsync(tenant, manifestPath, sealedHash, cancellationToken);
         }
 
         await _store.WriteAsync(tenant, ArchivePackageLayout.Combine(packageDir, storedName), logicalFile.Content, cancellationToken);
 
         DateTimeOffset archivedUtc = _timeProvider.GetUtcNow();
-        var storedFile = new ArchiveFile(storedName, logicalFile.ContentType, logicalFile.Content, logicalFile.Sha256);
-        byte[] manifest = GedArchivePackageBuilder.BuildAddendumManifest(request, storedFile, content.PackageHash, archivedUtc);
+        byte[] manifest = GedArchivePackageBuilder.BuildAddendumManifest(request, storedFile, sealedHash, archivedUtc);
         try
         {
             await _store.WriteAsync(tenant, manifestPath, manifest, cancellationToken);
         }
         catch (ArchiveWriteConflictException)
         {
-            return await ReadExistingAsync(tenant, manifestPath, content.PackageHash, cancellationToken);
+            return await ReadExistingAsync(tenant, manifestPath, sealedHash, cancellationToken);
         }
 
-        return new GedArchivePackageResult(manifestPath, content.PackageHash, archivedUtc, AlreadyArchived: false);
+        return new GedArchivePackageResult(manifestPath, sealedHash, archivedUtc, AlreadyArchived: false);
     }
 
     private static ManifestSeal ReadManifestSeal(byte[] manifestBytes)

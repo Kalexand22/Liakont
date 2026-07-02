@@ -7,7 +7,8 @@ using System;
 /// le paquet (WORM) — elle est rangée write-once comme un nouveau fichier, décrit par un manifest-addendum.
 /// Le paquet cible est localisé par sa clé GÉNÉRIQUE (même arborescence <c>_ged/{kind}/{année}/{mois}/{clé}/</c>
 /// que le paquet initial). Contrairement à l'addendum fiscal (<see cref="ArchiveAddendumRequest"/>), il n'entre
-/// dans AUCUNE chaîne de hashes (option C) ; son idempotence est portée par l'empreinte de son contenu.
+/// dans AUCUNE chaîne de hashes (option C) ; son idempotence est portée par l'empreinte de son contenu ET son
+/// <c>Kind</c> (deux addenda au contenu identique mais de <c>Kind</c> différent sont des pièces distinctes).
 /// </summary>
 /// <param name="ArchiveKind">Nature générique du paquet cible (même valeur que le paquet initial).</param>
 /// <param name="ArchiveKey">Clé d'arborescence du paquet cible.</param>
