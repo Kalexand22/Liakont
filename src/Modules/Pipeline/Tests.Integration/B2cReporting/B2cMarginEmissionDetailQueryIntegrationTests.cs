@@ -143,6 +143,28 @@ public sealed class B2cMarginEmissionDetailQueryIntegrationTests
         (await queries.GetEmissionBatchIdForDocumentAsync(Guid.NewGuid())).Should().BeNull("document inconnu ⇒ null");
     }
 
+    [Fact]
+    public async Task GetEmissionBatchIdForDocument_Returns_Null_When_The_Only_Attempt_Was_Rejected()
+    {
+        // Couverture réintroduite (GDF02) : une émission TENTÉE puis REJETÉE par la PA (Pending → RejectedByPa)
+        // ne résout AUCUN lot de déclaration — le document n'est PAS e-reporté (aucune entrée Issued). L'ancien
+        // test …Was_Only_Attempted_Or_Rejected avait été remplacé par un seed Pending SEUL, perdant le cas rejet.
+        var factory = _fixture.CreateConnectionFactory();
+        var store = new PostgresB2cMarginEmissionStore(factory);
+        var queries = new PostgresB2cMarginEmissionQueries(factory);
+
+        var batchId = Guid.NewGuid();
+        var doc = Guid.NewGuid();
+        var date = new DateOnly(2099, 8, 15);
+
+        await store.AppendAsync(Entry(doc, "encheresv6:ba:9000013", batchId, date, B2cMarginEmissionStatus.Pending));
+        await store.AppendAsync(Entry(doc, "encheresv6:ba:9000013", batchId, date, B2cMarginEmissionStatus.RejectedByPa,
+            detail: "[SPDP_B2C_REJECTED] Rejet de l'agrégat."));
+
+        (await queries.GetEmissionBatchIdForDocumentAsync(doc)).Should().BeNull(
+            "une émission rejetée n'e-reporte pas le document (aucune entrée Issued ⇒ aucun lot résolu).");
+    }
+
     private static B2cMarginEmissionEntry Entry(
         Guid documentId,
         string sourceReference,

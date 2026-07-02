@@ -80,6 +80,27 @@ public static class GedMapper
                     $"L'axe mono-valeur « {rule.AxisCode} » du document « {ingested.SourceReference} » est ambigu : le sélecteur « {rule.Source} » a renvoyé {values.Count} valeurs. Document rangé en attente (deferred) — jamais deviner laquelle retenir.");
             }
 
+            // Recoupement cardinalité profil↔catalogue (INV-GED-05, règle 3) : un profil déclaré MULTI sur un axe
+            // que le CATALOGUE déclare MONO ne peut ranger plusieurs valeurs — le chemin d'écriture supersède la
+            // courante (RL-02, dernier gagnant arbitraire, PostgresGedIndexUnitOfWork) et perd les précédentes EN
+            // SILENCE. On DÉFÈRE plutôt que d'écraser (jamais deviner laquelle garder) ; une valeur unique (ou zéro)
+            // passe sans risque. La décision est prise ICI (au mapping, où le catalogue est résolu) plutôt qu'à
+            // l'enregistrement du profil : le mapper est le point où la cardinalité effective du catalogue est connue.
+            if (values.Count > 1 && !target.IsMultiValue)
+            {
+                return GedMappingResult.Deferred(
+                    $"L'axe « {rule.AxisCode} » du document « {ingested.SourceReference} » est déclaré MULTI-valeur par le profil mais MONO-valeur par le catalogue : le sélecteur « {rule.Source} » a renvoyé {values.Count} valeurs qui ne peuvent être rangées sans écrasement silencieux. Document rangé en attente (deferred). Action opérateur : rendre l'axe multi-valeur au catalogue, ou mono-valeur au profil.");
+            }
+
+            // Dédup avant append (V009 n'impose aucune contrainte d'unicité ; le sélecteur conserve les doublons du
+            // document) : deux valeurs produisant le MÊME lien courant ne créent qu'UN lien — sinon facette/fiche en
+            // double, jamais corrigeables (index append-only, règle 4). L'identité d'un lien courant est la valeur
+            // NORMALISÉE (clé de facette/recherche : le SQL de facettes groupe par normalized_value), donc deux valeurs
+            // ne différant que par la casse/les espaces (« Paris »/« PARIS ») partagent la même valeur normalisée →
+            // un seul lien. Un axe json n'a PAS de valeur normalisée (présentation-only, INV-GED-04) → repli sur
+            // l'égalité complète du record pour ne pas fusionner à tort des fragments json distincts.
+            var seenNormalized = new HashSet<string>(System.StringComparer.Ordinal);
+            var seenJsonRecords = new HashSet<NormalizedAxisValue>();
             foreach (var raw in values)
             {
                 NormalizedAxisValue normalized;
@@ -93,7 +114,13 @@ public static class GedMapper
                         $"La valeur « {raw} » de l'axe « {rule.AxisCode} » du document « {ingested.SourceReference} » est incompatible avec son type déclaré : {ex.Message} Document rangé en attente (deferred) — jamais interpréter au mieux.");
                 }
 
-                axes.Add(new MappedAxisValue(rule.AxisCode, normalized));
+                var isNovel = normalized.NormalizedValue is { } normalizedKey
+                    ? seenNormalized.Add(normalizedKey)
+                    : seenJsonRecords.Add(normalized);
+                if (isNovel)
+                {
+                    axes.Add(new MappedAxisValue(rule.AxisCode, normalized));
+                }
             }
         }
 
@@ -109,24 +136,13 @@ public static class GedMapper
         var entities = new List<MappedEntity>();
         foreach (var rule in profile.EntityRules)
         {
-            var externalIds = GedSelector.Evaluate(rule.ExternalIdSource, ingested);
-            if (externalIds.Count == 0)
-            {
-                // Une entité n'est pas un axe obligatoire : sans identifiant, aucun lien n'est créé (best-effort).
-                continue;
-            }
-
-            string? display = null;
-            if (rule.DisplaySource is not null)
-            {
-                var displays = GedSelector.Evaluate(rule.DisplaySource, ingested);
-                if (displays.Count == 1)
-                {
-                    display = displays[0];
-                }
-            }
-
-            foreach (var externalId in externalIds)
+            // Appariement du libellé à l'identifiant À LA SOURCE (sur le MÊME nœud) : identifiant et libellé sont
+            // deux sélecteurs INDÉPENDANTS et le sélecteur saute les valeurs nulles, donc deux listes scalaires
+            // évaluées séparément se compactent séparément — une égalité de décompte ne garantit PAS l'alignement
+            // (un libellé pourrait être collé à une AUTRE entité, INV-GED-05 n°3). La jointure par nœud parent
+            // garantit que chaque identifiant reçoit le libellé de SA propre entité, ou null (best-effort : une
+            // entité sans identifiant externe ne produit aucun lien ; un identifiant sans libellé reste sans libellé).
+            foreach (var (externalId, display) in GedSelector.EvaluatePaired(rule.ExternalIdSource, rule.DisplaySource, ingested))
             {
                 entities.Add(new MappedEntity(rule.EntityType, externalId, display));
             }

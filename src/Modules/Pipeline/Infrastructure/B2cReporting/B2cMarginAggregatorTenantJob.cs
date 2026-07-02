@@ -79,9 +79,19 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
             return;
         }
 
-        // 1) Découverte + résolution + agrégation (cœur PUR fail-closed). Aucun envoi tant que la marge n'est pas résolue.
+        // 1) Découverte + résolution + agrégation (cœur PUR fail-closed). UNIQUE scan de la file ReadyToSend :
+        //    produit les contributions à émettre (documents non encore tentés) ET collecte les CANDIDATS RÉSIDUELS
+        //    (documents DÉJÀ TENTÉS mais restés ReadyToSend) — read-only, sans muter la file pendant sa pagination.
         var handled = await services.GetRequiredService<IB2cMarginEmissionStore>().GetHandledDocumentIdsAsync(cancellationToken);
         var discovery = await DiscoverContributionsAsync(services, tenantId, companyId.Value, handled, logger, cancellationToken);
+
+        // 2) Rattrapage (ADR-0037 D3) AVANT toute nouvelle émission : réconcilie l'état résiduel « émission
+        //    ACCEPTÉE (journal Issued) mais document resté ReadyToSend » d'un run précédent interrompu (fenêtre de
+        //    crash/annulation) — rejoue la finalisation (gel du lien + transition d'état, idempotents), JAMAIS un
+        //    re-POST (candidats déjà tentés, exclus de l'émission). Agnostique au canal : ce job tourne pour CHAQUE
+        //    tenant à chaque cadence (fan-out), il porte donc le filet permanent des 4 voies e-reporting B2C.
+        await B2cReportingEmitter.ReconcileResidualEReportsAsync(services, companyId.Value, discovery.ResidualCandidates, logger, cancellationToken);
+
         var transactions = B2cTransactionAggregationCalculator.Aggregate(discovery.Contributions);
 
         // 2) Gate de capacité AVANT toute écriture d'émission : une PA sans capacité marge ne reçoit RIEN et
@@ -131,6 +141,7 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
 
         var contributions = new List<B2cMarginContribution>();
         var blocked = new List<B2cMarginBlockReason>();
+        var residualCandidates = new List<Guid>();
         var examined = 0;
 
         for (var page = 1; ; page++)
@@ -146,7 +157,11 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
                 cancellationToken.ThrowIfCancellationRequested();
                 if (handled.Contains(summary.Id))
                 {
-                    continue; // attempt-once (D3) : déjà tenté → jamais re-POSTé.
+                    // Attempt-once (D3) : déjà tenté → jamais re-POSTé. MAIS un document tenté ET encore
+                    // ReadyToSend est un CANDIDAT RÉSIDUEL (émission peut-être Issued, transition d'état non
+                    // finalisée) : collecté read-time pour le rattrapage (ADR-0037 D3), sans muter la file ici.
+                    residualCandidates.Add(summary.Id);
+                    continue;
                 }
 
                 try
@@ -219,7 +234,7 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
             }
         }
 
-        return new DiscoveryResult(examined, contributions, blocked);
+        return new DiscoveryResult(examined, contributions, blocked, residualCandidates);
     }
 
     private static string Describe(
@@ -289,5 +304,9 @@ public sealed partial class B2cMarginAggregatorTenantJob : ITenantJob
         Message = "E-reporting B2C marge : document « {DocumentId} » porteur de frais dont l'adjudication n'est plus mappable (table de mapping TVA modifiée depuis le contrôle) — non agrégé, tracé. Le document reste prêt à l'envoi ; action opérateur : faites valider/rétablir le mapping du régime de cette adjudication.")]
     private static partial void LogMarginAdjudicationNotMapped(ILogger logger, Guid documentId);
 
-    private sealed record DiscoveryResult(int Examined, IReadOnlyList<B2cMarginContribution> Contributions, IReadOnlyList<B2cMarginBlockReason> Blocked);
+    private sealed record DiscoveryResult(
+        int Examined,
+        IReadOnlyList<B2cMarginContribution> Contributions,
+        IReadOnlyList<B2cMarginBlockReason> Blocked,
+        IReadOnlyList<Guid> ResidualCandidates);
 }
