@@ -28,12 +28,13 @@ internal static class RolePermissionCatalog
     public const string PermissionClaimType = "permission";
 
     // Matrice §3 (clés = rôles realm Keycloak §2, comparaison insensible à la casse) :
-    //   lecture     → read                                                        + ged.read
-    //   operateur   → read + actions                                              + ged.read + ged.export
-    //   parametrage → read + actions + settings                                   + ged.read + ged.export
+    //   lecture     → read                                                       + ged.read
+    //   operateur   → read + actions                                             + ged.read + ged.export
+    //   parametrage → read + actions + settings                                  + ged.read + ged.export
     //   superviseur → read + actions + settings + supervision + instance.settings + ged.read + ged.export + ged.confidential
     //   exploitant  → fleet  (rôle IT Innovations HORS matrice éditeur §3 — méta-supervision de flotte,
     //                          OPS04 ; n'accorde AUCUNE permission éditeur, seulement le dashboard de flotte)
+    //
     // instance.settings (ADR-0039) : paramétrage MUTANT d'instance (config email), accordé à l'opérateur
     // d'instance (superviseur). Distinct de supervision (lecture seule) — voir identity-permissions-liakont.md §3.
     //
